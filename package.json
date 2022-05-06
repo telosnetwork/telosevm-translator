@@ -8,6 +8,7 @@
   "scripts": {},
   "dependencies": {
     "eosjs": "^22.1.0",
+    "node-fetch": "2.6.1",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
     "text-encoding": "^0.7.0",
