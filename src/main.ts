@@ -6,6 +6,10 @@ import {
     ShipTransactionTrace
 } from './types/ship';
 
+import {
+    AbiDocument
+} from './types/eosio';
+
 import * as eosioEvmAbi from './abis/evm.json';
 import * as eosioTokenAbi from './abis/token.json'
 
@@ -15,9 +19,15 @@ import { Serialize , RpcInterfaces } from 'eosjs';
 
 import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
 
+import { ElasticConnector } from './database';
+
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
+
+const abiWhitelist = [ 'eosio.evm', 'eosio.token' ];
+
+const connector = new ElasticConnector();
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -31,6 +41,8 @@ function getContract(contractAbi: RpcInterfaces.Abi) {
 const endpoint = 'ws://api2.hosts.caleos.io:8999';
 const startBlock = 200000000; // 180698860;
 const stopBlock = 0xffffffff;
+
+let currentBlock = startBlock;
 
 const reader = new StateHistoryBlockReader(endpoint);
 
@@ -62,7 +74,7 @@ function getErrorMessage(error: unknown) {
 }
 
 async function consumer(resp: ShipBlockResponse): Promise<void> {
-    resp.block.transactions.forEach((tx) => {
+    for (const tx of resp.block.transactions) {
         if (tx.trx[0] == "packed_transaction") {
             const signatures = tx.trx[1].signatures;
             const packed_trx = tx.trx[1].packed_trx;
@@ -70,8 +82,16 @@ async function consumer(resp: ShipBlockResponse): Promise<void> {
             try {
                 const trx = deserialize(reader.types, packed_trx);
                 
-                trx.actions.forEach((action: Serialize.Action) => {
+                for (const action of trx.actions) {
                     let contract = null;
+
+                    // handle abi update
+                    if (action.account == "eosio" &&
+                        action.name == "setabi") {
+                        console.log(action);
+                        console.log(trx);
+                        process.exit(1)
+                    }
 
                     // only care about eosio.evm::raw, eosio.evm::withdraw and
                     // transfers going to eosio.evm
@@ -94,23 +114,30 @@ async function consumer(resp: ShipBlockResponse): Promise<void> {
                         encoder,
                         decoder);
 
+                    let evmTx;
+
                     if (action.account == "eosio.evm") {
                         if (action.name == "raw") {
-                            handleEvmTx(tx_data, signatures[0]);
+                            evmTx = await handleEvmTx(tx_data, signatures[0]);
                         } else {
-                            handleEvmWithdraw(tx_data);
+                            evmTx = await handleEvmWithdraw(tx_data, signatures[0]);
                         }
-                    } else if (tx_data.to != "eosio.evm") {
-                        handleEvmDeposit(tx_data);
+                    } else if (action.account == "eosio.token" &&
+                               action.name == "transfer" &&
+                               tx_data.to == "eosio.evm") {
+                        evmTx = await handleEvmDeposit(tx_data, signatures[0]);
                     }
+
+                    logger.info(JSON.stringify(evmTx));
+                    await connector.indexEvmTransaction(evmTx);
                     
-                });
+                }
 
             } catch (error) {
-                logger.error(getErrorMessage(error) + ": " + JSON.stringify(tx));
+                logger.error(getErrorMessage(error) + ": " + tx);
             }
         }
-    });
+    }
 }
 
 reader.consume(consumer);

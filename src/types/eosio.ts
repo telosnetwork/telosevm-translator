@@ -29,3 +29,11 @@ export type EosioContractRow<T = {[key: string]: any} | string> = {
     present: boolean,
     value: T
 };
+
+export type AbiDocument = {
+    block_num: number,
+    data: {
+        account: string,
+        abi: string
+    }
+};

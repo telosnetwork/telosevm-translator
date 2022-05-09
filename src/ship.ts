@@ -1,7 +1,6 @@
 import PQueue from 'p-queue';
 import { Serialize } from 'eosjs';
 import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
-import * as WebSocket from 'ws';
 import { StaticPool } from 'node-worker-threads-pool';
 
 import logger from './utils/winston';
@@ -10,6 +9,9 @@ import {
     IBlockReaderOptions, ShipBlockResponse
 } from './types/ship';
 import { deserializeEosioType, serializeEosioType } from './utils/eosio';
+
+const WebSocket = require('ws');
+
 
 export type BlockConsumer = (block: ShipBlockResponse) => any;
 

@@ -6,7 +6,8 @@
     "outDir": "./build",
     "sourceMap": true,
     "allowJs": true,
-    "resolveJsonModule" : true
+    "resolveJsonModule" : true,
+    "esModuleInterop": true
   },
   "include": [
     "src/**/*"

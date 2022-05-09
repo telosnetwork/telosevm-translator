@@ -1,0 +1,7 @@
+{
+    "node": "http://localhost:9200",
+    "auth": {
+        "username": "elastic",
+        "password": "password"
+    }
+}

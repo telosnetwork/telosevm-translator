@@ -7,8 +7,11 @@
   "repository": "https://github.com/guilledk/ship-tests",
   "scripts": {},
   "dependencies": {
+    "@elastic/elasticsearch": "^8.2.0",
     "eosjs": "^22.1.0",
     "ethereum-tx-decoder": "^3.0.0",
+    "ethereumjs-tx": "^2.1.2",
+    "ethereumjs-units": "^0.2.0",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
     "text-encoding": "^0.7.0",
