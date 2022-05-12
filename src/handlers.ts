@@ -30,6 +30,11 @@ export async function handleEvmTx(tx: EosioEvmRaw, nativeSig: string) {
         evmTx.s = `0x${sig.s.toHex()}`;
     }
 
+
+    evmTx.gasPrice = evmTx.gasPrice._hex;
+    evmTx.gasLimit = evmTx.gasLimit._hex;
+    evmTx.value = evmTx.value._hex;
+
     // logger.info(JSON.stringify(evmTx));
 
     return evmTx;

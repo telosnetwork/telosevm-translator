@@ -30,10 +30,14 @@ export type EosioContractRow<T = {[key: string]: any} | string> = {
     value: T
 };
 
+import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
+
 export type AbiDocument = {
     block_num: number,
+    proposal_name: string,
+    timestamp: string,
     data: {
         account: string,
-        abi: string
+        abi: Abi 
     }
 };

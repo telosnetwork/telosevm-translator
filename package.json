@@ -12,6 +12,7 @@
     "ethereum-tx-decoder": "^3.0.0",
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-units": "^0.2.0",
+    "isomorphic-fetch": "^3.0.0",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
     "text-encoding": "^0.7.0",
@@ -19,6 +20,7 @@
     "ws": "^7.5.7"
   },
   "devDependencies": {
+    "@types/elliptic": "^6.4.14",
     "@types/text-encoding": "^0.0.36",
     "@types/ws": "^8.5.3",
     "eosjs-ecc": "^4.0.7",

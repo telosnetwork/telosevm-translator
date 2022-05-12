@@ -23,10 +23,10 @@ export interface EvmBigNumber {
 
 export interface EvmTransaction {
     nonce: number,
-    gasPrice: EvmBigNumber | string,
-    gasLimit: EvmBigNumber | string,
+    gasPrice: string,
+    gasLimit: string,
     to: string,
-    value: EvmBigNumber | string,
+    value: string,
     data: string,
     v: number | string,
     r: string,
