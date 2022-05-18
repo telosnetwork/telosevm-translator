@@ -34,7 +34,7 @@ import { IndexerStateDocument } from './types/indexer';
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
-
+const abiTypes = Serialize.getTypesFromAbi(Serialize.createAbiTypes());
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -54,6 +54,19 @@ function deserialize(types: Map<string, Serialize.Type>, array: Uint8Array) {
         .deserialize(buffer, new Serialize.SerializerState({ bytesAsUint8Array: true }));
 
     return result;
+}
+
+function rawAbiToJson(rawAbi: Uint8Array): Abi {
+    const buffer = new Serialize.SerialBuffer({
+        textEncoder: encoder,
+        textDecoder: decoder,
+        array: rawAbi,
+    });
+    if (!Serialize.supportedAbiVersion(buffer.getString())) {
+        throw new Error('Unsupported abi version');
+    }
+    buffer.restartRead();
+    return abiTypes.get('abi_def').deserialize(buffer);
 }
 
 
@@ -118,131 +131,150 @@ export class TEVMIndexer {
         if (this.currentBlock % 1000 == 0)
             logger.info(this.currentBlock + " indexed, ")
 
-        let txs = [];
+        for (const delta of resp.deltas) {
 
-        for (const tx of resp.block.transactions) {
-            if (tx.trx[0] == "packed_transaction") {
-                const signatures = tx.trx[1].signatures;
-                const packed_trx = tx.trx[1].packed_trx;
+            if (delta[0] != "table_delta_v0")
+                continue;
 
-                try {
-                    const trx = deserialize(
-                        this.reader.types, packed_trx);
+            const name = delta[1].name;
+            const rows = delta[1].rows;
 
-                    if (this.currentBlock == 214656192) {
-                        txs.push(trx);
+            if (name == "account") {
+                for (const row of rows) {
+                    if (row.present) {
+                        console.log(row);
+                        // @ts-ignore
+                        const data: Uint8Array = row.data;
+                        const newAbi = rawAbiToJson(data);
+                        console.log(JSON.stringify(newAbi, null, 4))
+                        // const abiDocument = {
+                        //     block_num: this.currentBlock,
+                        //     timestamp: resp.block.timestamp,
+                        //     data: {
+                        //         abi: newAbi
+                        //     }
+                        // };
+
+                        // await this.connector.indexAbiProposal(abiDocument); 
                     }
-
-                    for (const action of trx.actions) {
-                        let contract = null;
-
-                        // check eosio.msigs for abi updates & for evm:
-                        // only care about eosio.evm::raw, eosio.evm::withdraw and
-                        // transfers going to eosio.evm
-
-                        if (action.account == "eosio.msig" &&
-                            (action.name == "exec" || action.name == "propose")) {
-                            contract = this.defaultAbis.msig;
-
-                        } else if (action.account == "eosio.evm" &&
-                            (action.name == "raw" || action.name == "withdraw")) {
-                            contract = this.defaultAbis.evm;
-
-                        } else if (action.account == "eosio.token" && action.name == "transfer") {
-                            contract = this.defaultAbis.token;
-                        } else {
-                            return;
-                        }
-
-                        if (action.account == "eosio" && action.name == "setabi") {
-                            console.log("AAAAAAAAAAAAAAAAAAAA");
-                        }
-
-                        const tx_data = Serialize.deserializeActionData(
-                            contract,
-                            action.account,
-                            action.name,
-                            action.data,
-                            encoder,
-                            decoder);
-
-                        // handle msig abi updates
-                        if (action.account == "eosio.msig") {
-
-                            if (action.name == "propose") {
-        
-                                for (const sub_action of tx_data.trx.actions) {
-                                    if (sub_action.account == "eosio" &&
-                                        sub_action.name == "setabi") {
-                                        
-                                        const stx_data = Serialize.deserializeActionData(
-                                            this.defaultAbis.system,
-                                            sub_action.account, sub_action.name, sub_action.data,
-                                            encoder, decoder);
-
-                                        if (!this.abiWhitelist.includes(stx_data.account))
-                                            return;
-
-                                        const newAbi = this.telosApi.rawAbiToJson(
-                                            hexToUint8Array(stx_data.abi));
-
-                                        const abiDocument = {
-                                            block_num: this.currentBlock,
-                                            proposal_name: tx_data.proposal_name,
-                                            timestamp: resp.block.timestamp,
-                                            data: {
-                                                account: stx_data.account,
-                                                abi: newAbi
-                                            }
-                                        };
-
-                                        await this.connector.indexAbiProposal(abiDocument); 
-                                    }
-                                }
-                            
-                            } else if (action.name == "exec") {
-                                const matchingProposals = await this.connector.getAbiProposal(
-                                    tx_data.proposal_name);
-
-                                if (matchingProposals.length > 0) {
-                                    const prop = matchingProposals[0]._source;
-                                    await this.connector.indexAbi(prop); 
-                                }
-                            }
-
-                            return;
-                        }
-
-                        let evmTx;
-
-                        if (action.account == "eosio.evm") {
-                            if (action.name == "raw") {
-                                evmTx = await handleEvmTx(tx_data, signatures[0]);
-                            } else if (action.name == "withdraw" ){
-                                evmTx = await handleEvmWithdraw(tx_data, signatures[0]);
-                            }
-                        } else if (action.account == "eosio.token" &&
-                                action.name == "transfer" &&
-                                tx_data.to == "eosio.evm") {
-                            evmTx = await handleEvmDeposit(tx_data, signatures[0]);
-                        } else
-                            return;
-
-                        await this.connector.indexEvmTransaction(evmTx);
-                        
-                    }
-
-                } catch (error) {
-                    logger.error(getErrorMessage(error) + ": " + tx);
                 }
             }
+
         }
 
+        process.exit(0);
 
-        if (this.currentBlock == 214656192) {
-            console.log(JSON.stringify(txs, null, 4));
-            process.exit(1);
-        }
+        // for (const tx of resp.block.transactions) {
+
+        //     if (tx.trx[0] !== "packed_transaction")
+        //         continue;
+
+        //     const signatures = tx.trx[1].signatures;
+        //     const packed_trx = tx.trx[1].packed_trx;
+
+        //     try {
+        //         const trx = deserialize(
+        //             this.reader.types, packed_trx);
+
+        //         for (const action of trx.actions) {
+        //             let contract = null;
+
+        //             // check eosio.msigs for abi updates & for evm:
+        //             // only care about eosio.evm::raw, eosio.evm::withdraw and
+        //             // transfers going to eosio.evm
+
+        //             if (action.account == "eosio.msig" &&
+        //                 (action.name == "exec" || action.name == "propose")) {
+        //                 contract = this.defaultAbis.msig;
+
+        //             } else if (action.account == "eosio.evm" &&
+        //                 (action.name == "raw" || action.name == "withdraw")) {
+        //                 contract = this.defaultAbis.evm;
+
+        //             } else if (action.account == "eosio.token" && action.name == "transfer") {
+        //                 contract = this.defaultAbis.token;
+        //             } else {
+        //                 return;
+        //             }
+
+        //             const tx_data = Serialize.deserializeActionData(
+        //                 contract,
+        //                 action.account,
+        //                 action.name,
+        //                 action.data,
+        //                 encoder,
+        //                 decoder);
+
+        //             // handle msig abi updates
+        //             if (action.account == "eosio.msig") {
+
+        //                 if (action.name == "propose") {
+    
+        //                     for (const sub_action of tx_data.trx.actions) {
+        //                         if (sub_action.account == "eosio" &&
+        //                             sub_action.name == "setabi") {
+        //                             
+        //                             const stx_data = Serialize.deserializeActionData(
+        //                                 this.defaultAbis.system,
+        //                                 sub_action.account, sub_action.name, sub_action.data,
+        //                                 encoder, decoder);
+
+        //                             if (!this.abiWhitelist.includes(stx_data.account))
+        //                                 return;
+
+        //                             const newAbi = this.telosApi.rawAbiToJson(
+        //                                 hexToUint8Array(stx_data.abi));
+
+        //                             const abiDocument = {
+        //                                 block_num: this.currentBlock,
+        //                                 proposal_name: tx_data.proposal_name,
+        //                                 timestamp: resp.block.timestamp,
+        //                                 data: {
+        //                                     account: stx_data.account,
+        //                                     abi: newAbi
+        //                                 }
+        //                             };
+
+        //                             await this.connector.indexAbiProposal(abiDocument); 
+        //                         }
+        //                     }
+        //                 
+        //                 } else if (action.name == "exec") {
+        //                     const matchingProposals = await this.connector.getAbiProposal(
+        //                         tx_data.proposal_name);
+
+        //                     if (matchingProposals.length > 0) {
+        //                         const prop = matchingProposals[0]._source;
+        //                         await this.connector.indexAbi(prop); 
+        //                     }
+        //                 }
+
+        //                 return;
+        //             }
+
+        //             let evmTx;
+
+        //             if (action.account == "eosio.evm") {
+        //                 if (action.name == "raw") {
+        //                     evmTx = await handleEvmTx(tx_data, signatures[0]);
+        //                 } else if (action.name == "withdraw" ){
+        //                     evmTx = await handleEvmWithdraw(tx_data, signatures[0]);
+        //                 }
+        //             } else if (action.account == "eosio.token" &&
+        //                     action.name == "transfer" &&
+        //                     tx_data.to == "eosio.evm") {
+        //                 evmTx = await handleEvmDeposit(tx_data, signatures[0]);
+        //             } else
+        //                 return;
+
+        //             await this.connector.indexEvmTransaction(evmTx);
+        //             
+        //         }
+
+        //     } catch (error) {
+        //         logger.error(getErrorMessage(error) + ": " + tx);
+        //     }
+        // }
     }
 
     async launch() {
@@ -268,7 +300,7 @@ export class TEVMIndexer {
             fetch_block: true,
             fetch_traces: true,
             fetch_deltas: true
-        }, ['contract_row']);
+        }, ['contract_row', 'contract_table']);
 
         process.on('SIGINT', this.sigintHandler);
     }

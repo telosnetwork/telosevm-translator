@@ -2,7 +2,7 @@ import { TEVMIndexer } from './indexer';
 
 
 const endpoint = 'ws://api2.hosts.caleos.io:8999';
-const startBlock = 214656191; // 180583058; // 180698860;
+const startBlock = 180698860; // 180698860;
 const stopBlock = 0xffffffff;
 
 
