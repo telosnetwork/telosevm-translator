@@ -125,6 +125,12 @@ export type ShipTableDelta = [
     }
 ];
 
+export type ShipAccountDelta = {
+    account: string,
+    creation_date: string,
+    abi: string
+};
+
 export type ShipContractRow<T = Uint8Array | string> = [
     'contract_row_v0',
     {

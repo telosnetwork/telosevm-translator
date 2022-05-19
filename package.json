@@ -8,6 +8,7 @@
   "scripts": {},
   "dependencies": {
     "@elastic/elasticsearch": "^8.2.0",
+    "@eosrio/node-abieos": "^2.1.1",
     "eosjs": "^22.1.0",
     "ethereum-tx-decoder": "^3.0.0",
     "ethereumjs-tx": "^2.1.2",

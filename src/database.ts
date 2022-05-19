@@ -45,23 +45,19 @@ export class ElasticConnector {
         });
     }
 
-    async indexAbiProposal(abiDoc: AbiDocument) {
-        await this.elastic.index({
-            index: 'abi-proposals',
-            document: abiDoc
-        });
-    }
-
-    async getAbiProposal(proposal_name: string) {
-        const result = await this.elastic.search({
-            index: 'abi-proposals',
+    async getAbi(account: string) {
+        return await this.elastic.search({
+            index: 'abi',
+            size: 1,
             query: {
                 match: {
-                    proposal_name: proposal_name
+                    account: account
                 }
-            }
+            },
+            sort: [
+                {"block_num": { "order": "desc"} }
+            ]
         });
-        return result.hits.hits;
     }
 
     async indexAbi(abiDoc: AbiDocument) {

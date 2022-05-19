@@ -10,6 +10,8 @@ import {
 } from './types/ship';
 import { deserializeEosioType, serializeEosioType } from './utils/eosio';
 
+import * as AbiEOS from "@eosrio/node-abieos";
+
 const WebSocket = require('ws');
 
 
@@ -107,6 +109,8 @@ export default class StateHistoryBlockReader {
         try {
             if (!this.abi) {
                 logger.info('Receiving ABI from ship...');
+
+                AbiEOS.load_abi("0", data);
 
                 this.abi = JSON.parse(data);
                 this.types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), this.abi);
