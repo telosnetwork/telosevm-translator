@@ -32,3 +32,46 @@ export interface EvmTransaction {
     r: string,
     s: string
 }
+
+
+// Hyperion plugin compat
+
+export interface InteralEvmTransaction {
+    callType: string,
+    from: string,
+    gas: string,
+    input: string,
+    input_trimmed: string,
+    to: string,
+    value: string,
+    gasUsed: string,
+    output: string,
+    subtraces: number,
+    traceAddress: string,
+    type: string,
+    depth: number,
+    extra: any
+}
+
+export interface StorageEvmTransaction {
+    hash: string,
+    trx_index: number,
+    block: number,
+    block_hash: string,
+    to: string,
+    input_data: string,
+    input_trimmed: string,
+    value: string,
+    nonce: string,
+    gas_price: string,
+    gas_limit: string,
+    status: number,
+    itxs: InteralEvmTransaction[],
+    epoch: number,
+    createdaddr: string,
+    gasused: number,
+    gasusedblock: number,
+    charged_gas_price: number,
+    output: string
+
+}

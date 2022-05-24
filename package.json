@@ -16,6 +16,7 @@
     "isomorphic-fetch": "^3.0.0",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
+    "sha1-uint8array": "^0.10.3",
     "text-encoding": "^0.7.0",
     "winston": "^3.7.2",
     "ws": "^7.5.7"

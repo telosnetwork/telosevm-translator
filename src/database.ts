@@ -45,28 +45,6 @@ export class ElasticConnector {
         });
     }
 
-    async getAbi(account: string) {
-        return await this.elastic.search({
-            index: 'abi',
-            size: 1,
-            query: {
-                match: {
-                    account: account
-                }
-            },
-            sort: [
-                {"block_num": { "order": "desc"} }
-            ]
-        });
-    }
-
-    async indexAbi(abiDoc: AbiDocument) {
-        await this.elastic.index({
-            index: 'abi',
-            document: abiDoc
-        });
-    }
-
     async indexEvmTransaction(evmTx: EvmTransaction) {
         await this.elastic.index({
             id: getEvmTxHash(evmTx), 

@@ -8,8 +8,17 @@ import {
 } from './types/ship';
 
 import {
+    EosioAction,
     AbiDocument
 } from './types/eosio';
+
+import {
+    extractShipContractRows,
+    extractShipTraces,
+    deserializeEosioType,
+    getTableAbiType,
+    getActionAbiType
+} from './utils/eosio';
 
 import * as eosioEvmAbi from './abis/evm.json';
 import * as eosioTokenAbi from './abis/token.json'
@@ -27,6 +36,7 @@ import * as AbiEOS from "@eosrio/node-abieos";
 
 import { IndexerStateDocument } from './types/indexer';
 
+const createHash = require("sha1-uint8array").createHash
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
@@ -49,7 +59,6 @@ function getContract(contractAbi: RpcInterfaces.Abi) {
     return { types, actions }
 }
 
-
 function deserialize(types: Map<string, Serialize.Type>, array: Uint8Array) {
     const buffer = new Serialize.SerialBuffer(
         { textEncoder: encoder, textDecoder: decoder, array });
@@ -67,13 +76,35 @@ function getErrorMessage(error: unknown) {
 }
 
 
+function hashTxAction(action: EosioAction) {
+    // // debug mode, pretty responses
+    // let uid = action.account;
+    // uid = uid + "." + action.name;
+    // for (const auth of action.authorization) {
+    //     uid = uid + "." + auth.actor;
+    //     uid = uid + "." + auth.permission;
+    // }
+    // uid = uid + "." + createHash().update(action.data).digest("hex");
+    // return uid;
+
+    // release mode, only hash
+    const hash = createHash();
+    hash.update(action.account);
+    hash.update(action.name);
+    for (const auth of action.authorization) {
+        hash.update(auth.actor);
+        hash.update(auth.permission);
+    }
+    hash.update(action.data);
+    return hash.digest("hex");
+}
+
+
 export class TEVMIndexer {
 
     endpoint: string;
-    abiWhitelist: string[];
-
-    defaultAbis: {[key: string]: Serialize.Contract};
-    abis: {[key: string]: Serialize.Contract};
+    contracts: {[key: string]: Serialize.Contract};
+    abis: {[key: string]: RpcInterfaces.Abi};
 
     currentBlock: number;
     startBlock: number;
@@ -84,13 +115,11 @@ export class TEVMIndexer {
 
     constructor(
         endpoint: string,
-        abiWhitelist: string[],
         startBlock: number,
         stopBlock: number
     ) {
 
         this.endpoint = endpoint;
-        this.abiWhitelist = abiWhitelist;
         this.startBlock = startBlock;
         this.stopBlock = stopBlock;
 
@@ -105,21 +134,16 @@ export class TEVMIndexer {
             allow_empty_blocks: false
         });
 
-        this.defaultAbis = {
+        this.abis = {
+            'eosio.evm': eosioEvmAbi.abi,
+            'eosio.token': eosioTokenAbi.abi,
+            'eosio': eosioSystemAbi.abi
+        };
+        this.contracts = {
             'eosio.evm': getContract(eosioEvmAbi.abi),
             'eosio.token': getContract(eosioTokenAbi.abi),
             'eosio': getContract(eosioSystemAbi.abi)
         };
-    }
-
-    getContract(account: string) {
-        if (account in this.abis)
-            return this.abis[account];
-
-        if (account in this.defaultAbis)
-            return this.defaultAbis[account];
-
-        return null;
     }
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
@@ -128,56 +152,13 @@ export class TEVMIndexer {
         if (this.currentBlock % 1000 == 0)
             logger.info(this.currentBlock + " indexed, ")
 
-        // process deltas to catch abi updates
-        for (const delta of resp.deltas) {
-
-            if (delta[0] != "table_delta_v0")
-                continue;
-
-            const name = delta[1].name;
-            const rows = delta[1].rows;
-
-            if (name == "account") {
-                for (const row of rows) {
-                    if (row.present) {
-                        // @ts-ignore
-                        const data: Uint8Array = row.data;
-                        const [type, accountObj] = AbiEOS.bin_to_json(
-                            "0", "account", Buffer.from(data))
-
-                        // @ts-ignore
-                        const accountDelta: ShipAccountDelta = accountObj;
-
-                        if (!(accountDelta.account in this.abiWhitelist))
-                            continue;
-
-                        const abiHex: string = accountDelta.abi;
-                        const abiBin = new Uint8Array(Buffer.from(abiHex, 'hex'));
-                        const initialTypes = Serialize.createInitialTypes();
-                        const abiObj = abiTypes.get('abi_def').deserialize(createSerialBuffer(abiBin));
-
-                        this.abis[accountDelta.account] = getContract(abiObj);
-
-                        const abiDocument = {
-                            block_num: this.currentBlock,
-                            timestamp: accountDelta.creation_date,
-                            account: accountDelta.account,
-                            abi: abiObj
-                        };
-
-                        await this.connector.indexAbi(abiDocument); 
-                    }
-                }
-            }
-
-        }
+        let signatures: {[key: string]: string[]} = {};
 
         for (const tx of resp.block.transactions) {
 
             if (tx.trx[0] !== "packed_transaction")
                 continue;
 
-            const signatures = tx.trx[1].signatures;
             const packed_trx = tx.trx[1].packed_trx;
 
             try {
@@ -185,46 +166,82 @@ export class TEVMIndexer {
                     this.reader.types, packed_trx);
 
                 for (const action of trx.actions) {
-                    // only care about eosio.evm::raw, eosio.evm::withdraw and
-                    // transfers going to eosio.evm
-                    const contractWhitelist = ["eosio.evm", "eosio.token"];
-                    const actionWhitelist = ["raw", "withdraw", "transfer"]
-
-                    if (!(action.account in contractWhitelist) ||
-                        !(action.name in actionWhitelist))
-                        continue;
-
-                    const tx_data = Serialize.deserializeActionData(
-                        this.getContract(action.account),
-                        action.account,
-                        action.name,
-                        action.data,
-                        encoder,
-                        decoder);
-
-                    let evmTx;
-
-                    if (action.account == "eosio.evm") {
-                        if (action.name == "raw") {
-                            evmTx = await handleEvmTx(tx_data, signatures[0]);
-                        } else if (action.name == "withdraw" ){
-                            evmTx = await handleEvmWithdraw(tx_data, signatures[0]);
-                        }
-                    } else if (action.account == "eosio.token" &&
-                            action.name == "transfer" &&
-                            tx_data.to == "eosio.evm") {
-                        evmTx = await handleEvmDeposit(tx_data, signatures[0]);
-                    } else
-                        return;
-
-                    await this.connector.indexEvmTransaction(evmTx);
-                    
+                    signatures[hashTxAction(action)] = tx.trx[1].signatures;
                 }
 
             } catch (error) {
                 logger.error(getErrorMessage(error) + ": " + tx);
             }
         }
+
+        // process deltas to catch evm block num
+        let eosioGlobalState = null;
+        const contractDeltas = extractShipContractRows(resp.deltas);
+        for (const delta of contractDeltas) {
+            if (delta.code == "eosio" &&
+                delta.scope == "eosio" &&
+                delta.table == "global") {
+
+                const type = getTableAbiType(eosioSystemAbi.abi, delta.code, delta.table);
+                eosioGlobalState = deserializeEosioType(
+                    type,
+                    delta.value,
+                    this.contracts[delta.code].types);
+            }
+        }
+
+        if (eosioGlobalState == null)
+            throw new Error("Couldn't get eosio global state table delta.");
+
+        const evmBlockNumber = eosioGlobalState.block_num;
+        const evmTransactions = [];
+        // traces
+        const transactions = extractShipTraces(resp.traces);
+
+        for (const tx of transactions) {
+            const contractWhitelist = ["eosio.evm", "eosio.token"];
+            const actionWhitelist = ["raw", "withdraw", "transfer"]
+
+            const action = tx.trace.act;
+
+            if (!contractWhitelist.includes(action.account) ||
+                !actionWhitelist.includes(action.name))
+                continue;
+
+            const type = getActionAbiType(
+                this.abis[action.account],
+                action.account, action.name);
+
+            const actionData = deserializeEosioType(
+                type, action.data, this.contracts[action.account].types);
+
+            if (action.name == "transfer" && actionData.to != "eosio.evm")
+                continue;
+
+            const actionHash = hashTxAction(action);
+            if (!(actionHash in signatures))
+                throw new Error("Could't find signature that matches trace.");
+
+            const signature = signatures[actionHash][0];
+
+            let evmTx = null;
+            if (action.account == "eosio.evm") {
+                if (action.name == "raw") {
+                    evmTx = await handleEvmTx(actionData, signature);
+                } else if (action.name == "withdraw" ){
+                    evmTx = await handleEvmWithdraw(actionData, signature);
+                }
+            } else if (action.account == "eosio.token" &&
+                    action.name == "transfer" &&
+                    actionData.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(actionData, signature);
+            } else
+                continue;
+
+            evmTransactions.push(evmTx);
+            
+        }
+
     }
 
     async launch() {
@@ -241,16 +258,6 @@ export class TEVMIndexer {
             startBlock = prevState.lastIndexedBlock;
         } catch (error) {
             logger.warn(error);
-        }
-
-        for (const accountName in this.abiWhitelist) {
-            try {
-                const abiDocument = await this.connector.getAbi(accountName);
-                this.abis[abiDocument.account] = getContract(abiDocument.abi);
-
-            } catch (error) {
-                logger.warn(error);
-            }
         }
 
         this.reader.consume(this.consumer.bind(this));

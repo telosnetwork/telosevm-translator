@@ -21,7 +21,9 @@ export async function handleEvmTx(tx: EosioEvmRaw, nativeSig: string) {
     // const evmTx = new ethTrx.Transaction(
     //     `0x${tx.tx.toLowerCase()}`, {common});
 
-    const evmTx = txDecoder.decodeTx(`0x${tx.tx.toLowerCase()}`);
+    const hexTx = Buffer.from(tx.tx).toString('hex'); 
+
+    const evmTx = txDecoder.decodeTx(`0x${hexTx}`);
 
     if (evmTx.v == 0) {
         const sig = Signature.fromString(nativeSig);
