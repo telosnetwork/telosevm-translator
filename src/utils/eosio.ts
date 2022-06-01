@@ -86,8 +86,6 @@ export function extractShipTraces(data: ShipTransactionTrace[]): Array<{trace: E
                 continue;
             }
 
-            console.log(JSON.stringify(transaction, null, 4));
-
             transactions.push({
                 id: transaction[1].id,
                 cpu_usage_us: transaction[1].cpu_usage_us,

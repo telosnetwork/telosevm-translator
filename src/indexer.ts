@@ -8,8 +8,7 @@ import {
 } from './types/ship';
 
 import {
-    EosioAction,
-    AbiDocument
+    EosioAction
 } from './types/eosio';
 
 import {
@@ -35,6 +34,7 @@ import { ElasticConnector } from './database';
 import * as AbiEOS from "@eosrio/node-abieos";
 
 import { IndexerStateDocument } from './types/indexer';
+
 
 const createHash = require("sha1-uint8array").createHash
 
@@ -227,20 +227,36 @@ export class TEVMIndexer {
             let evmTx = null;
             if (action.account == "eosio.evm") {
                 if (action.name == "raw") {
-                    evmTx = await handleEvmTx(actionData, signature);
+                    evmTx = await handleEvmTx(
+                        evmBlockNumber,
+                        actionData,
+                        signature,
+                        tx.trace.console
+                    );
                 } else if (action.name == "withdraw" ){
-                    evmTx = await handleEvmWithdraw(actionData, signature);
+                    evmTx = await handleEvmWithdraw(
+                        evmBlockNumber,
+                        actionData,
+                        signature
+                    );
                 }
             } else if (action.account == "eosio.token" &&
                     action.name == "transfer" &&
                     actionData.to == "eosio.evm") {
-                evmTx = await handleEvmDeposit(actionData, signature);
+                    evmTx = await handleEvmDeposit(
+                        evmBlockNumber,
+                        actionData,
+                        signature
+                    );
             } else
                 continue;
 
             evmTransactions.push(evmTx);
             
         }
+
+        if (evmTransactions.length > 0)
+            await this.connector.indexTransactions(this.currentBlock, evmTransactions);
 
     }
 

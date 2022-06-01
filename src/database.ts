@@ -3,21 +3,15 @@ const { Client } = require('@elastic/elasticsearch');
 import * as elasticConfig from './config/elastic.json'; 
 
 import { IndexerStateDocument } from './types/indexer';
-import { AbiDocument } from './types/eosio';
-import { EvmTransaction } from './types/evm';
 
-import { getEvmTxHash, removeHexPrefix } from './utils/evm';
+import { StorageEvmTransaction } from './types/evm';
 
 
-function prepareRawEvmTx(evmTx: EvmTransaction) {
-    for (const attr in evmTx) {
-        // @ts-ignore
-        if (typeof evmTx[attr] === 'string') {
-            // @ts-ignore
-            evmTx[attr] = removeHexPrefix(evmTx[attr]);
-        }
-    }
-    return evmTx;
+const transactionIndexPrefix = "telos-net-action-v1-"
+
+
+function getSubfixGivenBlock(blockNum: number) {
+ return String(blockNum / 1000000).padStart(6, '0');
 }
 
 
@@ -45,14 +39,14 @@ export class ElasticConnector {
         });
     }
 
-    async indexEvmTransaction(evmTx: EvmTransaction) {
-        await this.elastic.index({
-            id: getEvmTxHash(evmTx), 
-            index: 'evm-transactions',
-            body: {
-                timestamp: new Date().toISOString(),
-                raw: prepareRawEvmTx(evmTx)
-            } 
-        });
+    async indexTransactions(blockNum: number, transactions: StorageEvmTransaction[]) {
+        const index = transactionIndexPrefix + getSubfixGivenBlock(blockNum)
+        
+        const operations = transactions.flatMap(
+           doc => [{ index: { _index: index } }, doc]);
+        
+        const bulkResponse = await this.elastic.bulk({ refresh: true, operations })
+        if (bulkResponse.errors)
+            throw new Error(JSON.stringify(bulkResponse, null, 4));
     }
 };

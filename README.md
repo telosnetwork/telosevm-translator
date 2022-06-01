@@ -21,7 +21,7 @@ Consume `nodeos` state history endpoint and take and EVM dump.
         --env ELASTICSEARCH_HOSTS="http://localhost:9200" \
         --env ELASTICSEARCH_USERNAME="elastic" \
         --env ELASTICSEARCH_PASSWORD="password" \
-        docker.elastic.co/kibana/kibana:7.16.3
+        docker.elastic.co/kibana/kibana:8.2.1
 
 
 ### install dependencies

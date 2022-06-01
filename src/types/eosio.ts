@@ -10,7 +10,8 @@ export type EosioActionTrace<T = {[key: string]: any} | string> = {
     creator_action_ordinal: number,
     global_sequence: string,
     account_ram_deltas: Array<{account: string, delta: number}>,
-    act: EosioAction<T>
+    act: EosioAction<T>,
+    console: string
 };
 
 export type EosioTransaction<T = {[key: string]: any} | string> = {
@@ -28,13 +29,4 @@ export type EosioContractRow<T = {[key: string]: any} | string> = {
     payer: string,
     present: boolean,
     value: T
-};
-
-import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
-
-export type AbiDocument = {
-    block_num: number,
-    timestamp: string,
-    account: string,
-    abi: Abi
 };
