@@ -29,7 +29,7 @@ import { Serialize , RpcInterfaces } from 'eosjs';
 
 import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
 
-import { ElasticConnector } from './database';
+import { ElasticConnector } from './database/connector';
 
 import * as AbiEOS from "@eosrio/node-abieos";
 
@@ -109,6 +109,11 @@ export class TEVMIndexer {
     currentBlock: number;
     startBlock: number;
     stopBlock: number;
+    headBlock: number;
+    lastIrreversibleBlock: number;
+
+    lastCommittedBlock: number;
+    blocksUntilHead: number;
 
     reader: StateHistoryBlockReader;
     connector: ElasticConnector;
@@ -148,9 +153,29 @@ export class TEVMIndexer {
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
 
+        if (resp.this_block.block_num > this.currentBlock + 1) {
+            throw new Error('Skipped a block ' + JSON.stringify({
+                expected: this.currentBlock + 1,
+                processed: resp.this_block.block_num
+            }));
+        }
+
+        const blocksUntilHead = resp.last_irreversible.block_num - resp.this_block.block_num;
+
+        if (resp.this_block.block_num <= this.currentBlock) {
+            if (resp.this_block.block_num < this.lastIrreversibleBlock) {
+                throw new Error('Dont rollback more blocks than are reversible');
+            }
+
+            logger.info('Chain fork detected. Reverse all blocks which were affected');
+            
+            // TODO
+        }
+
         this.currentBlock = resp.this_block.block_num;
-        if (this.currentBlock % 1000 == 0)
-            logger.info(this.currentBlock + " indexed, ")
+        this.headBlock = resp.head.block_num;
+        this.lastIrreversibleBlock = resp.last_irreversible.block_num;
+        this.blocksUntilHead = blocksUntilHead;
 
         let signatures: {[key: string]: string[]} = {};
 
@@ -159,7 +184,7 @@ export class TEVMIndexer {
             if (tx.trx[0] !== "packed_transaction")
                 continue;
 
-            const packed_trx = tx.trx[1].packed_trx;
+            const packed_trx = tx.trx[1].packep_trx;
 
             try {
                 const trx = deserialize(
@@ -258,6 +283,9 @@ export class TEVMIndexer {
         if (evmTransactions.length > 0)
             await this.connector.indexTransactions(this.currentBlock, evmTransactions);
 
+        if (this.currentBlock % 1000 == 0)
+            logger.info(this.currentBlock + " indexed, ")
+
     }
 
     async launch() {
@@ -266,6 +294,8 @@ export class TEVMIndexer {
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
+
+        await this.connector.init();
             
         try {
             prevState = await this.connector.getIndexerState();
