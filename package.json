@@ -14,11 +14,11 @@
     "ethereum-tx-decoder": "^3.0.0",
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-units": "^0.2.0",
+    "node-fetch": "^2.6.7",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
     "sha1-uint8array": "^0.10.3",
     "text-encoding": "^0.7.0",
-    "tsimportlib": "^0.0.3",
     "winston": "^3.7.2",
     "ws": "^7.5.7"
   },

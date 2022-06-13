@@ -1,10 +1,6 @@
 import StateHistoryBlockReader from './ship';
 import {
-    ShipBlock,
-    ShipBlockResponse,
-    ShipTableDelta,
-    ShipAccountDelta,
-    ShipTransactionTrace
+    ShipBlockResponse
 } from './types/ship';
 
 import {
@@ -19,7 +15,7 @@ import {
     getActionAbiType
 } from './utils/eosio';
 
-import * as eosioEvmAbi from './abis/evm.json';
+import * as eosioEvmAbi from './abis/evm.json'
 import * as eosioTokenAbi from './abis/token.json'
 import * as eosioSystemAbi from './abis/system.json'
 
@@ -31,24 +27,13 @@ import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
 
 import { ElasticConnector } from './database/connector';
 
-import * as AbiEOS from "@eosrio/node-abieos";
-
-import { IndexerStateDocument } from './types/indexer';
-
+import * as telosConfig from './config/telos.json'
 
 const createHash = require("sha1-uint8array").createHash
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
-const abiTypes = Serialize.getTypesFromAbi(Serialize.createAbiTypes());
 
-function createSerialBuffer(inputArray: Uint8Array) {
-    return new Serialize.SerialBuffer({
-        textEncoder: encoder,
-        textDecoder: decoder,
-        array: inputArray
-    });
-}
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -59,11 +44,11 @@ function getContract(contractAbi: RpcInterfaces.Abi) {
     return { types, actions }
 }
 
-function deserialize(types: Map<string, Serialize.Type>, array: Uint8Array) {
+function deserialize(types: Map<string, Serialize.Type>, array: Uint8Array, typeName: string) {
     const buffer = new Serialize.SerialBuffer(
         { textEncoder: encoder, textDecoder: decoder, array });
 
-    let result = Serialize.getType(types, "transaction")
+    let result = Serialize.getType(types, typeName)
         .deserialize(buffer, new Serialize.SerializerState({ bytesAsUint8Array: true }));
 
     return result;
@@ -75,34 +60,36 @@ function getErrorMessage(error: unknown) {
   return String(error)
 }
 
-
+const debug = false;
 function hashTxAction(action: EosioAction) {
-    // // debug mode, pretty responses
-    // let uid = action.account;
-    // uid = uid + "." + action.name;
-    // for (const auth of action.authorization) {
-    //     uid = uid + "." + auth.actor;
-    //     uid = uid + "." + auth.permission;
-    // }
-    // uid = uid + "." + createHash().update(action.data).digest("hex");
-    // return uid;
-
-    // release mode, only hash
-    const hash = createHash();
-    hash.update(action.account);
-    hash.update(action.name);
-    for (const auth of action.authorization) {
-        hash.update(auth.actor);
-        hash.update(auth.permission);
+    if (debug) {
+        // debug mode, pretty responses
+        let uid = action.account;
+        uid = uid + "." + action.name;
+        for (const auth of action.authorization) {
+            uid = uid + "." + auth.actor;
+            uid = uid + "." + auth.permission;
+        }
+        uid = uid + "." + createHash().update(action.data).digest("hex");
+        return uid;
+    } else {
+        // release mode, only hash
+        const hash = createHash();
+        hash.update(action.account);
+        hash.update(action.name);
+        for (const auth of action.authorization) {
+            hash.update(auth.actor);
+            hash.update(auth.permission);
+        }
+        hash.update(action.data);
+        return hash.digest("hex");
     }
-    hash.update(action.data);
-    return hash.digest("hex");
 }
 
 
 export class TEVMIndexer {
-
     endpoint: string;
+    wsEndpoint: string;
     contracts: {[key: string]: Serialize.Contract};
     abis: {[key: string]: RpcInterfaces.Abi};
 
@@ -111,6 +98,7 @@ export class TEVMIndexer {
     stopBlock: number;
     headBlock: number;
     lastIrreversibleBlock: number;
+    txsSinceLastReport: number = 0;
 
     lastCommittedBlock: number;
     blocksUntilHead: number;
@@ -118,19 +106,16 @@ export class TEVMIndexer {
     reader: StateHistoryBlockReader;
     connector: ElasticConnector;
 
-    constructor(
-        endpoint: string,
-        startBlock: number,
-        stopBlock: number
-    ) {
+    constructor() {
 
-        this.endpoint = endpoint;
-        this.startBlock = startBlock;
-        this.stopBlock = stopBlock;
+        this.endpoint = telosConfig.endpoint;
+        this.wsEndpoint = telosConfig.wsEndpoint;
+        this.startBlock = telosConfig.startBlock;
+        this.stopBlock = telosConfig.stopBlock;
 
         this.connector = new ElasticConnector();
 
-        this.reader = new StateHistoryBlockReader(endpoint);
+        this.reader = new StateHistoryBlockReader(this.wsEndpoint);
         this.reader.setOptions({
             min_block_confirmation: 1,
             ds_threads: 8,
@@ -152,7 +137,6 @@ export class TEVMIndexer {
     }
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
-
         if (resp.this_block.block_num > this.currentBlock + 1) {
             throw new Error('Skipped a block ' + JSON.stringify({
                 expected: this.currentBlock + 1,
@@ -184,18 +168,45 @@ export class TEVMIndexer {
             if (tx.trx[0] !== "packed_transaction")
                 continue;
 
-            const packed_trx = tx.trx[1].packep_trx;
+            const packed_trx = tx.trx[1].packed_trx;
+            const dsTypes = [ // deserialization types
+                'transaction',
+                'code_v0',
+                'account_metadata_v0',
+                'account_v0',
+                'contract_table_v0',
+                'contract_row_v0',
+                'contract_index64_v0',
+                'contract_index128_v0',
+                'contract_index256_v0',
+                'contract_index_double_v0',
+                'contract_index_long_double_v0',
+            ];
+            let trx = null;
 
-            try {
-                const trx = deserialize(
-                    this.reader.types, packed_trx);
+            for (const dsType of dsTypes) {
+                try {
+                    trx = deserialize(
+                        this.reader.types, packed_trx, dsType);
 
-                for (const action of trx.actions) {
-                    signatures[hashTxAction(action)] = tx.trx[1].signatures;
+                    if (dsType == 'transaction') {
+                        for (const action of trx.actions) {
+                            signatures[hashTxAction(action)] = tx.trx[1].signatures;
+                        }
+                    }
+
+                    break;
+
+                } catch (error) {
+                    logger.warn(`attempt to deserialize as ${dsType} failed: ` + getErrorMessage(error));
+                    continue;
                 }
+            }
 
-            } catch (error) {
-                logger.error(getErrorMessage(error) + ": " + tx);
+            if (trx == null) {
+                logger.error(`block_num: ${this.currentBlock}`)
+                logger.error('unexpected error caught, please consult devs');
+                process.exit(1);
             }
         }
 
@@ -243,9 +254,27 @@ export class TEVMIndexer {
             if (action.name == "transfer" && actionData.to != "eosio.evm")
                 continue;
 
-            const actionHash = hashTxAction(action);
-            if (!(actionHash in signatures))
-                throw new Error("Could't find signature that matches trace.");
+            // find correct auth in related traces list
+            let foundSig = false;
+            let actionHash = "";
+            for (const trace of tx.tx.traces) {
+                actionHash = hashTxAction(trace.act);
+                if (actionHash in signatures) {
+                    foundSig = true;
+                    break;
+                }
+            }
+
+            if (!foundSig) {
+                logger.info(JSON.stringify(tx, null, 4));
+                logger.error('Couldn\'t find signature that matches trace:');
+                logger.error('action: ' + JSON.stringify(action));
+                logger.error('actionData: ' + JSON.stringify(actionData));
+                logger.error('hash:   ' + JSON.stringify(actionHash));
+                logger.error('signatures:');
+                logger.error(JSON.stringify(signatures, null, 4));
+                throw new Error();
+            }
 
             const signature = signatures[actionHash][0];
 
@@ -280,16 +309,26 @@ export class TEVMIndexer {
             
         }
 
-        if (evmTransactions.length > 0)
-            await this.connector.indexTransactions(this.currentBlock, evmTransactions);
+        if (evmTransactions.length > 0) {
+            const storableActions = [];
+            for (const evmTx of evmTransactions) {
+                storableActions.push({
+                    "@timestamp": resp.block.timestamp,
+                    "@raw": evmTx
+                });
+                this.txsSinceLastReport++;
+            }
+            await this.connector.indexTransactions(this.currentBlock, storableActions);
+        }
 
-        if (this.currentBlock % 1000 == 0)
-            logger.info(this.currentBlock + " indexed, ")
+        if (this.currentBlock % 1000 == 0) {
+            logger.info(`${this.currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
+            this.txsSinceLastReport = 0;
+        }
 
     }
 
     async launch() {
-
         let prevState = null;
 
         let startBlock = this.startBlock;
@@ -297,13 +336,12 @@ export class TEVMIndexer {
 
         await this.connector.init();
             
-        try {
-            prevState = await this.connector.getIndexerState();
-            logger.info(prevState);
+        prevState = await this.connector.getIndexerState();
 
-            startBlock = prevState.lastIndexedBlock;
-        } catch (error) {
-            logger.warn(error);
+        if (prevState) {
+            logger.info(JSON.stringify(prevState, null, 4));
+
+            startBlock = parseInt(prevState.lastIndexedBlock, 10);
         }
 
         this.reader.consume(this.consumer.bind(this));
@@ -319,7 +357,7 @@ export class TEVMIndexer {
             fetch_deltas: true
         }, ['contract_row', 'contract_table']);
 
-        process.on('SIGINT', this.sigintHandler);
+        process.on('SIGINT', this.sigintHandler.bind(this));
     }
 
     sigintHandler() {

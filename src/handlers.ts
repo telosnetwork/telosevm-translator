@@ -1,22 +1,20 @@
 import {
     EosioEvmRaw,
     EosioEvmDeposit,
-    EosioEvmWithdraw,
-    EvmTransaction
+    EosioEvmWithdraw
 } from './types/evm';
 
-import { parseAsset } from './utils/eosio';
+import { parseAsset, getRPCClient } from './utils/eosio';
 import logger from './utils/winston';
 
 const {Signature} = require('eosjs-ecc');
 
 // ethereum tools
-var txDecoder = require('ethereum-tx-decoder');
 var Units = require('ethereumjs-units');
 
 const BN = require('bn.js');
 import {Transaction} from '@ethereumjs/tx';
-import Common, {default as ethCommon} from '@ethereumjs/common';
+import {default as ethCommon} from '@ethereumjs/common';
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 const RECEIPT_LOG_START = "RCPT{{";
@@ -28,6 +26,9 @@ const common = ethCommon.forCustomChain(
     {chainId: 40},
     "istanbul" 
 );
+
+const rpc = getRPCClient();
+
 
 export async function handleEvmTx(
     blockNum: number,
@@ -111,12 +112,35 @@ export async function handleEvmDeposit(
     const quantity = parseAsset(tx.quantity);
     const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
+    let toAddr = null;
+    if (!tx.memo.startsWith('0x')) {
+        const result = await rpc.get_table_rows({
+            code: 'eosio.evm',
+            table: 'account',
+            scope: 'eosio.evm',
+            index_position: '3',
+            key_type: 'name',
+            upper_bound: tx.from,
+            lower_bound: tx.from
+        });
+
+        if (result.rows.length == 1) {
+            const row = result.rows[0];
+            toAddr = `0x${row.address}`;
+        } else {
+            logger.error(result);
+            logger.error('seems user deposited without registering!');
+        }
+    } else {
+        toAddr = tx.memo;
+    }
+
     const sig = Signature.fromString(nativeSig);
     const txParams = {
         nonce: 0,
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
-        to: tx.memo,
+        to: toAddr,
         value: `0x${new BN(quantWei, 16)._strip()}`,
         data: "0x",
         v: `0x${(27).toString(16).padStart(64, '0')}`,

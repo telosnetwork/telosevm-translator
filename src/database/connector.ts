@@ -4,30 +4,34 @@ import * as elasticConfig from '../config/elastic.json';
 
 import { IndexerStateDocument } from '../types/indexer';
 
-import { StorageEvmTransaction } from '../types/evm';
+import { StorageEvmTransaction, StorageEosioAction } from '../types/evm';
 
 import logger from '../utils/winston';
 
-import {dynamicImport} from 'tsimportlib';
-
 const transactionIndexPrefix = "telos-net-action-v1-"
-
-
-function getSubfixGivenBlock(blockNum: number) {
- return String(blockNum / 1000000).padStart(6, '0');
-}
 
 const chain = "telos-net";
 
+interface ConfigInterace {
+    [key: string]: any;
+};
+
+
 export class ElasticConnector {
     elastic: typeof Client;
+    totalIndexedBlocks: number;
 
     constructor() {
         this.elastic = new Client(elasticConfig);
+        this.totalIndexedBlocks = 0;
+    }
+
+    getSubfix() {
+        return String(Math.floor(this.totalIndexedBlocks / 10000000)).padStart(7, '0');
     }
 
     async init() {
-        const indexConfig = await dynamicImport('./templates', module) as typeof import('./templates');
+        const indexConfig: ConfigInterace = await import('./templates');
 
         const indicesList = [
             {name: "action", type: "action"},
@@ -48,11 +52,11 @@ export class ElasticConnector {
         for (const index of indicesList) {
             try {
                 if (indexConfig[index.name]) {
-                    const creation_status: ApiResponse = await this.elastic['indices'].putTemplate({
+                    const creation_status: typeof ApiResponse = await this.elastic['indices'].putTemplate({
                         name: `${chain}-${index.type}`,
                         body: indexConfig[index.name]
                     });
-                    if (!creation_status || !creation_status['body']['acknowledged']) {
+                    if (!creation_status || !creation_status['acknowledged']) {
                         logger.error(`Failed to create template: ${chain}-${index}`);
                     } else {
                         updateCounter++;
@@ -73,13 +77,19 @@ export class ElasticConnector {
     }
 
     async getIndexerState() {
-        return await this.elastic.search({
-            index: 'indexer-state',
-            size: 1,
-            sort: [
-                {"timestamp": { "order": "desc"} }
-            ]
-        });
+        try {
+            const resp = await this.elastic.search({
+                index: 'indexer-state',
+                size: 1,
+                sort: [
+                    {"timestamp": { "order": "desc"} }
+                ]
+            });
+
+            return resp.hits.hits._source;
+        } catch (error) {
+            return null;
+        }
     }
 
     async indexState(indexerState: IndexerStateDocument) {
@@ -89,8 +99,8 @@ export class ElasticConnector {
         });
     }
 
-    async indexTransactions(blockNum: number, transactions: StorageEvmTransaction[]) {
-        const index = transactionIndexPrefix + getSubfixGivenBlock(blockNum)
+    async indexTransactions(blockNum: number, transactions: StorageEosioAction[]) {
+        const index = transactionIndexPrefix + this.getSubfix()
         
         const operations = transactions.flatMap(
            doc => [{ index: { _index: index } }, doc]);
@@ -98,5 +108,7 @@ export class ElasticConnector {
         const bulkResponse = await this.elastic.bulk({ refresh: true, operations })
         if (bulkResponse.errors)
             throw new Error(JSON.stringify(bulkResponse, null, 4));
+
+        this.totalIndexedBlocks++;
     }
 };

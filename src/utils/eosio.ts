@@ -215,3 +215,15 @@ export function parseAsset(s: string) {
         symbol: name
     };
 }
+
+
+import { JsonRpc } from 'eosjs';
+import * as telosConfig from '../config/telos.json'
+
+// @ts-ignore
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const rpc = new JsonRpc(telosConfig.endpoint, { fetch });
+
+export function getRPCClient() {
+    return rpc; 
+}

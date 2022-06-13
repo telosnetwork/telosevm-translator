@@ -8,7 +8,8 @@ import {
     BlockRequestType,
     IBlockReaderOptions, ShipBlockResponse
 } from './types/ship';
-import { deserializeEosioType, serializeEosioType } from './utils/eosio';
+import { deserializeEosioType, serializeEosioType  } from './utils/eosio';
+import { getTypesFromAbi } from './utils/serialize';
 
 import * as AbiEOS from "@eosrio/node-abieos";
 
@@ -113,7 +114,11 @@ export default class StateHistoryBlockReader {
                 AbiEOS.load_abi("0", data);
 
                 this.abi = JSON.parse(data);
-                this.types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), this.abi);
+                this.types = getTypesFromAbi(Serialize.createInitialTypes(), this.abi);
+
+                for (const [name, dsType] of this.types.entries()) {
+                    console.log(name);
+                }
 
                 if (this.options.ds_threads > 0) {
                     this.deserializeWorkers = new StaticPool({

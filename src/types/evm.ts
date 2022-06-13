@@ -75,3 +75,8 @@ export interface StorageEvmTransaction {
     output: string
 
 }
+
+export interface StorageEosioAction {
+    "@timestamp": string,
+    "@raw": StorageEvmTransaction
+}
