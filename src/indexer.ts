@@ -7,12 +7,15 @@ import {
     EosioAction
 } from './types/eosio';
 
+import { IndexerConfig } from './types/indexer';
+
 import {
     extractShipContractRows,
     extractShipTraces,
     deserializeEosioType,
     getTableAbiType,
-    getActionAbiType
+    getActionAbiType,
+    getRPCClient
 } from './utils/eosio';
 
 import * as eosioEvmAbi from './abis/evm.json'
@@ -21,13 +24,11 @@ import * as eosioSystemAbi from './abis/system.json'
 
 import logger from './utils/winston';
 
-import { Serialize , RpcInterfaces } from 'eosjs';
+import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 
 import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
 
 import { ElasticConnector } from './database/connector';
-
-import * as telosConfig from './config/telos.json'
 
 const createHash = require("sha1-uint8array").createHash
 
@@ -103,22 +104,27 @@ export class TEVMIndexer {
     lastCommittedBlock: number;
     blocksUntilHead: number;
 
+    config: IndexerConfig;
+
     reader: StateHistoryBlockReader;
     connector: ElasticConnector;
-
-    constructor() {
+    rpc: JsonRpc;
+    
+    constructor(telosConfig: IndexerConfig) {
+        this.config = telosConfig;
 
         this.endpoint = telosConfig.endpoint;
         this.wsEndpoint = telosConfig.wsEndpoint;
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
 
-        this.connector = new ElasticConnector();
+        this.connector = new ElasticConnector(telosConfig.elastic);
+        this.rpc = getRPCClient(telosConfig);
 
         this.reader = new StateHistoryBlockReader(this.wsEndpoint);
         this.reader.setOptions({
             min_block_confirmation: 1,
-            ds_threads: 8,
+            ds_threads: telosConfig.perf.workerAmount,
             allow_empty_deltas: false,
             allow_empty_traces: false,
             allow_empty_blocks: false
@@ -300,10 +306,16 @@ export class TEVMIndexer {
                     evmTx = await handleEvmDeposit(
                         evmBlockNumber,
                         actionData,
-                        signature
+                        signature,
+                        this.rpc
                     );
             } else
                 continue;
+
+            if (evmTx == null) {
+                logger.error(`null evmTx in block: ${this.currentBlock}`);
+                continue;
+            }
 
             evmTransactions.push(evmTx);
             
@@ -349,7 +361,7 @@ export class TEVMIndexer {
         this.reader.startProcessing({
             start_block_num: startBlock,
             end_block_num: stopBlock,
-            max_messages_in_flight: 10,
+            max_messages_in_flight: this.config.perf.maxMsgsInFlight,
             irreversible_only: true,
             have_positions: [],
             fetch_block: true,

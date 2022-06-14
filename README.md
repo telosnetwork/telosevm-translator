@@ -3,6 +3,26 @@
 Consume `nodeos` state history endpoint and take and EVM dump.
 
 
+### build telosevm-es-indexer docker:
+
+    docker build --tag telosevm-indexer:version .
+
+### launch indexer:
+
+    docker run \
+        -it \
+        --rm \
+        --network=host \
+        --env "TELOS_ENDPOINT=http://mainnet.telos.net" \
+        --env "TELOS_WS_ENDPOINT=ws://api2.hosts.caleos.io:8999" \
+        --env "INDEXER_START_BLOCK=180841000" \
+        --env "INDEXER_STOP_BLOCK=4294967295" \
+        --env "ELASTIC_NODE=http://localhost:9200" \
+        --env "ELASTIC_USERNAME=username" \
+        --env "ELASTIC_PASSWORD=password" \
+        telosevm-indexer:version
+
+
 ### launch elastic:
 
     docker run \
@@ -10,8 +30,10 @@ Consume `nodeos` state history endpoint and take and EVM dump.
         --rm \
         --network=host \
         --mount type=bind,source="$(pwd)"/elastic,target=/usr/share/elasticsearch/data \
-        --env "ELASTIC_USERNAME=elastic" \
-        --env "ELASTIC_PASSWORD=password" \
+        --env "elastic_username=elastic" \
+        --env "elastic_password=password" \
+        --env "http.port=10000-10100" \
+        --env "transport.port=10100-10200" \
         --env "xpack.security.enabled=false" \
         telosevm-indexer:elastic
 

@@ -1,10 +1,8 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
-import * as elasticConfig from '../config/elastic.json'; 
+import { IndexerStateDocument, ConnectorConfig } from '../types/indexer';
 
-import { IndexerStateDocument } from '../types/indexer';
-
-import { StorageEvmTransaction, StorageEosioAction } from '../types/evm';
+import { StorageEosioAction } from '../types/evm';
 
 import logger from '../utils/winston';
 
@@ -21,8 +19,8 @@ export class ElasticConnector {
     elastic: typeof Client;
     totalIndexedBlocks: number;
 
-    constructor() {
-        this.elastic = new Client(elasticConfig);
+    constructor(config: ConnectorConfig) {
+        this.elastic = new Client(config);
         this.totalIndexedBlocks = 0;
     }
 

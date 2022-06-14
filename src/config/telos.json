@@ -1,7 +1,0 @@
-{
-    "endpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
-
-    "startBlock": 185283000,
-    "stopBlock": 4294967295
-}

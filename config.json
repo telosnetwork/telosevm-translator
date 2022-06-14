@@ -1,0 +1,19 @@
+{
+    "endpoint": "http://mainnet.telos.net",
+    "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
+
+    "startBlock": 196583927,
+    "stopBlock": 4294967295,
+    "perf": {
+        "workerAmount": 16,
+        "maxMsgsInFlight": 10000 
+    },
+    
+    "elastic": {
+        "node": "http://localhost:10000",
+        "auth": {
+            "username": "elastic",
+            "password": "password"
+        }
+    }
+}

@@ -1,7 +1,8 @@
 import {
     EosioEvmRaw,
     EosioEvmDeposit,
-    EosioEvmWithdraw
+    EosioEvmWithdraw,
+    EvmTransaction
 } from './types/evm';
 
 import { parseAsset, getRPCClient } from './utils/eosio';
@@ -11,10 +12,11 @@ const {Signature} = require('eosjs-ecc');
 
 // ethereum tools
 var Units = require('ethereumjs-units');
-
+const ethers = require('ethers')
 const BN = require('bn.js');
 import {Transaction} from '@ethereumjs/tx';
 import {default as ethCommon} from '@ethereumjs/common';
+import {JsonRpc} from 'eosjs';
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 const RECEIPT_LOG_START = "RCPT{{";
@@ -27,9 +29,18 @@ const common = ethCommon.forCustomChain(
     "istanbul" 
 );
 
-const rpc = getRPCClient();
 
-
+const ethTxKeys = [
+    "nonce",
+    "gasPrice",
+    "gasLimit",
+    "to",
+    "value",
+    "data",
+    "v",
+    "r",
+    "s"
+];
 export async function handleEvmTx(
     blockNum: number,
     tx: EosioEvmRaw,
@@ -54,7 +65,18 @@ export async function handleEvmTx(
     if (receipt.block != blockNum)
         throw new Error("Block number mismach");
 
-    const evmTx = Transaction.fromSerializedTx(Buffer.from(tx.tx, 'hex'), {common: common});
+    const rawTxHex = Buffer.from(tx.tx, 'hex');
+    const decoded = ethers.utils.RLP.decode(rawTxHex)
+
+    let evmTxData: {[key: string]: any} = {};
+
+    let i = 0;
+    for (const key of ethTxKeys) {
+        evmTxData[key] = decoded[i];
+        i++;
+    }
+
+    const evmTx = Transaction.fromTxData(evmTxData); 
 
     let v, r, s: string;
 
@@ -107,7 +129,8 @@ const stdGasLimit = `0x${(21000).toString(16)}`;
 export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
-    nativeSig: string
+    nativeSig: string,
+    rpc: JsonRpc
 ) {
     const quantity = parseAsset(tx.quantity);
     const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
@@ -130,6 +153,7 @@ export async function handleEvmDeposit(
         } else {
             logger.error(result);
             logger.error('seems user deposited without registering!');
+            return null;
         }
     } else {
         toAddr = tx.memo;
