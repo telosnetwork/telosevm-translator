@@ -72,8 +72,14 @@ export interface StorageEvmTransaction {
     gasused: number,
     gasusedblock: number,
     charged_gas_price: number,
-    output: string
-
+    output: string,
+    logs?: {
+        address: string,
+        topics: string[]
+    }[],
+    logsBloom?: string,
+    errors?: string[],
+    value_d?: number 
 }
 
 export interface StorageEosioAction {

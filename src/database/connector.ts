@@ -1,6 +1,6 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
-import { IndexerStateDocument, ConnectorConfig } from '../types/indexer';
+import { IndexerStateDocument, ConnectorConfig, IndexedBlockInfo } from '../types/indexer';
 
 import { StorageEosioAction, StorageEosioDelta } from '../types/evm';
 
@@ -89,19 +89,15 @@ export class ElasticConnector {
         });
     }
 
-    async indexBlock(
-        blockNum: number,
-        transactions: StorageEosioAction[],
-        delta: StorageEosioDelta
-    ) {
+    async indexBlock(blockInfo: IndexedBlockInfo) {
         const suffix = this.getSubfix();
         const txIndex = transactionIndexPrefix + suffix;
         const dtIndex = deltaIndexPrefix + suffix;
         
-        const txOperations = transactions.flatMap(
+        const txOperations = blockInfo.transactions.flatMap(
            doc => [{index: {_index: txIndex}}, doc]);
 
-        const operations = [...txOperations, {index: {_index: dtIndex}}, delta];
+        const operations = [...txOperations, {index: {_index: dtIndex}}, blockInfo.delta];
         
         const bulkResponse = await this.elastic.bulk({ refresh: true, operations })
         if (bulkResponse.errors)

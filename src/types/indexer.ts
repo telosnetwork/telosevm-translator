@@ -1,3 +1,5 @@
+import {StorageEosioAction, StorageEosioDelta} from '../types/evm';
+
 export type IndexerStateDocument = {
     timestamp: string;
     lastIndexedBlock: number;
@@ -11,6 +13,11 @@ export type ConnectorConfig = {
     }
 };
 
+export type BroadcasterConfig = {
+    wsHost: string;
+    wsPort: number;
+};
+
 export type IndexerConfig = {
     endpoint: string;
     wsEndpoint: string;
@@ -21,4 +28,12 @@ export type IndexerConfig = {
         maxMsgsInFlight: number;
     },
     elastic: ConnectorConfig;
+    broadcast: BroadcasterConfig;
+};
+
+
+export type IndexedBlockInfo = {
+    blockNum: number;
+    transactions: StorageEosioAction[];
+    delta: StorageEosioDelta;
 };

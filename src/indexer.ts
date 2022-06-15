@@ -29,6 +29,8 @@ import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
 
 import { ElasticConnector } from './database/connector';
+import {StorageEosioAction, StorageEosioDelta, StorageEvmTransaction} from './types/evm';
+import RPCBroadcaster from './publisher';
 
 const createHash = require("sha1-uint8array").createHash
 
@@ -108,6 +110,7 @@ export class TEVMIndexer {
 
     reader: StateHistoryBlockReader;
     connector: ElasticConnector;
+    broadcaster: RPCBroadcaster;
     rpc: JsonRpc;
     
     constructor(telosConfig: IndexerConfig) {
@@ -119,6 +122,7 @@ export class TEVMIndexer {
         this.stopBlock = telosConfig.stopBlock;
 
         this.connector = new ElasticConnector(telosConfig.elastic);
+        this.broadcaster = new RPCBroadcaster(telosConfig.broadcast);
         this.rpc = getRPCClient(telosConfig);
 
         this.reader = new StateHistoryBlockReader(this.wsEndpoint);
@@ -284,7 +288,7 @@ export class TEVMIndexer {
 
             const signature = signatures[actionHash][0];
 
-            let evmTx = null;
+            let evmTx: StorageEvmTransaction = null;
             if (action.account == "eosio.evm") {
                 if (action.name == "raw") {
                     evmTx = await handleEvmTx(
@@ -322,7 +326,7 @@ export class TEVMIndexer {
         }
 
         if (evmTransactions.length > 0) {
-            const storableActions = [];
+            const storableActions: StorageEosioAction[] = [];
             for (const evmTx of evmTransactions) {
                 storableActions.push({
                     "@timestamp": resp.block.timestamp,
@@ -330,17 +334,21 @@ export class TEVMIndexer {
                 });
                 this.txsSinceLastReport++;
             }
-            await this.connector.indexBlock(
-                this.currentBlock,
-                storableActions,
-                {
+
+            const blockInfo = {
+                "blockNum": this.currentBlock,
+                "transactions": storableActions,
+                "delta": {
                     "@timestamp": resp.block.timestamp,
                     "@global": {
                         "block_num": eosioGlobalState.block_num
                     },
                     "@evmBlockHash": "0x00"
                 }
-            );
+            };
+
+            await this.connector.indexBlock(blockInfo);
+            this.broadcaster.broadcastBlock(blockInfo);
         }
 
         if (this.currentBlock % 1000 == 0) {

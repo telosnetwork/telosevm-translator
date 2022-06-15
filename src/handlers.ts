@@ -2,7 +2,7 @@ import {
     EosioEvmRaw,
     EosioEvmDeposit,
     EosioEvmWithdraw,
-    EvmTransaction
+    StorageEvmTransaction
 } from './types/evm';
 
 import { parseAsset, getRPCClient } from './utils/eosio';
@@ -17,6 +17,7 @@ const BN = require('bn.js');
 import {Transaction} from '@ethereumjs/tx';
 import {default as ethCommon} from '@ethereumjs/common';
 import {JsonRpc} from 'eosjs';
+import Bloom from './utils/evm';
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 const RECEIPT_LOG_START = "RCPT{{";
@@ -46,7 +47,7 @@ export async function handleEvmTx(
     tx: EosioEvmRaw,
     nativeSig: string,
     consoleLog: string
-) {
+) : Promise<StorageEvmTransaction> {
     
     let receiptLog = consoleLog.slice(
         consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
@@ -95,7 +96,7 @@ export async function handleEvmTx(
     }
 
     const inputData = '0x' + evmTx.data?.toString('hex');
-    const txBody = {
+    const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
         trx_index: receipt.trx_index,
         block: blockNum,
@@ -116,6 +117,38 @@ export async function handleEvmTx(
         charged_gas_price: parseInt('0x' + receipt.charged_gas),
         output: receipt.output,
     };
+
+    if (receipt.logs) {
+        txBody.logs = receipt.logs;
+        if (txBody.logs.length === 0) {
+            delete txBody['logs'];
+        } else {
+            //console.log('------- LOGS -----------');
+            //console.log(txBody['logs']);
+            const bloom = new Bloom();
+            for (const log of txBody['logs']) {
+                bloom.add(Buffer.from(ethers.utils.getAddress(log['address']), 'hex'));
+                for (const topic of log.topics)
+                    bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
+            }
+
+            txBody['logsBloom'] = bloom.bitvector.toString('hex');
+        }
+    }
+
+    if (receipt.errors) {
+        txBody['errors'] = receipt.errors;
+        if (txBody['errors'].length === 0) {
+            delete txBody['errors'];
+        } else {
+            //console.log('------- ERRORS -----------');
+            //console.log(txBody['errors'])
+        }
+    }
+
+    if (txBody.value) {  // divide values by 18 decimal places to bring them to telosland
+        txBody['value_d'] = new BN(evmTx.value.toString(10)) / new BN('1000000000000000000');
+    }
 
     return txBody;
 }
@@ -148,7 +181,7 @@ export async function handleEvmDeposit(
     tx: EosioEvmDeposit,
     nativeSig: string,
     rpc: JsonRpc
-) {
+) : Promise<StorageEvmTransaction> {
     const quantity = parseAsset(tx.quantity);
     const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
@@ -194,7 +227,7 @@ export async function handleEvmDeposit(
     const evmTx = new Transaction(txParams, {common: common});
 
     const inputData = '0x' + evmTx.data?.toString('hex');
-    const txBody = {
+    const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
         trx_index: 0,
         block: blockNum,
@@ -206,10 +239,10 @@ export async function handleEvmDeposit(
         nonce: evmTx.nonce?.toString(),
         gas_price: evmTx.gasPrice?.toString(),
         gas_limit: evmTx.gasLimit?.toString(),
-        status: "",
+        status: 0,
         itxs: new Array(),
         epoch: 0,
-        createdaddr: 0,
+        createdaddr: "",
         gasused: 0,
         gasusedblock: 0,
         charged_gas_price: 0,
@@ -223,7 +256,7 @@ export async function handleEvmWithdraw(
     blockNum: number,
     tx: EosioEvmWithdraw,
     nativeSig: string
-) {
+) : Promise<StorageEvmTransaction> {
     const quantity = parseAsset(tx.quantity);
     const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
@@ -242,7 +275,7 @@ export async function handleEvmWithdraw(
     const evmTx = new Transaction(txParams, {common: common});
 
     const inputData = '0x' + evmTx.data?.toString('hex');
-    const txBody = {
+    const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
         trx_index: 0,
         block: blockNum,
@@ -254,10 +287,10 @@ export async function handleEvmWithdraw(
         nonce: evmTx.nonce?.toString(),
         gas_price: evmTx.gasPrice?.toString(),
         gas_limit: evmTx.gasLimit?.toString(),
-        status: "",
+        status: 0,
         itxs: new Array(),
         epoch: 0,
-        createdaddr: 0,
+        createdaddr: "",
         gasused: 0,
         gasusedblock: 0,
         charged_gas_price: 0,

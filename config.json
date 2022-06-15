@@ -2,7 +2,7 @@
     "endpoint": "http://mainnet.telos.net",
     "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
 
-    "startBlock": 196583927,
+    "startBlock": 0,
     "stopBlock": 4294967295,
     "perf": {
         "workerAmount": 16,
@@ -15,5 +15,10 @@
             "username": "elastic",
             "password": "password"
         }
+    },
+
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7300 
     }
 }
