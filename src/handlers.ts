@@ -70,13 +70,10 @@ export async function handleEvmTx(
 
     let evmTxData: {[key: string]: any} = {};
 
-    let i = 0;
-    for (const key of ethTxKeys) {
+    for (const [i, key] of ethTxKeys.entries())
         evmTxData[key] = decoded[i];
-        i++;
-    }
 
-    const evmTx = Transaction.fromTxData(evmTxData); 
+    const evmTx = new Transaction(evmTxData, {common: common}); 
 
     let v, r, s: string;
 
@@ -156,7 +153,13 @@ export async function handleEvmDeposit(
             return null;
         }
     } else {
-        toAddr = tx.memo;
+        try {
+            toAddr = ethers.utils.getAddress(tx.memo);
+        } catch (error) {
+            logger.error(JSON.stringify(tx));
+            logger.error('seems user deposited to an invalid address!');
+            return null;
+        }
     }
 
     const sig = Signature.fromString(nativeSig);
