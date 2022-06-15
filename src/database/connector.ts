@@ -2,11 +2,12 @@ const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
 import { IndexerStateDocument, ConnectorConfig } from '../types/indexer';
 
-import { StorageEosioAction } from '../types/evm';
+import { StorageEosioAction, StorageEosioDelta } from '../types/evm';
 
 import logger from '../utils/winston';
 
 const transactionIndexPrefix = "telos-net-action-v1-"
+const deltaIndexPrefix = "telos-net-delta-v1-"
 
 const chain = "telos-net";
 
@@ -25,7 +26,7 @@ export class ElasticConnector {
     }
 
     getSubfix() {
-        return String(Math.floor(this.totalIndexedBlocks / 10000000)).padStart(7, '0');
+        return String(Math.floor(this.totalIndexedBlocks / 1000000)).padStart(7, '0');
     }
 
     async init() {
@@ -33,16 +34,7 @@ export class ElasticConnector {
 
         const indicesList = [
             {name: "action", type: "action"},
-            {name: "block", type: "block"},
-            {name: "abi", type: "abi"},
-            {name: "delta", type: "delta"},
-            {name: "logs", type: "logs"},
-            {name: 'permissionLink', type: 'link'},
-            {name: 'permission', type: 'perm'},
-            {name: 'resourceLimits', type: 'reslimits'},
-            {name: 'resourceUsage', type: 'userres'},
-            {name: 'generatedTransaction', type: 'gentrx'},
-            {name: 'failedTransaction', type: 'trxerr'}
+            {name: "delta", type: "delta"}
         ];
 
         logger.info(`Updating index templates for ${chain}...`);
@@ -97,11 +89,19 @@ export class ElasticConnector {
         });
     }
 
-    async indexTransactions(blockNum: number, transactions: StorageEosioAction[]) {
-        const index = transactionIndexPrefix + this.getSubfix()
+    async indexBlock(
+        blockNum: number,
+        transactions: StorageEosioAction[],
+        delta: StorageEosioDelta
+    ) {
+        const suffix = this.getSubfix();
+        const txIndex = transactionIndexPrefix + suffix;
+        const dtIndex = deltaIndexPrefix + suffix;
         
-        const operations = transactions.flatMap(
-           doc => [{ index: { _index: index } }, doc]);
+        const txOperations = transactions.flatMap(
+           doc => [{index: {_index: txIndex}}, doc]);
+
+        const operations = [...txOperations, {index: {_index: dtIndex}}, delta];
         
         const bulkResponse = await this.elastic.bulk({ refresh: true, operations })
         if (bulkResponse.errors)

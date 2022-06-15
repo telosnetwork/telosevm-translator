@@ -116,10 +116,6 @@ export default class StateHistoryBlockReader {
                 this.abi = JSON.parse(data);
                 this.types = getTypesFromAbi(Serialize.createInitialTypes(), this.abi);
 
-                for (const [name, dsType] of this.types.entries()) {
-                    console.log(name);
-                }
-
                 if (this.options.ds_threads > 0) {
                     this.deserializeWorkers = new StaticPool({
                         size: this.options.ds_threads,

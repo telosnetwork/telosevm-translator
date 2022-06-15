@@ -80,3 +80,11 @@ export interface StorageEosioAction {
     "@timestamp": string,
     "@raw": StorageEvmTransaction
 }
+
+export interface StorageEosioDelta {
+    "@timestamp": string,
+    "@global": {
+        "block_num": number
+    },
+    "@evmBlockHash": string
+}

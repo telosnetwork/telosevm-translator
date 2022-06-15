@@ -330,7 +330,17 @@ export class TEVMIndexer {
                 });
                 this.txsSinceLastReport++;
             }
-            await this.connector.indexTransactions(this.currentBlock, storableActions);
+            await this.connector.indexBlock(
+                this.currentBlock,
+                storableActions,
+                {
+                    "@timestamp": resp.block.timestamp,
+                    "@global": {
+                        "block_num": eosioGlobalState.block_num
+                    },
+                    "@evmBlockHash": "0x00"
+                }
+            );
         }
 
         if (this.currentBlock % 1000 == 0) {

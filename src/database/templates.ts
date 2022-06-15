@@ -312,6 +312,7 @@ export const delta = {
                     "total_ram_bytes_reserved": {"type": "long"},
                     "total_ram_stake": {"type": "long"},
                     "total_unpaid_blocks": {"type": "long"},
+                    "block_num": {"type": "long"}
                 }
             }
         }
