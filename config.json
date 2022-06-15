@@ -2,7 +2,7 @@
     "endpoint": "http://mainnet.telos.net",
     "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
 
-    "startBlock": 0,
+    "startBlock": 180841000,
     "stopBlock": 4294967295,
     "perf": {
         "workerAmount": 16,

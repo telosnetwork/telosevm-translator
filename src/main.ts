@@ -14,6 +14,12 @@ if (process.env.INDEXER_START_BLOCK)
 if (process.env.INDEXER_STOP_BLOCK)
     conf.stopBlock = parseInt(process.env.INDEXER_STOP_BLOCK, 10);
 
+if (process.env.BROADCAST_HOST)
+    conf.broadcast.wsHost = process.env.BROADCAST_HOST;
+
+if (process.env.BROADCAST_PORT)
+    conf.broadcast.wsPort = parseInt(process.env.BROADCAST_PORT, 10);
+
 if (process.env.ELASTIC_NODE)
     conf.elastic.node = process.env.ELASTIC_NODE;
 

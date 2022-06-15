@@ -17,6 +17,8 @@ Consume `nodeos` state history endpoint and take and EVM dump.
         --env "TELOS_WS_ENDPOINT=ws://api2.hosts.caleos.io:8999" \
         --env "INDEXER_START_BLOCK=180841000" \
         --env "INDEXER_STOP_BLOCK=4294967295" \
+        --env "BROADCAST_HOST=127.0.0.1" \
+        --env "BROADCAST_PORT=7300" \
         --env "ELASTIC_NODE=http://localhost:9200" \
         --env "ELASTIC_USERNAME=username" \
         --env "ELASTIC_PASSWORD=password" \
