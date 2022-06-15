@@ -123,6 +123,26 @@ export async function handleEvmTx(
 const stdGasPrice = "0x7a307efa80";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
+async function queryAddress(accountName: string, rpc: JsonRpc) {
+    const result = await rpc.get_table_rows({
+        code: 'eosio.evm',
+        table: 'account',
+        scope: 'eosio.evm',
+        index_position: '3',
+        key_type: 'name',
+        upper_bound: accountName,
+        lower_bound: accountName
+    });
+
+    if (result.rows.length == 1) {
+        return result.rows[0].address;
+    } else if (result.rows.length > 1) {
+        throw new Error("multiple address for one account? shouldn\'t happen");
+    } else {
+        return null;
+    }
+}
+
 export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
@@ -134,31 +154,28 @@ export async function handleEvmDeposit(
 
     let toAddr = null;
     if (!tx.memo.startsWith('0x')) {
-        const result = await rpc.get_table_rows({
-            code: 'eosio.evm',
-            table: 'account',
-            scope: 'eosio.evm',
-            index_position: '3',
-            key_type: 'name',
-            upper_bound: tx.from,
-            lower_bound: tx.from
-        });
+        const address = await queryAddress(tx.from, rpc);
 
-        if (result.rows.length == 1) {
-            const row = result.rows[0];
-            toAddr = `0x${row.address}`;
+        if (address) {
+            toAddr = `0x${address}`;
         } else {
-            logger.error(result);
             logger.error('seems user deposited without registering!');
             return null;
         }
     } else {
         try {
             toAddr = ethers.utils.getAddress(tx.memo);
+
         } catch (error) {
-            logger.error(JSON.stringify(tx));
-            logger.error('seems user deposited to an invalid address!');
-            return null;
+            const address = await queryAddress(tx.from, rpc);
+
+            if (!address) {
+                logger.error(JSON.stringify(tx));
+                logger.error('seems user deposited to an invalid address!');
+                return null;
+            }
+
+            toAddr = `0x${address}`;
         }
     }
 
