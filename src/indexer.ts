@@ -129,9 +129,9 @@ export class TEVMIndexer {
         this.reader.setOptions({
             min_block_confirmation: 1,
             ds_threads: telosConfig.perf.workerAmount,
-            allow_empty_deltas: false,
-            allow_empty_traces: false,
-            allow_empty_blocks: false
+            allow_empty_deltas: true,
+            allow_empty_traces: true,
+            allow_empty_blocks: true
         });
 
         this.abis = {
