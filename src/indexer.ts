@@ -63,7 +63,7 @@ function getErrorMessage(error: unknown) {
   return String(error)
 }
 
-const debug = false;
+const debug = true;
 function hashTxAction(action: EosioAction) {
     if (debug) {
         // debug mode, pretty responses
@@ -201,7 +201,18 @@ export class TEVMIndexer {
 
                     if (dsType == 'transaction') {
                         for (const action of trx.actions) {
-                            signatures[hashTxAction(action)] = tx.trx[1].signatures;
+                            const txData = tx.trx[1];
+                            const actHash = hashTxAction(action);
+                            if (txData.signatures) {
+                                signatures[actHash] = txData.signatures;
+
+                            } else if (txData.prunable_data) {
+                                const [key, prunableData] = txData.prunable_data.prunable_data;
+                                if (key !== 'prunable_data_full_legacy')
+                                    continue;
+
+                                signatures[actHash] = prunableData.signatures;
+                            }
                         }
                     }
 
@@ -324,9 +335,21 @@ export class TEVMIndexer {
             evmTransactions.push(evmTx);
             
         }
+        
+        const storableActions: StorageEosioAction[] = [];
+        const blockInfo = {
+            "blockNum": this.currentBlock,
+            "transactions": storableActions,
+            "delta": {
+                "@timestamp": resp.block.timestamp,
+                "@global": {
+                    "block_num": eosioGlobalState.block_num
+                },
+                "@evmBlockHash": "0x00"
+            }
+        };
 
         if (evmTransactions.length > 0) {
-            const storableActions: StorageEosioAction[] = [];
             for (const evmTx of evmTransactions) {
                 storableActions.push({
                     "@timestamp": resp.block.timestamp,
@@ -334,22 +357,10 @@ export class TEVMIndexer {
                 });
                 this.txsSinceLastReport++;
             }
-
-            const blockInfo = {
-                "blockNum": this.currentBlock,
-                "transactions": storableActions,
-                "delta": {
-                    "@timestamp": resp.block.timestamp,
-                    "@global": {
-                        "block_num": eosioGlobalState.block_num
-                    },
-                    "@evmBlockHash": "0x00"
-                }
-            };
-
-            await this.connector.indexBlock(blockInfo);
-            this.broadcaster.broadcastBlock(blockInfo);
         }
+
+        await this.connector.indexBlock(blockInfo);
+        this.broadcaster.broadcastBlock(blockInfo);
 
         if (this.currentBlock % 1000 == 0) {
             logger.info(`${this.currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
