@@ -67,7 +67,7 @@ export default class RPCBroadcaster {
             timestamp: `0x${this.convertTimestampToEpoch(blockInfo.delta['@timestamp']).toString(16)}`,
         })
 
-        this.broadcastData('head', head);
+        this.broadcastData('head', JSON.stringify(head));
     }
 
     private broadcastData(type: string, data: any) {
