@@ -6,8 +6,8 @@ import { StorageEosioAction, StorageEosioDelta } from '../types/evm';
 
 import logger from '../utils/winston';
 
-const transactionIndexPrefix = "telos-net-action-v1-"
-const deltaIndexPrefix = "telos-net-delta-v1-"
+const transactionIndexPrefix = "-action-v1-"
+const deltaIndexPrefix = "-delta-v1-"
 
 const chain = "telos-net";
 
@@ -19,8 +19,10 @@ interface ConfigInterace {
 export class ElasticConnector {
     elastic: typeof Client;
     totalIndexedBlocks: number;
+    chainName: string;
 
-    constructor(config: ConnectorConfig) {
+    constructor(chainName: string, config: ConnectorConfig) {
+        this.chainName = chainName;
         this.elastic = new Client(config);
         this.totalIndexedBlocks = 0;
     }
@@ -91,8 +93,8 @@ export class ElasticConnector {
 
     async indexBlock(blockInfo: IndexedBlockInfo) {
         const suffix = this.getSubfix();
-        const txIndex = transactionIndexPrefix + suffix;
-        const dtIndex = deltaIndexPrefix + suffix;
+        const txIndex = this.chainName + transactionIndexPrefix + suffix;
+        const dtIndex = this.chainName + deltaIndexPrefix + suffix;
         
         const txOperations = blockInfo.transactions.flatMap(
            doc => [{index: {_index: txIndex}}, doc]);

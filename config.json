@@ -1,4 +1,7 @@
 {
+    "chainName": "telos-local-testnet",
+    "chainId": 41,
+
     "endpoint": "http://mainnet.telos.net",
     "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
 

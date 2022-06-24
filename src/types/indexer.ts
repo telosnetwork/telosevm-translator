@@ -19,6 +19,8 @@ export type BroadcasterConfig = {
 };
 
 export type IndexerConfig = {
+    chainName: string;
+    chainId: number;
     endpoint: string;
     wsEndpoint: string;
     startBlock: number;

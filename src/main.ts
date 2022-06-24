@@ -2,6 +2,12 @@ import { TEVMIndexer } from './indexer';
 
 const conf = require('../config.json');
 
+if (process.env.CHAIN_NAME)
+    conf.chainName = process.env.CHAIN_NAME;
+
+if (process.env.CHAIN_ID)
+    conf.chainId = process.env.CHAIN_ID;
+
 if (process.env.TELOS_ENDPOINT)
     conf.endpoint = process.env.TELOS_ENDPOINT;
 

@@ -22,6 +22,7 @@ export interface EvmBigNumber {
 }
 
 export interface EvmTransaction {
+    from: string,
     nonce: number,
     gasPrice: string,
     gasLimit: string,
@@ -55,6 +56,7 @@ export interface InteralEvmTransaction {
 
 export interface StorageEvmTransaction {
     hash: string,
+    from: string,
     trx_index: number,
     block: number,
     block_hash: string,
@@ -84,6 +86,9 @@ export interface StorageEvmTransaction {
 
 export interface StorageEosioAction {
     "@timestamp": string,
+    "trx_id": string,
+    "action_ordinal": number,
+    "signatures": string[],
     "@raw": StorageEvmTransaction
 }
 

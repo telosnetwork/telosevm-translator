@@ -24,24 +24,17 @@ const RECEIPT_LOG_START = "RCPT{{";
 const RECEIPT_LOG_END = "}}RCPT";
 
 
-const common = ethCommon.forCustomChain(
-    "mainnet",
-    {chainId: 40},
-    "istanbul" 
-);
+let common: ethCommon = null;
+
+export function setCommon(chainId: number) {
+    common = ethCommon.forCustomChain(
+        "mainnet",
+        {chainId: chainId},
+        "istanbul" 
+    );
+}
 
 
-const ethTxKeys = [
-    "nonce",
-    "gasPrice",
-    "gasLimit",
-    "to",
-    "value",
-    "data",
-    "v",
-    "r",
-    "s"
-];
 export async function handleEvmTx(
     blockNum: number,
     tx: EosioEvmRaw,
@@ -65,24 +58,15 @@ export async function handleEvmTx(
 
     if (receipt.block != blockNum)
         throw new Error("Block number mismach");
+    
+    const evmTx = ethers.utils.parseTransaction(tx.tx);
 
-    const rawTxHex = Buffer.from(tx.tx, 'hex');
-    const decoded = ethers.utils.RLP.decode(rawTxHex)
-
-    let evmTxData: {[key: string]: any} = {};
-
-    for (const [i, key] of ethTxKeys.entries())
-        evmTxData[key] = decoded[i];
-
-    const evmTx = new Transaction(evmTxData, {common: common}); 
-
-    let v, r, s: string;
-
-    if (evmTx.v == new BN('0')) {
+    if (tx.sender != null) {
         const sig = Signature.fromString(nativeSig);
-        v = `0x${(27).toString(16).padStart(64, '0')}`;
-        r = `0x${sig.r.toHex().padStart(64, '0')}`;
-        s = `0x${sig.s.toHex()}`;
+        evmTx.v = `0x${(27).toString(16).padStart(64, '0')}`;
+        evmTx.r = `0x${sig.r.toHex().padStart(64, '0')}`;
+        evmTx.s = `0x${sig.s.toHex()}`;
+        evmTx.from = ethers.utils.getAddress(tx.sender).toLowerCase();
     }
 
     if (receipt.itxs) {
@@ -95,19 +79,19 @@ export async function handleEvmTx(
         });
     }
 
-    const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
-        hash: '0x' + evmTx.hash()?.toString('hex'),
+        hash: evmTx.hash,
+        from: evmTx.from,
         trx_index: receipt.trx_index,
         block: blockNum,
         block_hash: "",
-        to: evmTx.to?.toString(),
-        input_data: inputData,
-        input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-        value: evmTx.value?.toString(),
-        nonce: evmTx.nonce?.toString(),
-        gas_price: evmTx.gasPrice?.toString(),
-        gas_limit: evmTx.gasLimit?.toString(),
+        to: evmTx.to,
+        input_data: evmTx.data,
+        input_trimmed: evmTx.data.substring(0, KEYWORD_STRING_TRIM_SIZE),
+        value: evmTx['value']['hex'],
+        nonce: evmTx.nonce,
+        gas_price: evmTx.gasPrice.hex,
+        gas_limit: evmTx.gasLimit.hex,
         status: receipt.status,
         itxs: receipt.itxs,
         epoch: receipt.epoch,
@@ -214,6 +198,7 @@ export async function handleEvmDeposit(
 
     const sig = Signature.fromString(nativeSig);
     const txParams = {
+        from: "0x0000000000000000000000000000000000000000",
         nonce: 0,
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
@@ -224,11 +209,12 @@ export async function handleEvmDeposit(
         r: `0x${sig.r.toHex().padStart(64, '0')}`,
         s: `0x${sig.s.toHex()}`
     };
-    const evmTx = new Transaction(txParams, {common: common});
+    const evmTx = Transaction.fromTxData(txParams);
 
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
+        from: "0x0000000000000000000000000000000000000000",
         trx_index: 0,
         block: blockNum,
         block_hash: "",
@@ -255,13 +241,17 @@ export async function handleEvmDeposit(
 export async function handleEvmWithdraw(
     blockNum: number,
     tx: EosioEvmWithdraw,
-    nativeSig: string
+    nativeSig: string,
+    rpc: JsonRpc
 ) : Promise<StorageEvmTransaction> {
+    const address = await queryAddress(tx.to, rpc);
+
     const quantity = parseAsset(tx.quantity);
     const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
     const sig = Signature.fromString(nativeSig);
     const txParams = {
+        from: address.toLowerCase(), 
         nonce: 0,
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
@@ -277,6 +267,7 @@ export async function handleEvmWithdraw(
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
+        from: address.toLowerCase(), 
         trx_index: 0,
         block: blockNum,
         block_hash: "",

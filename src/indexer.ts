@@ -26,13 +26,17 @@ import logger from './utils/winston';
 
 import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 
-import { handleEvmTx, handleEvmDeposit, handleEvmWithdraw } from './handlers';
+import { 
+    setCommon,
+    handleEvmTx, handleEvmDeposit, handleEvmWithdraw
+} from './handlers';
 
 import { ElasticConnector } from './database/connector';
 import {StorageEosioAction, StorageEosioDelta, StorageEvmTransaction} from './types/evm';
 import RPCBroadcaster from './publisher';
 
 const createHash = require("sha1-uint8array").createHash
+const createKeccakHash = require('keccak');
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
@@ -121,7 +125,7 @@ export class TEVMIndexer {
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
 
-        this.connector = new ElasticConnector(telosConfig.elastic);
+        this.connector = new ElasticConnector(telosConfig.chainName, telosConfig.elastic);
         this.broadcaster = new RPCBroadcaster(telosConfig.broadcast);
         this.rpc = getRPCClient(telosConfig);
 
@@ -144,6 +148,8 @@ export class TEVMIndexer {
             'eosio.token': getContract(eosioTokenAbi.abi),
             'eosio': getContract(eosioSystemAbi.abi)
         };
+        
+        setCommon(telosConfig.chainId);
     }
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
@@ -251,7 +257,12 @@ export class TEVMIndexer {
             throw new Error("Couldn't get eosio global state table delta.");
 
         const evmBlockNumber = eosioGlobalState.block_num;
-        const evmTransactions = [];
+        const evmTransactions: Array<{
+            trx_id: string,
+            action_ordinal: number,
+            signatures: string[],
+            evmTx: StorageEvmTransaction
+        }> = [];
         // traces
         const transactions = extractShipTraces(resp.traces);
 
@@ -312,7 +323,8 @@ export class TEVMIndexer {
                     evmTx = await handleEvmWithdraw(
                         evmBlockNumber,
                         actionData,
-                        signature
+                        signature,
+                        this.rpc
                     );
                 }
             } else if (action.account == "eosio.token" &&
@@ -332,28 +344,41 @@ export class TEVMIndexer {
                 continue;
             }
 
-            evmTransactions.push(evmTx);
+            evmTransactions.push({
+                trx_id: tx.tx.id,
+                action_ordinal: tx.trace.action_ordinal,
+                signatures: signatures[actionHash],
+                evmTx: evmTx
+            });
             
         }
         
+        const blockHex = (eosioGlobalState.block_num as number).toString(16);
+        const blockHash = createKeccakHash('keccak256').update(blockHex).digest('hex');
         const storableActions: StorageEosioAction[] = [];
         const blockInfo = {
             "blockNum": this.currentBlock,
             "transactions": storableActions,
             "delta": {
                 "@timestamp": resp.block.timestamp,
+                "code": "eosio",
+                "table": "global",
                 "@global": {
                     "block_num": eosioGlobalState.block_num
                 },
-                "@evmBlockHash": "0x00"
+                "@evmBlockHash": blockHash
             }
         };
 
         if (evmTransactions.length > 0) {
-            for (const evmTx of evmTransactions) {
+            for (const [i, evmTxData] of evmTransactions.entries()) {
+                evmTxData.evmTx.block_hash = blockHash;
                 storableActions.push({
                     "@timestamp": resp.block.timestamp,
-                    "@raw": evmTx
+                    "trx_id": evmTxData.trx_id,
+                    "action_ordinal": evmTxData.action_ordinal,
+                    "signatures": evmTxData.signatures,
+                    "@raw": evmTxData.evmTx
                 });
                 this.txsSinceLastReport++;
             }
