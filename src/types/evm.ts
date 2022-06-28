@@ -94,6 +94,7 @@ export interface StorageEosioAction {
 
 export interface StorageEosioDelta {
     "@timestamp": string,
+    "block_num": number,
     "@global": {
         "block_num": number
     },

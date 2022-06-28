@@ -35,7 +35,6 @@ export type IndexerConfig = {
 
 
 export type IndexedBlockInfo = {
-    blockNum: number;
     transactions: StorageEosioAction[];
     delta: StorageEosioDelta;
 };

@@ -7,7 +7,7 @@ import {
     EosioAction
 } from './types/eosio';
 
-import { IndexerConfig } from './types/indexer';
+import { IndexedBlockInfo, IndexerConfig } from './types/indexer';
 
 import {
     extractShipContractRows,
@@ -17,6 +17,8 @@ import {
     getActionAbiType,
     getRPCClient
 } from './utils/eosio';
+
+import { removeHexPrefix } from './utils/evm';
 
 import * as eosioEvmAbi from './abis/evm.json'
 import * as eosioTokenAbi from './abis/token.json'
@@ -106,6 +108,7 @@ export class TEVMIndexer {
     headBlock: number;
     lastIrreversibleBlock: number;
     txsSinceLastReport: number = 0;
+    prevBlock: IndexedBlockInfo = null;
 
     lastCommittedBlock: number;
     blocksUntilHead: number;
@@ -150,6 +153,42 @@ export class TEVMIndexer {
         };
         
         setCommon(telosConfig.chainId);
+    }
+
+    generateEvmBlockHash(
+        evmTransactions: Array<{
+            trx_id: string,
+            action_ordinal: number,
+            signatures: string[],
+            evmTx: StorageEvmTransaction
+        }>
+    ) {
+        const hash = createKeccakHash('keccak256');
+
+        let prevHash = null;
+
+        if (this.prevBlock != null) { 
+            prevHash = removeHexPrefix(
+                this.prevBlock['delta']['@evmBlockHash']);
+
+        } else {
+            prevHash = createKeccakHash('keccak256')
+                .update(this.config.chainId.toString(16))
+                .digest('hex');
+        }
+
+        hash.update(prevHash);
+
+        evmTransactions.sort(
+            (a, b) => {
+                return a.action_ordinal - b.action_ordinal;
+            }
+        );
+
+        for (const tx of evmTransactions)
+            hash.update(removeHexPrefix(tx.evmTx.hash));
+
+        return hash.digest('hex');
     }
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
@@ -352,15 +391,15 @@ export class TEVMIndexer {
             });
             
         }
-        
-        const blockHex = (eosioGlobalState.block_num as number).toString(16);
-        const blockHash = createKeccakHash('keccak256').update(blockHex).digest('hex');
+
+        const blockHash = this.generateEvmBlockHash(evmTransactions);
+
         const storableActions: StorageEosioAction[] = [];
         const blockInfo = {
-            "blockNum": this.currentBlock,
             "transactions": storableActions,
             "delta": {
                 "@timestamp": resp.block.timestamp,
+                "block_num": this.currentBlock,
                 "code": "eosio",
                 "table": "global",
                 "@global": {
@@ -392,6 +431,7 @@ export class TEVMIndexer {
             this.txsSinceLastReport = 0;
         }
 
+        this.prevBlock = blockInfo;
     }
 
     async launch() {
@@ -405,7 +445,7 @@ export class TEVMIndexer {
         const lastBlock = await this.connector.getLastIndexedBlock();
 
         if (lastBlock != null) {
-            startBlock = lastBlock['@global']['block_num'];
+            startBlock = lastBlock.block_num;
             logger.info(
                 `found! ${startBlock} indexed on ${lastBlock['@timestamp']}`);
 
