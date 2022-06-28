@@ -68,27 +68,22 @@ export class ElasticConnector {
         logger.info(`${updateCounter} index templates updated`);
     }
 
-    async getIndexerState() {
+    async getLastIndexedBlock() {
         try {
-            const resp = await this.elastic.search({
-                index: 'indexer-state',
+            const index = this.chainName + deltaIndexPrefix + '*';
+            const result = await this.elastic.search({
+                index: index,
                 size: 1,
                 sort: [
-                    {"timestamp": { "order": "desc"} }
+                    {"@timestamp": { "order": "desc"} }
                 ]
             });
 
-            return resp.hits.hits._source;
+            return result?.hits?.hits[0]?._source; 
+
         } catch (error) {
             return null;
         }
-    }
-
-    async indexState(indexerState: IndexerStateDocument) {
-        await this.elastic.index({
-            index: 'indexer-state',
-            body: indexerState 
-        });
     }
 
     async indexBlock(blockInfo: IndexedBlockInfo) {

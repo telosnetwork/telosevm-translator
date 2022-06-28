@@ -32,7 +32,7 @@ import {
 } from './handlers';
 
 import { ElasticConnector } from './database/connector';
-import {StorageEosioAction, StorageEosioDelta, StorageEvmTransaction} from './types/evm';
+import {StorageEosioAction, StorageEvmTransaction} from './types/evm';
 import RPCBroadcaster from './publisher';
 
 const createHash = require("sha1-uint8array").createHash
@@ -395,20 +395,22 @@ export class TEVMIndexer {
     }
 
     async launch() {
-        let prevState = null;
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
 
         await this.connector.init();
-            
-        prevState = await this.connector.getIndexerState();
+        
+        logger.info('checking db for blocks...');
+        const lastBlock = await this.connector.getLastIndexedBlock();
 
-        if (prevState) {
-            logger.info(JSON.stringify(prevState, null, 4));
+        if (lastBlock != null) {
+            startBlock = lastBlock['@global']['block_num'];
+            logger.info(
+                `found! ${startBlock} indexed on ${lastBlock['@timestamp']}`);
 
-            startBlock = parseInt(prevState.lastIndexedBlock, 10);
-        }
+        } else
+            logger.info(`not found, start from ${startBlock}.`);
 
         this.reader.consume(this.consumer.bind(this));
 
@@ -423,20 +425,6 @@ export class TEVMIndexer {
             fetch_deltas: true
         }, ['contract_row', 'contract_table']);
 
-        process.on('SIGINT', this.sigintHandler.bind(this));
-    }
-
-    sigintHandler() {
-        logger.info("interrupt caught, saving state to db...");
-
-        const state = {
-            timestamp: new Date().toISOString(),
-            lastIndexedBlock: this.currentBlock
-        };
-
-        this.connector.indexState(state).then(() => {
-            process.exit(0);
-        }); 
     }
 
 };
