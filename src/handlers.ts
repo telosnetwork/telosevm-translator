@@ -5,10 +5,13 @@ import {
     StorageEvmTransaction
 } from './types/evm';
 
+import { removeHexPrefix } from './utils/evm';
+
 import { parseAsset, getRPCClient } from './utils/eosio';
 import logger from './utils/winston';
 
 const {Signature} = require('eosjs-ecc');
+const createKeccakHash = require('keccak');
 
 // ethereum tools
 var Units = require('ethereumjs-units');
@@ -68,6 +71,26 @@ export async function handleEvmTx(
         evmTx.r = `0x${sig.r.toHex().padStart(64, '0')}`;
         evmTx.s = `0x${sig.s.toHex()}`;
         evmTx.from = ethers.utils.getAddress(tx.sender).toLowerCase();
+
+        const flatParams = [
+            evmTx.to,
+            evmTx.from,
+            (ethers.BigNumber.from(evmTx.nonce)).toHexString(),
+            evmTx.gasPrice.toHexString(),
+            evmTx.gasLimit.toHexString(),
+            evmTx.value.toHexString(),
+            evmTx.data,
+            evmTx.v,
+            evmTx.r,
+            evmTx.s
+        ];
+
+        const rlpHex = removeHexPrefix(
+            ethers.utils.RLP.encode(flatParams));
+
+        evmTx.hash = '0x' + createKeccakHash('keccak256')
+            .update(rlpHex)
+            .digest('hex'); 
     }
 
     if (receipt.itxs) {
@@ -89,10 +112,10 @@ export async function handleEvmTx(
         to: evmTx.to,
         input_data: evmTx.data,
         input_trimmed: evmTx.data.substring(0, KEYWORD_STRING_TRIM_SIZE),
-        value: evmTx['value']['hex'],
+        value: evmTx.value.toHexString(),
         nonce: evmTx.nonce,
-        gas_price: evmTx.gasPrice.hex,
-        gas_limit: evmTx.gasLimit.hex,
+        gas_price: evmTx.gasPrice.toHexString(),
+        gas_limit: evmTx.gasLimit.toHexString(),
         status: receipt.status,
         itxs: receipt.itxs,
         epoch: receipt.epoch,
@@ -132,7 +155,7 @@ export async function handleEvmTx(
     }
 
     if (txBody.value) {  // divide values by 18 decimal places to bring them to telosland
-        txBody['value_d'] = new BN(evmTx.value.toString(10)) / new BN('1000000000000000000');
+        txBody['value_d'] = new BN(evmTx.value.toString()) / new BN('1000000000000000000');
     }
 
     return txBody;
