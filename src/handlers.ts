@@ -52,7 +52,8 @@ export async function handleEvmTx(
         receipt = JSON.parse(receiptLog);
         logger.debug(`Receipt: ${JSON.stringify(receipt)}`);
     } catch (e) {
-        logger.warning('WARNING: Failed to parse receiptLog');
+        logger.warn('WARNING: Failed to parse receiptLog');
+        logger.warn(receiptLog);
         return null;
     }
 

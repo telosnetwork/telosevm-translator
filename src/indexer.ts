@@ -379,7 +379,7 @@ export class TEVMIndexer {
                 continue;
 
             if (evmTx == null) {
-                logger.error(`null evmTx in block: ${this.currentBlock}`);
+                logger.warn(`null evmTx in block: ${this.currentBlock}`);
                 continue;
             }
 
