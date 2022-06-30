@@ -73,7 +73,6 @@ export async function handleEvmTx(
         evmTx.from = ethers.utils.getAddress(tx.sender).toLowerCase();
 
         const flatParams = [
-            evmTx.to,
             evmTx.from,
             (ethers.BigNumber.from(evmTx.nonce)).toHexString(),
             evmTx.gasPrice.toHexString(),
@@ -85,12 +84,22 @@ export async function handleEvmTx(
             evmTx.s
         ];
 
-        const rlpHex = removeHexPrefix(
-            ethers.utils.RLP.encode(flatParams));
+        if (evmTx.to != null)
+            flatParams.unshift(evmTx.to);
 
-        evmTx.hash = '0x' + createKeccakHash('keccak256')
-            .update(rlpHex)
-            .digest('hex'); 
+        try {
+
+            const rlpHex = removeHexPrefix(
+                ethers.utils.RLP.encode(flatParams));
+
+            evmTx.hash = '0x' + createKeccakHash('keccak256')
+                .update(rlpHex)
+                .digest('hex'); 
+
+        } catch (error) {
+            logger.info(JSON.stringify(evmTx,null,4));
+            process.exit(1)
+        }
     }
 
     if (receipt.itxs) {
