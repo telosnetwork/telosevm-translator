@@ -1,8 +1,6 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
-import { IndexerStateDocument, ConnectorConfig, IndexedBlockInfo } from '../types/indexer';
-
-import { StorageEosioAction, StorageEosioDelta } from '../types/evm';
+import { ConnectorConfig, IndexedBlockInfo } from '../types/indexer';
 
 import logger from '../utils/winston';
 
@@ -11,20 +9,30 @@ const deltaIndexPrefix = "-delta-v1-"
 
 const chain = "telos-net";
 
-interface ConfigInterace {
+interface ConfigInterface {
     [key: string]: any;
 };
 
 
 export class ElasticConnector {
     elastic: typeof Client;
-    totalIndexedBlocks: number;
     chainName: string;
+    blockDrain: {
+        done: any[];
+        building: any[];
+    };
+
+    totalIndexedBlocks: number = 0;
 
     constructor(chainName: string, config: ConnectorConfig) {
         this.chainName = chainName;
         this.elastic = new Client(config);
         this.totalIndexedBlocks = 0;
+
+        this.blockDrain = {
+            done: [],
+            building: []
+        };
     }
 
     getSubfix() {
@@ -32,7 +40,7 @@ export class ElasticConnector {
     }
 
     async init() {
-        const indexConfig: ConfigInterace = await import('./templates');
+        const indexConfig: ConfigInterface = await import('./templates');
 
         const indicesList = [
             {name: "action", type: "action"},
@@ -86,7 +94,8 @@ export class ElasticConnector {
         }
     }
 
-    async indexBlock(blockInfo: IndexedBlockInfo) {
+    pushBlock(blockInfo: IndexedBlockInfo) {
+
         const suffix = this.getSubfix();
         const txIndex = this.chainName + transactionIndexPrefix + suffix;
         const dtIndex = this.chainName + deltaIndexPrefix + suffix;
@@ -95,11 +104,29 @@ export class ElasticConnector {
            doc => [{index: {_index: txIndex}}, doc]);
 
         const operations = [...txOperations, {index: {_index: dtIndex}}, blockInfo.delta];
-        
-        const bulkResponse = await this.elastic.bulk({ refresh: true, operations })
+
+        this.blockDrain.building = [...this.blockDrain.building, ...operations];
+        this.totalIndexedBlocks++;
+
+        if (this.totalIndexedBlocks % 2000 == 0) {
+            this.blockDrain.done = this.blockDrain.building;
+            this.blockDrain.building = [];
+
+            setTimeout(() => {
+                this.drainBlocks().then();
+            }, 0);
+        }
+    }
+
+    async drainBlocks() {
+        const bulkResponse = await this.elastic.bulk({
+            refresh: true,
+            operations: this.blockDrain.done
+        });
+
         if (bulkResponse.errors)
             throw new Error(JSON.stringify(bulkResponse, null, 4));
 
-        this.totalIndexedBlocks++;
+        logger.info(`drained ${this.blockDrain.done.length} operations.`);
     }
 };

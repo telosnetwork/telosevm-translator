@@ -5,9 +5,7 @@ import {
     StorageEvmTransaction
 } from './types/evm';
 
-import { removeHexPrefix } from './utils/evm';
-
-import { parseAsset, getRPCClient } from './utils/eosio';
+import { parseAsset } from './utils/eosio';
 import logger from './utils/winston';
 
 const {Signature} = require('eosjs-ecc');
@@ -20,11 +18,9 @@ const BN = require('bn.js');
 import {Transaction} from '@ethereumjs/tx';
 import {default as ethCommon} from '@ethereumjs/common';
 import {JsonRpc} from 'eosjs';
-import Bloom from './utils/evm';
+import {StaticPool} from 'node-worker-threads-pool';
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
-const RECEIPT_LOG_START = "RCPT{{";
-const RECEIPT_LOG_END = "}}RCPT";
 
 
 let common: ethCommon = null;
@@ -37,6 +33,10 @@ export function setCommon(chainId: number) {
     );
 }
 
+const deseralizationPool = new StaticPool({
+    size: 8,
+    task: './build/workers/evm.js'
+});
 
 export async function handleEvmTx(
     blockNum: number,
@@ -44,130 +44,15 @@ export async function handleEvmTx(
     nativeSig: string,
     consoleLog: string
 ) : Promise<StorageEvmTransaction> {
+    const result = await deseralizationPool.exec([{
+        blockNum, tx, nativeSig, consoleLog
+    }]);
+
+    if (result.success) {
+        return result.tx;
+    }
     
-    let receiptLog = consoleLog.slice(
-        consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
-        consoleLog.indexOf(RECEIPT_LOG_END)
-    );
-
-    let receipt;
-    try {
-        receipt = JSON.parse(receiptLog);
-        logger.debug(`Receipt: ${JSON.stringify(receipt)}`);
-    } catch (e) {
-        logger.warn('WARNING: Failed to parse receiptLog');
-        logger.warn(receiptLog);
-        return null;
-    }
-
-    if (receipt.block != blockNum)
-        throw new Error("Block number mismach");
-    
-    const evmTx = ethers.utils.parseTransaction(tx.tx);
-
-    if (tx.sender != null) {
-        const sig = Signature.fromString(nativeSig);
-        evmTx.v = `0x${(27).toString(16).padStart(64, '0')}`;
-        evmTx.r = `0x${sig.r.toHex().padStart(64, '0')}`;
-        evmTx.s = `0x${sig.s.toHex()}`;
-        evmTx.from = ethers.utils.getAddress(tx.sender).toLowerCase();
-
-        const flatParams = [
-            evmTx.from,
-            (ethers.BigNumber.from(evmTx.nonce)).toHexString(),
-            evmTx.gasPrice.toHexString(),
-            evmTx.gasLimit.toHexString(),
-            evmTx.value.toHexString(),
-            evmTx.data,
-            evmTx.v,
-            evmTx.r,
-            evmTx.s
-        ];
-
-        if (evmTx.to != null)
-            flatParams.unshift(evmTx.to);
-
-        try {
-
-            const rlpHex = removeHexPrefix(
-                ethers.utils.RLP.encode(flatParams));
-
-            evmTx.hash = '0x' + createKeccakHash('keccak256')
-                .update(rlpHex)
-                .digest('hex'); 
-
-        } catch (error) {
-            logger.info(JSON.stringify(evmTx,null,4));
-            process.exit(1)
-        }
-    }
-
-    if (receipt.itxs) {
-        // @ts-ignore
-        receipt.itxs.forEach((itx) => {
-            if (itx.input)
-                itx.input_trimmed = itx.input.substring(0, KEYWORD_STRING_TRIM_SIZE);
-            else
-                itx.input_trimmed = itx.input;
-        });
-    }
-
-    const txBody: StorageEvmTransaction = {
-        hash: evmTx.hash,
-        from: evmTx.from,
-        trx_index: receipt.trx_index,
-        block: blockNum,
-        block_hash: "",
-        to: evmTx.to,
-        input_data: evmTx.data,
-        input_trimmed: evmTx.data.substring(0, KEYWORD_STRING_TRIM_SIZE),
-        value: evmTx.value.toHexString(),
-        nonce: evmTx.nonce,
-        gas_price: evmTx.gasPrice.toHexString(),
-        gas_limit: evmTx.gasLimit.toHexString(),
-        status: receipt.status,
-        itxs: receipt.itxs,
-        epoch: receipt.epoch,
-        createdaddr: receipt.createdaddr.toLowerCase(),
-        gasused: parseInt('0x' + receipt.gasused),
-        gasusedblock: parseInt('0x' + receipt.gasusedblock),
-        charged_gas_price: parseInt('0x' + receipt.charged_gas),
-        output: receipt.output,
-    };
-
-    if (receipt.logs) {
-        txBody.logs = receipt.logs;
-        if (txBody.logs.length === 0) {
-            delete txBody['logs'];
-        } else {
-            //console.log('------- LOGS -----------');
-            //console.log(txBody['logs']);
-            const bloom = new Bloom();
-            for (const log of txBody['logs']) {
-                bloom.add(Buffer.from(ethers.utils.getAddress(log['address']), 'hex'));
-                for (const topic of log.topics)
-                    bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
-            }
-
-            txBody['logsBloom'] = bloom.bitvector.toString('hex');
-        }
-    }
-
-    if (receipt.errors) {
-        txBody['errors'] = receipt.errors;
-        if (txBody['errors'].length === 0) {
-            delete txBody['errors'];
-        } else {
-            //console.log('------- ERRORS -----------');
-            //console.log(txBody['errors'])
-        }
-    }
-
-    if (txBody.value) {  // divide values by 18 decimal places to bring them to telosland
-        txBody['value_d'] = new BN(evmTx.value.toString()) / new BN('1000000000000000000');
-    }
-
-    return txBody;
+    throw new Error(result.message);
 }
 
 const stdGasPrice = "0x7a307efa80";

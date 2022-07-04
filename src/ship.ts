@@ -13,8 +13,152 @@ import { getTypesFromAbi } from './utils/serialize';
 
 import * as AbiEOS from "@eosrio/node-abieos";
 
-const WebSocket = require('ws');
+import {
+    EosioAction
+} from './types/eosio';const WebSocket = require('ws');
 
+const createHash = require("sha1-uint8array").createHash
+
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+const DS_TYPES = [
+    'transaction',
+    'code_id',
+    'account_v0',
+    'account_metadata_v0',
+    'code_v0',
+    'contract_table_v0',
+    'contract_row_v0',
+    'contract_index64_v0',
+    'contract_index128_v0',
+    'contract_index256_v0',
+    'contract_index_double_v0',
+    'contract_index_long_double_v0',
+    'account',
+    'account_metadata',
+    'code',
+    'contract_table',
+    'contract_row',
+    'contract_index64',
+    'contract_index128',
+    'contract_index256',
+    'contract_index_double',
+    'contract_index_long_double',
+
+    'row_v0',
+    'table_delta_v0',
+    'row_v1',
+    'table_delta_v1',
+    'action',
+    'account_auth_sequence',
+    'action_receipt_v0',
+    'account_delta',
+    'action_trace_v0',
+    'action_trace_v1',
+    'prunable_data_none',
+    'prunable_data_partial',
+    'prunable_data_full',
+    'prunable_data_full_legacy',
+    'prunable_data_type',
+    'partial_transaction_v0',
+    'partial_transaction_v1',
+    'transaction_trace_v0',
+    'packed_transaction',
+    'packed_transaction_v0',
+    'transaction_receipt_header',
+    'transaction_receipt',
+    'transaction_receipt_v0',
+    'extension',
+    'block_header',
+    'signed_block_header',
+    'signed_block_v0',
+    'signed_block_v1',
+    'transaction_header',
+    'key_value_v0',
+    'producer_key',
+    'producer_schedule',
+    'block_signing_authority_v0',
+    'producer_authority',
+    'producer_authority_schedule',
+    'chain_config_v0',
+    'chain_config_v1',
+    'global_property_v0',
+    'global_property_v1',
+    'generated_transaction_v0',
+    'activated_protocol_feature_v0',
+    'protocol_state_v0',
+    'key_weight',
+    'permission_level',
+    'permission_level_weight',
+    'wait_weight',
+    'authority',
+    'permission_v0',
+    'permission_link_v0',
+    'resource_limits_v0',
+    'usage_accumulator_v0',
+    'resource_usage_v0',
+    'resource_limits_state_v0',
+    'resource_limits_ratio_v0',
+    'elastic_limit_parameters_v0',
+    'resource_limits_config_v0',
+    'request',
+    'result',
+    'action_receipt',
+    'action_trace',
+    'partial_transaction',
+    'transaction_trace',
+    'transaction_variant',
+    'transaction_variant_v0',
+    'signed_block_variant',
+    'segment_type',
+    'prunable_data_t',
+    'table_delta',
+    'key_value',
+    'chain_config',
+    'global_property',
+    'generated_transaction',
+    'activated_protocol_feature',
+    'protocol_state',
+    'permission',
+    'permission_link',
+    'resource_limits',
+    'usage_accumulator',
+    'resource_usage',
+    'resource_limits_state',
+    'resource_limits_ratio',
+    'elastic_limit_parameters',
+    'resource_limits_config',
+    'block_signing_authority'
+];
+const debug = true;
+export function hashTxAction(action: EosioAction) {
+    if (debug) {
+        // debug mode, pretty responses
+        let uid = action.account;
+        uid = uid + "." + action.name;
+        for (const auth of action.authorization) {
+            uid = uid + "." + auth.actor;
+            uid = uid + "." + auth.permission;
+        }
+        uid = uid + "." + createHash().update(action.data).digest("hex");
+        return uid;
+    } else {
+        // release mode, only hash
+        const hash = createHash();
+        hash.update(action.account);
+        hash.update(action.name);
+        for (const auth of action.authorization) {
+            hash.update(auth.actor);
+            hash.update(auth.permission);
+        }
+        hash.update(action.data);
+        return hash.digest("hex");
+    }
+}
 
 export type BlockConsumer = (block: ShipBlockResponse) => any;
 
@@ -47,7 +191,7 @@ export default class StateHistoryBlockReader {
         this.connecting = false;
         this.stopped = true;
 
-        this.blocksQueue = new PQueue({concurrency: 1, autoStart: true});
+        this.blocksQueue = new PQueue({concurrency: 32, autoStart: true});
         this.deserializeWorkers = undefined;
 
         this.consumer = null;
@@ -115,6 +259,9 @@ export default class StateHistoryBlockReader {
 
                 this.abi = JSON.parse(data);
                 this.types = getTypesFromAbi(Serialize.createInitialTypes(), this.abi);
+
+                for (const key of this.types.keys())
+                    console.log(key);
 
                 if (this.options.ds_threads > 0) {
                     this.deserializeWorkers = new StaticPool({
@@ -223,6 +370,9 @@ export default class StateHistoryBlockReader {
                         let deserializedTraces = [];
                         let deserializedDeltas = [];
 
+                        let deserializedBlock = null;
+                        let signatures: {[key: string]: string[]} = {};
+
                         try {
                             deserializedTraces = await traces;
                         } catch (error) {
@@ -246,6 +396,61 @@ export default class StateHistoryBlockReader {
                         }
 
                         try {
+                            deserializedBlock = await block;
+
+                            // grab signatures
+                            for (const tx of deserializedBlock.transactions) {
+
+                                if (tx.trx[0] !== "packed_transaction")
+                                    continue;
+
+                                const packed_trx = tx.trx[1].packed_trx;
+                                let trx = null;
+
+                                for (const dsType of DS_TYPES) {
+                                    try {
+                                        trx = await this.deserializeParallel(dsType, packed_trx);
+
+                                        if (dsType == 'transaction') {
+                                            for (const action of trx.actions) {
+                                                const txData = tx.trx[1];
+                                                const actHash = hashTxAction(action);
+                                                if (txData.signatures) {
+                                                    signatures[actHash] = txData.signatures;
+
+                                                } else if (txData.prunable_data) {
+                                                    const [key, prunableData] = txData.prunable_data.prunable_data;
+                                                    if (key !== 'prunable_data_full_legacy')
+                                                        continue;
+
+                                                    signatures[actHash] = prunableData.signatures;
+                                                }
+                                            }
+                                        }
+
+                                        break;
+
+                                    } catch (error) {
+                                        logger.warn(`attempt to deserialize as ${dsType} failed: ` + getErrorMessage(error));
+                                        continue;
+                                    }
+                                }
+
+                                if (trx == null)
+                                    logger.error(`block_num: ${response.this_block.block_num}`)
+                            }
+
+
+                        } catch (error) {
+                            logger.error('Failed to deserialize block #' + response.this_block.block_num, error);
+
+                            this.blocksQueue.clear();
+                            this.blocksQueue.pause();
+
+                            throw error;
+                        }
+
+                        try {
                             await this.processBlock({
                                 this_block: response.this_block,
                                 head: response.head,
@@ -253,9 +458,10 @@ export default class StateHistoryBlockReader {
                                 prev_block: response.prev_block,
                                 block: Object.assign(
                                     {...response.this_block},
-                                    await block,
+                                    deserializedBlock,
                                     {last_irreversible: response.last_irreversible},
-                                    {head: response.head}
+                                    {head: response.head},
+                                    {signatures: signatures}
                                 ),
                                 traces: deserializedTraces,
                                 deltas: deserializedDeltas
@@ -379,7 +585,7 @@ export default class StateHistoryBlockReader {
         this.consumer = consumer;
     }
 
-    private async deserializeParallel(type: string, data: Uint8Array): Promise<any> {
+    async deserializeParallel(type: string, data: Uint8Array): Promise<any> {
         if (this.options.ds_threads > 0) {
             const result = await this.deserializeWorkers.exec([{type, data}]);
 
@@ -393,7 +599,7 @@ export default class StateHistoryBlockReader {
         return deserializeEosioType(type, data, this.types);
     }
 
-    private async deserializeArrayParallel(rows: Array<{type: string, data: Uint8Array}>): Promise<any> {
+    async deserializeArrayParallel(rows: Array<{type: string, data: Uint8Array}>): Promise<any> {
         if (this.options.ds_threads > 0) {
             const result = await this.deserializeWorkers.exec(rows);
 

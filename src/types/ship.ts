@@ -45,8 +45,8 @@ export type ShipBlock = {
     header_extensions?: any[],
     producer_signature?: string,
     transactions?: any[],
-    block_extensions?: any[]
-};
+    block_extensions?: any[],
+    signatures?: {[key: string]: string[]}}
 
 export type ShipTransactionTrace = [
     'transaction_trace_v0',

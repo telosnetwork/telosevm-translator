@@ -11,6 +11,7 @@
     "@eosrio/node-abieos": "^2.1.1",
     "@ethereumjs/tx": "^3.5.1",
     "assert": "^2.0.0",
+    "collections": "^5.1.13",
     "eosjs": "^22.1.0",
     "ethereum-tx-decoder": "^3.0.0",
     "ethereumjs-tx": "^2.1.2",
