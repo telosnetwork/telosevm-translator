@@ -2,10 +2,10 @@
     "chainName": "telos-local-testnet",
     "chainId": 41,
 
-    "endpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api2.hosts.caleos.io:8999",
+    "endpoint": "http://testnet.telos.net",
+    "wsEndpoint": "ws://api2.hosts.caleos.io:28999",
 
-    "startBlock": 180841000,
+    "startBlock": 136393814,
     "stopBlock": 4294967295,
     "perf": {
         "workerAmount": 16,

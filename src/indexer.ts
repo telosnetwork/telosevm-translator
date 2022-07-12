@@ -35,6 +35,7 @@ import {StorageEosioAction, StorageEvmTransaction} from './types/evm';
 import RPCBroadcaster from './publisher';
 
 import { hashTxAction } from './ship';
+import {ElasticConnector} from './database/connector';
 
 const createKeccakHash = require('keccak');
 
@@ -68,6 +69,7 @@ export class TEVMIndexer {
     reader: StateHistoryBlockReader;
     broadcaster: RPCBroadcaster;
     rpc: JsonRpc;
+    connector: ElasticConnector; 
     
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -79,6 +81,8 @@ export class TEVMIndexer {
 
         this.broadcaster = new RPCBroadcaster(telosConfig.broadcast);
         this.rpc = getRPCClient(telosConfig);
+        this.connector = new ElasticConnector(
+            telosConfig.chainName, telosConfig.elastic); 
 
         this.reader = new StateHistoryBlockReader(this.wsEndpoint);
         this.reader.setOptions({
@@ -232,6 +236,26 @@ export class TEVMIndexer {
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
+        let prevHash = null;
+
+        await this.connector.init();
+
+        logger.info('checking db for blocks...');
+        const lastBlock = await this.connector.getLastIndexedBlock();
+
+        if (lastBlock != null) {
+            logger.info(JSON.stringify(lastBlock, null, 4));
+            startBlock = lastBlock.block_num;
+            prevHash = lastBlock['@evmBlockHash'];
+            logger.info(
+                `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash ${prevHash}`);
+
+        } else {
+            prevHash = createKeccakHash('keccak256')
+                .update(this.config.chainId.toString(16))
+                .digest('hex');
+            logger.info(`not found, start from ${startBlock} with hash ${prevHash}.`);
+        }
 
         this.hasher = new StaticPool({
             size: 1,
@@ -239,36 +263,11 @@ export class TEVMIndexer {
             workerData: {
                 chainName: this.config.chainName,
                 chainId: this.config.chainId,
-                elasticConf: this.config.elastic
+                elasticConf: this.config.elastic,
+                startBlock: startBlock,
+                prevHash: prevHash 
             }
         });
-
-        let resp = await this.hasher.exec({
-            type: 'init', params: {}});
-
-        if (!resp.success) {
-            logger.error(resp);
-            process.exit(2);
-        }
-        
-        logger.info('checking db for blocks...');
-        resp = await this.hasher.exec({
-            type: 'get_last_indexed', params: {}});
-
-        if (!resp.success) {
-            logger.error(resp);
-            process.exit(3);
-        }
-
-        const lastBlock = resp.result;
-
-        if (lastBlock != null) {
-            startBlock = lastBlock.block_num;
-            logger.info(
-                `found! ${startBlock} produced on ${lastBlock['@timestamp']}`);
-
-        } else
-            logger.info(`not found, start from ${startBlock}.`);
 
         this.reader.consume(this.consumer.bind(this));
 

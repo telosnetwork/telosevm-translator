@@ -22,12 +22,9 @@ export class ElasticConnector {
         building: any[];
     };
 
-    totalIndexedBlocks: number = 0;
-
     constructor(chainName: string, config: ConnectorConfig) {
         this.chainName = chainName;
         this.elastic = new Client(config);
-        this.totalIndexedBlocks = 0;
 
         this.blockDrain = {
             done: [],
@@ -35,8 +32,8 @@ export class ElasticConnector {
         };
     }
 
-    getSubfix() {
-        return String(Math.floor(this.totalIndexedBlocks / 1000000)).padStart(7, '0');
+    getSubfix(blockNum: number) {
+        return String(Math.floor(blockNum / 1000000)).padStart(7, '0');
     }
 
     async init() {
@@ -95,8 +92,7 @@ export class ElasticConnector {
     }
 
     pushBlock(blockInfo: IndexedBlockInfo) {
-
-        const suffix = this.getSubfix();
+        const suffix = this.getSubfix(blockInfo.delta.block_num);
         const txIndex = this.chainName + transactionIndexPrefix + suffix;
         const dtIndex = this.chainName + deltaIndexPrefix + suffix;
         
@@ -106,15 +102,13 @@ export class ElasticConnector {
         const operations = [...txOperations, {index: {_index: dtIndex}}, blockInfo.delta];
 
         this.blockDrain.building = [...this.blockDrain.building, ...operations];
-        this.totalIndexedBlocks++;
 
-        if (this.totalIndexedBlocks % 2000 == 0) {
+        if (this.blockDrain.building.length >= 4096) {
             this.blockDrain.done = this.blockDrain.building;
             this.blockDrain.building = [];
 
-            setTimeout(() => {
-                this.drainBlocks().then();
-            }, 0);
+            setTimeout(
+                this.drainBlocks.bind(this), 0);
         }
     }
 

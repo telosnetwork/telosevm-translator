@@ -7,7 +7,7 @@ import {StorageEosioAction, StorageEvmTransaction} from '../types/evm';
 
 import logger from '../utils/winston';
 
-var SortedMap = require("collections/sorted-map");
+var PriorityQueue = require("js-priority-queue");
 
 const createKeccakHash = require('keccak');
 
@@ -28,7 +28,9 @@ export interface HasherBlockInfo{
 const args: {
     chainName: string,
     chainId: number,
-    elasticConf: ConnectorConfig
+    elasticConf: ConnectorConfig,
+    startBlock: number,
+    prevHash: string
 } = workerData;
 
 const connector = new ElasticConnector(
@@ -36,23 +38,32 @@ const connector = new ElasticConnector(
 
 logger.info('Launching hasher worker...');
 
-const blockDrain = SortedMap();
+const blockDrain = new PriorityQueue({
+    // @ts-ignore
+    comparator: function(a, b) {
+        return a.nativeBlockNumber - b.nativeBlockNumber;
+    }
+});
 
-let prevHash: string | null = null;
+let lastInOrder = args.startBlock;
+let prevHash = args.prevHash;
 
-async function drainBlocks() {
+function drainBlocks() {
 
-    let current = blockDrain.findLeast();
-    while (blockDrain.has(current + 1)) {
+    if (blockDrain.length == 0)
+        return;
+
+    let current = blockDrain.peek();
+    while (current.nativeBlockNumber == lastInOrder + 1) {
 
         // genereate block hash
         const hash = createKeccakHash('keccak256');
         hash.update(prevHash);
 
-        const blockInfo: HasherBlockInfo = blockDrain.get(current);
-        const evmTxs = blockInfo.evmTxs; 
+        const evmTxs = current.evmTxs; 
 
         evmTxs.sort(
+            // @ts-ignore
             (a, b) => {
                 return a.action_ordinal - b.action_ordinal;
             }
@@ -68,12 +79,12 @@ async function drainBlocks() {
         const storableBlockInfo = {
             "transactions": storableActions,
             "delta": {
-                "@timestamp": blockInfo.blockTimestamp,
-                "block_num": blockInfo.nativeBlockNumber,
+                "@timestamp": current.blockTimestamp,
+                "block_num": current.nativeBlockNumber,
                 "code": "eosio",
                 "table": "global",
                 "@global": {
-                    "block_num": blockInfo.evmBlockNum
+                    "block_num": current.evmBlockNum
                 },
                 "@evmBlockHash": currentBlockHash 
             }
@@ -83,7 +94,7 @@ async function drainBlocks() {
             for (const [i, evmTxData] of evmTxs.entries()) {
                 evmTxData.evmTx.block_hash = currentBlockHash;
                 storableActions.push({
-                    "@timestamp": blockInfo.blockTimestamp,
+                    "@timestamp": current.blockTimestamp,
                     "trx_id": evmTxData.trx_id,
                     "action_ordinal": evmTxData.action_ordinal,
                     "signatures": evmTxData.signatures,
@@ -95,9 +106,13 @@ async function drainBlocks() {
         // push to db 
         connector.pushBlock(storableBlockInfo);
 
+        lastInOrder = current.nativeBlockNumber;
+
         prevHash = currentBlockHash;
-        blockDrain.delete(current);
-        current = blockDrain.findLeast();
+        blockDrain.dequeue();
+
+        if (blockDrain.length > 0)
+            current = blockDrain.peek();
     }
     
 }
@@ -107,39 +122,15 @@ parentPort.on(
     (msg: {type: string, params: any}) => {
 
     try {
-        if (msg.type == 'init') {
-            return connector.init().then(() => {
-                return parentPort.postMessage({success: true});
-            })
-        }
-
-        if (msg.type == 'get_last_indexed') {
-            return connector.getLastIndexedBlock().then((res) => {
-                console.log(res);
-                if (prevHash == null) {
-                    if(res != null) {
-                        prevHash = res['delta']['@evmBlockHash']
-                    } else {
-                        prevHash = createKeccakHash('keccak256')
-                            .update(args.chainId.toString(16))
-                            .digest('hex');
-                    }
-                }
-
-                return parentPort.postMessage({
-                    success: true, result: res}); 
-            });
-        }
 
         if (msg.type == 'block') {
             const blockInfo: HasherBlockInfo = msg.params;
-            const blockNum = blockInfo.evmBlockNum;
-            blockDrain.add(blockInfo, blockNum);
+            blockDrain.queue(blockInfo);
 
-            if (blockDrain.has(blockNum - 1))
-                drainBlocks().then()
+            if (lastInOrder = blockInfo.nativeBlockNumber - 1)
+                drainBlocks();
 
-            return parentPort.postMessage({success: true});
+            return parentPort.postMessage({success: true, qlen: blockDrain.length});
         }
 
         return parentPort.postMessage({
