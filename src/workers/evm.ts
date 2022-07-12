@@ -60,7 +60,15 @@ parentPort.on(
                 evmTx.v = `0x${(27).toString(16).padStart(64, '0')}`;
                 evmTx.r = `0x${sig.r.toHex().padStart(64, '0')}`;
                 evmTx.s = `0x${sig.s.toHex()}`;
-                evmTx.from = ethers.utils.getAddress(arg.tx.sender).toLowerCase();
+
+                try {
+                    evmTx.from = ethers.utils.getAddress(arg.tx.sender).toLowerCase();
+
+                } catch(error) {
+                    logger.info(`error deserializing address \'${arg.tx.sender}\'`);
+                    logger.error(error);
+                    return null;
+                }
 
                 const flatParams = [
                     evmTx.from,

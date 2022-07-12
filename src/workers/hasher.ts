@@ -14,7 +14,7 @@ const createKeccakHash = require('keccak');
 
 export interface HasherBlockInfo{
     nativeBlockNumber: number,
-    evmBlockNum: number,
+    evmBlockNumber: number,
     blockTimestamp: string,
     evmTxs: Array<{
         trx_id: string,
@@ -53,7 +53,7 @@ function drainBlocks() {
     if (blockDrain.length == 0)
         return;
 
-    let current = blockDrain.peek();
+    let current: HasherBlockInfo = blockDrain.peek();
     while (current.nativeBlockNumber == lastInOrder + 1) {
 
         // genereate block hash
@@ -84,7 +84,7 @@ function drainBlocks() {
                 "code": "eosio",
                 "table": "global",
                 "@global": {
-                    "block_num": current.evmBlockNum
+                    "block_num": current.evmBlockNumber
                 },
                 "@evmBlockHash": currentBlockHash 
             }
