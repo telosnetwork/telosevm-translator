@@ -33,7 +33,7 @@ export class ElasticConnector {
     }
 
     getSubfix(blockNum: number) {
-        return String(Math.floor(blockNum / 1000000)).padStart(7, '0');
+        return String(Math.floor(blockNum / 100000)).padStart(8, '0');
     }
 
     async init() {
