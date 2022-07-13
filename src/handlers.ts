@@ -48,11 +48,10 @@ export async function handleEvmTx(
         blockNum, tx, nativeSig, consoleLog
     }]);
 
-    if (result.success) {
+    if (result.success)
         return result.tx;
-    }
-    
-    throw new Error(result.message);
+    else
+        return null;
 }
 
 const stdGasPrice = "0x7a307efa80";

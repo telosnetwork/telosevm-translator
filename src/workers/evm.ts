@@ -47,7 +47,8 @@ parentPort.on(
             } catch (e) {
                 logger.warn('WARNING: Failed to parse receiptLog');
                 logger.warn(receiptLog);
-                return null;
+                return parentPort.postMessage({success: false, message: String(e)});
+
             }
 
             if (receipt.block != arg.blockNum)
@@ -67,7 +68,7 @@ parentPort.on(
                 } catch(error) {
                     logger.info(`error deserializing address \'${arg.tx.sender}\'`);
                     logger.error(error);
-                    return null;
+                    return parentPort.postMessage({success: false, message: String(error)});
                 }
 
                 const flatParams = [
