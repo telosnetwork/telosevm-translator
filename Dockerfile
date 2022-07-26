@@ -1,7 +1,5 @@
 FROM node:lts-bullseye
 
-RUN npm i pm2 -g
-
 RUN mkdir -p /indexer/build
 
 COPY src/ /indexer/src 
@@ -14,4 +12,4 @@ WORKDIR /indexer
 RUN npm i
 RUN npx tsc
 
-CMD ["pm2-runtime", "start", "build/main.js"]
+CMD ["node", "build/main.js"]

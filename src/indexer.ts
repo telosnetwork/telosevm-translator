@@ -238,7 +238,15 @@ export class TEVMIndexer {
         let stopBlock = this.stopBlock;
         let prevHash = null;
 
-        await this.connector.init();
+        let connected = false;
+        while (!connected) {
+            try {
+                await this.connector.init();
+                connected = true;
+            } catch (error) {
+                logger.error(error);
+            }
+        }
 
         logger.info('checking db for blocks...');
         const lastBlock = await this.connector.getLastIndexedBlock();
