@@ -23,6 +23,7 @@ export type IndexerConfig = {
     chainId: number;
     endpoint: string;
     wsEndpoint: string;
+    evmDeployBlock: number;
     startBlock: number;
     stopBlock: number;
     perf: {

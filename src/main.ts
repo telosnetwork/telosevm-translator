@@ -14,6 +14,9 @@ if (process.env.TELOS_ENDPOINT)
 if (process.env.TELOS_WS_ENDPOINT)
     conf.wsEndpoint = process.env.TELOS_WS_ENDPOINT;
 
+if (process.env.EVM_DEPLOY_BLOCK)
+    conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
+
 if (process.env.INDEXER_START_BLOCK)
     conf.startBlock = parseInt(process.env.INDEXER_START_BLOCK, 10);
 

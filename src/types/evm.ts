@@ -100,3 +100,38 @@ export interface StorageEosioDelta {
     },
     "@evmBlockHash": string
 }
+
+export interface EthGenesisParams {
+    Config: {
+        ChainID: number
+    },
+    Nonce: string,
+    Timestamp: string,
+    ExtraData: string,
+    GasLimit: string,
+    Difficulty: string,
+    Mixhash: string,
+    Coinbase: string,
+    Alloc: {[key: string]: {balance: string}},
+}
+
+export interface EthBlockHeader {
+    ParentHash: string, 
+	UncleHash: string,
+	Coinbase: string, 
+	Root: string,  
+	TxHash: string, 
+	ReceiptHash: string,
+	Bloom: string,
+	Difficulty: string,
+	Number: string,
+	GasLimit: string,
+	GasUsed: string,
+	Time: string,
+	Extra: string,
+	MixDigest: string,
+	Nonce: string,
+
+	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	BaseFee: string
+}

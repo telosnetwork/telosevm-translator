@@ -7,6 +7,8 @@ import { StaticPool } from 'node-worker-threads-pool';
 
 import { IndexerConfig } from './types/indexer';
 
+import { EthBlockHeader, EthGenesisParams } from './types/evm';
+
 import {
     extractGlobalContractRow,
     extractShipTraces,
@@ -16,7 +18,7 @@ import {
     getRPCClient
 } from './utils/eosio';
 
-import { removeHexPrefix } from './utils/evm';
+import { ZERO_ADDR, NULL_HASH, BLOCK_TEMPLATE, hashEthObj, EMPTY_LOGS } from './utils/evm';
 
 import * as eosioEvmAbi from './abis/evm.json'
 import * as eosioTokenAbi from './abis/token.json'
@@ -37,7 +39,10 @@ import RPCBroadcaster from './publisher';
 import { hashTxAction } from './ship';
 import {ElasticConnector} from './database/connector';
 
+const BN = require('bn.js');
+
 const createKeccakHash = require('keccak');
+
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -49,14 +54,13 @@ function getContract(contractAbi: RpcInterfaces.Abi) {
 }
 
 
-
 const deltaType = getTableAbiType(eosioSystemAbi.abi, 'eosio', 'global');
 
 export class TEVMIndexer {
     endpoint: string;
     wsEndpoint: string;
-    contracts: {[key: string]: Serialize.Contract};
-    abis: {[key: string]: RpcInterfaces.Abi};
+
+    evmDeployBlock: number;
 
     startBlock: number;
     stopBlock: number;
@@ -64,6 +68,9 @@ export class TEVMIndexer {
     txsSinceLastReport: number = 0;
 
     config: IndexerConfig;
+
+    contracts: {[key: string]: Serialize.Contract};
+    abis: {[key: string]: RpcInterfaces.Abi};
 
     hasher: StaticPool<(x: {type: string, params: any}) => any>;
     reader: StateHistoryBlockReader;
@@ -76,6 +83,9 @@ export class TEVMIndexer {
 
         this.endpoint = telosConfig.endpoint;
         this.wsEndpoint = telosConfig.wsEndpoint;
+
+        this.evmDeployBlock = telosConfig.evmDeployBlock;
+
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
 
@@ -233,6 +243,59 @@ export class TEVMIndexer {
     }
 
     async launch() {
+
+        // get genesis information
+        const genesisBlock = await this.rpc.get_block(
+            this.evmDeployBlock - 1);
+
+        logger.info('evm deployment native genesis block: ');
+        logger.info(JSON.stringify(genesisBlock, null, 4));
+
+        // number of seconds since epoch
+        const genesisTimestamp = Date.parse(genesisBlock.timestamp) / 1000;
+
+        const ethGenesisParams: EthGenesisParams = {
+            Config: {
+                ChainID: this.config.chainId
+            },
+            Nonce: '0x0',
+            Timestamp: `0x${new BN(genesisTimestamp, 16)._strip()}`,
+            ExtraData: `0x${genesisBlock.id}`,
+            GasLimit:  `0x${(21000).toString(16)}`,
+            Difficulty: '0x0',
+            Mixhash: NULL_HASH,
+            Coinbase: ZERO_ADDR,
+            Alloc: {}
+        };
+
+        const ethGenesisHeader: EthBlockHeader = {
+            ParentHash: NULL_HASH,
+            UncleHash: NULL_HASH,
+            Coinbase: ethGenesisParams.Coinbase,
+            Root: NULL_HASH,
+            TxHash: NULL_HASH,
+            ReceiptHash: NULL_HASH,
+            Bloom: EMPTY_LOGS,
+            Difficulty: ethGenesisParams.Difficulty,
+            Number: '0x0',
+            GasLimit: ethGenesisParams.GasLimit,
+            GasUsed: '0x0', 
+            Time: ethGenesisParams.Timestamp,
+            Extra: ethGenesisParams.ExtraData,
+            MixDigest: ethGenesisParams.Mixhash,
+            Nonce: ethGenesisParams.Nonce,
+            BaseFee: '0x0'
+        };
+
+        const ethGenesisBlock = Object.assign({}, BLOCK_TEMPLATE);
+        ethGenesisBlock.Header = ethGenesisHeader;
+
+        logger.info('ethereum genesis block: ');
+        logger.info(JSON.stringify(ethGenesisBlock, null, 4));
+
+        const ethGenesisHash = hashEthObj(ethGenesisBlock);
+
+        logger.info(`hash: ${ethGenesisHash}`);
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
