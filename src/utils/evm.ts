@@ -1,4 +1,4 @@
-import { EthBlockHeader, EvmTransaction } from '../types/evm';
+import { EvmTransaction } from '../types/evm';
 
 
 const ethTrx = require('ethereumjs-tx');
@@ -131,16 +131,6 @@ export const NEW_HEADS_TEMPLATE = {
     TxHash: NULL_HASH,
 };
 
-export const BLOCK_TEMPLATE = {
-    Header: NEW_HEADS_TEMPLATE,
-    // @ts-ignore
-    Uncles: [],
-    // @ts-ignore
-    Transactions: [],
-    Hash: NULL_HASH,
-    Size: "0x0"
-}
-
 
 export function numToHex(input: number | string) {
     if (typeof input === 'number') {
@@ -148,27 +138,4 @@ export function numToHex(input: number | string) {
     } else {
         return '0x' + new BN(input).toString(16)
     }
-}
-
-
-const createKeccakHash = require('keccak');
-
-export function hashEthObj(obj: any) {
-    const hash = createKeccakHash('keccak256');
-
-    for (const [key, value] of Object.entries(obj)) {
-        if (value.constructor == Object) {
-            
-            hash.update(hashEthObj(value));
-
-        } else if (value.constructor == Array) {
-
-            for (const subValue of Array(value))
-                hash.update(hashEthObj(subValue));
-
-        } else
-            hash.update(value);
-    }
-
-    return `0x${hash.digest('hex')}`;
 }

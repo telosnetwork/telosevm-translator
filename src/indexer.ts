@@ -7,7 +7,7 @@ import { StaticPool } from 'node-worker-threads-pool';
 
 import { IndexerConfig } from './types/indexer';
 
-import { EthBlockHeader, EthGenesisParams } from './types/evm';
+import { ethGenesisParams, ethBlockHeader } from './types/evm';
 
 import {
     extractGlobalContractRow,
@@ -17,8 +17,6 @@ import {
     getActionAbiType,
     getRPCClient
 } from './utils/eosio';
-
-import { ZERO_ADDR, NULL_HASH, BLOCK_TEMPLATE, hashEthObj, EMPTY_LOGS } from './utils/evm';
 
 import * as eosioEvmAbi from './abis/evm.json'
 import * as eosioTokenAbi from './abis/token.json'
@@ -254,46 +252,30 @@ export class TEVMIndexer {
         // number of seconds since epoch
         const genesisTimestamp = Date.parse(genesisBlock.timestamp) / 1000;
 
-        const ethGenesisParams: EthGenesisParams = {
-            Config: {
-                ChainID: this.config.chainId
-            },
-            Nonce: '0x0',
-            Timestamp: `0x${new BN(genesisTimestamp, 16)._strip()}`,
-            ExtraData: `0x${genesisBlock.id}`,
-            GasLimit:  `0x${(21000).toString(16)}`,
-            Difficulty: '0x0',
-            Mixhash: NULL_HASH,
-            Coinbase: ZERO_ADDR,
-            Alloc: {}
-        };
+        const genesisParams = ethGenesisParams(
+            genesisTimestamp, this.config.chainId, 21000, genesisBlock.id);
 
-        const ethGenesisHeader: EthBlockHeader = {
-            ParentHash: NULL_HASH,
-            UncleHash: NULL_HASH,
-            Coinbase: ethGenesisParams.Coinbase,
-            Root: NULL_HASH,
-            TxHash: NULL_HASH,
-            ReceiptHash: NULL_HASH,
-            Bloom: EMPTY_LOGS,
-            Difficulty: ethGenesisParams.Difficulty,
-            Number: '0x0',
-            GasLimit: ethGenesisParams.GasLimit,
-            GasUsed: '0x0', 
-            Time: ethGenesisParams.Timestamp,
-            Extra: ethGenesisParams.ExtraData,
-            MixDigest: ethGenesisParams.Mixhash,
-            Nonce: ethGenesisParams.Nonce,
-            BaseFee: '0x0'
-        };
+        logger.info('ethereum genesis parameters: ');
+        logger.info(JSON.stringify(genesisParams.toJSON(), null, 4));
 
-        const ethGenesisBlock = Object.assign({}, BLOCK_TEMPLATE);
-        ethGenesisBlock.Header = ethGenesisHeader;
+        const genesisBlockHeader = ethBlockHeader();
 
-        logger.info('ethereum genesis block: ');
-        logger.info(JSON.stringify(ethGenesisBlock, null, 4));
+        for (const key of [
+            'coinbase',
+            'difficulty',
+            'gasLimit',
+            'timestamp',
+            'extraData',
+            'mixHash',
+            'nonce'
+        ])
+            genesisBlockHeader.set(
+                key, genesisParams.get(key));
 
-        const ethGenesisHash = hashEthObj(ethGenesisBlock);
+        logger.info('ethereum genesis block header: ');
+        logger.info(JSON.stringify(genesisBlockHeader.toJSON(), null, 4));
+
+        const ethGenesisHash = genesisBlockHeader.hash().toPrefixedString();
 
         logger.info(`hash: ${ethGenesisHash}`);
 
