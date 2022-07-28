@@ -1,3 +1,5 @@
+import Bloom from "../utils/evm";
+
 const BN = require('bn.js');
 const createKeccakHash = require('keccak');
 
@@ -83,6 +85,7 @@ export interface StorageEvmTransaction {
         address: string,
         topics: string[]
     }[],
+    bloom?: Bloom,
     logsBloom?: string,
     errors?: string[],
     value_d?: number 
@@ -118,6 +121,9 @@ export interface EthGenesisParams {
     Coinbase: string,
     Alloc: {[key: string]: {balance: string}},
 }
+
+// 1,000,000,000
+export const BLOCK_GAS_LIMIT = '0x3b9aca00'
 
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 export const ZERO_HASH32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -206,7 +212,7 @@ export class NonceHex extends HexString {
     }
 };
 
-type EthObjectValue = EthOrderedObject | Array<EthObjectValue | EthOrderedObject | HexString> | HexString;
+type EthObjectValue = EthOrderedObject | HexString | Array<EthObjectValue>;
 
 export function isEthOrderedObject(obj: any): obj is EthOrderedObject {
     return obj instanceof EthOrderedObject;
@@ -223,6 +229,25 @@ export function isEthObjectArray(obj: any): obj is Array<EthObjectValue> {
         return true;
     } else
         return false;
+}
+
+function applyToArray(
+    array: Array<EthObjectValue>,
+    ethObjFn: (val: EthOrderedObject, i: number) => any,
+    hexStrFn: (val: HexString, i: number) => any
+) {
+    let i = 0;
+    for (const value of array) {
+        if (isEthOrderedObject(value))
+            ethObjFn(value, i);
+
+        else if (isEthObjectArray(value))
+            applyToArray(value, ethObjFn, hexStrFn); 
+
+        else if (value instanceof HexString)
+            hexStrFn(value, i);
+        i++;
+    }
 }
 
 export class EthOrderedObject {
@@ -249,43 +274,45 @@ export class EthOrderedObject {
 
     hash(): Hash32 {
         const hash = createKeccakHash('keccak256');
-        for (const value of this.data.values()) {
-            if (isEthOrderedObject(value)) {
-                hash.update(value.hash());
-            } else if (isEthObjectArray(value)) {
-                for (const subValue of value) {
-                    if (isEthOrderedObject(subValue))
-                        hash.update(subValue.hash());
-                    else if (subValue instanceof HexString)
-                        hash.update(subValue.toPrefixedString());
-                }
 
-            } else if (value instanceof HexString) {
-                hash.update(value.toPrefixedString());
-            }
-        }
+        const ethObjFn = (obj: EthOrderedObject, i: number) => {
+            hash.update(obj.hash());
+        };
+
+        const hexStrFn = (val: HexString, i: number) => {
+            hash.update(val.toPrefixedString());
+        };
+
+        const hashArray: EthObjectValue[] = [];
+        for (const val of this.data.values())
+            hashArray.push(val);
+
+        applyToArray(hashArray, ethObjFn, hexStrFn);
+
         return new Hash32(hash.digest('hex'));
     }
 
     toJSON() {
+
         const obj = Object.fromEntries(this.data);
         const newObj: {[k: string]: any} = {};
+        const keysArray: string[] = [];
 
+        const ethObjFn = (obj: EthOrderedObject, i: number) => {
+            newObj[keysArray[i]] = obj.toJSON();
+        };
+
+        const hexStrFn = (val: HexString, i: number) => {
+            newObj[keysArray[i]] = val.toPrefixedString();
+        };
+
+        const hashArray: EthObjectValue[] = [];
         for (const [key, val] of Object.entries(obj)) {
-            if (isEthOrderedObject(val)) {
-                newObj[key] = val.toJSON();
-            } else if (isEthObjectArray(val)) {
-                let arr = [];
-                for (const subValue of val)
-                    if (isEthOrderedObject(subValue))
-                        arr.push(subValue.toString());
-                    else if (subValue instanceof HexString)
-                        arr.push(subValue.toPrefixedString());
-                newObj[key] = arr;
-            } else if (val instanceof HexString) {
-                newObj[key] = val.toPrefixedString();
-            }
+            keysArray.push(key);
+            hashArray.push(val);
         }
+
+        applyToArray(hashArray, ethObjFn, hexStrFn);
 
         return newObj;
     }
@@ -333,5 +360,14 @@ export function ethBlockHeader() {
         ['extraData', new HexString('')],
         ['mixHash', new Hash32(ZERO_HASH32)],
         ['nonce', new NonceHex(0)]
+    ]);
+}
+
+export function ethReceipt() {
+    return new EthOrderedObject([
+        ['postState', new BigIntHex(0)],
+        ['gasUsed', new BigIntHex(0)],
+        ['bloom', new BloomHex()],
+        ['logs', []]
     ]);
 }

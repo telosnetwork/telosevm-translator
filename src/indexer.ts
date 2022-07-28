@@ -7,7 +7,7 @@ import { StaticPool } from 'node-worker-threads-pool';
 
 import { IndexerConfig } from './types/indexer';
 
-import { ethGenesisParams, ethBlockHeader } from './types/evm';
+import { ethGenesisParams, ethBlockHeader, Hash32 } from './types/evm';
 
 import {
     extractGlobalContractRow,
@@ -59,9 +59,10 @@ export class TEVMIndexer {
     wsEndpoint: string;
 
     evmDeployBlock: number;
-
     startBlock: number;
     stopBlock: number;
+
+    ethGenesisHash: Hash32;
 
     txsSinceLastReport: number = 0;
 
@@ -222,6 +223,7 @@ export class TEVMIndexer {
 
         const hasherResp = await this.hasher.exec({
             type: 'block', params: {
+                nativeBlockHash: resp.block.block_id,
                 nativeBlockNumber: currentBlock,
                 evmBlockNumber: eosioGlobalState.block_num,
                 blockTimestamp: resp.block.timestamp,
@@ -275,39 +277,39 @@ export class TEVMIndexer {
         logger.info('ethereum genesis block header: ');
         logger.info(JSON.stringify(genesisBlockHeader.toJSON(), null, 4));
 
-        const ethGenesisHash = genesisBlockHeader.hash().toPrefixedString();
+        this.ethGenesisHash = genesisBlockHeader.hash();
 
-        logger.info(`hash: ${ethGenesisHash}`);
+        logger.info(`ethereum genesis hash: ${this.ethGenesisHash.toPrefixedString()}`);
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
         let prevHash = null;
 
-        let connected = false;
-        while (!connected) {
-            try {
-                await this.connector.init();
-                connected = true;
-            } catch (error) {
-                logger.error(error);
-            }
-        }
+        await this.connector.init();
 
         logger.info('checking db for blocks...');
         const lastBlock = await this.connector.getLastIndexedBlock();
 
         if (lastBlock != null) {
+            // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
             startBlock = lastBlock.block_num;
-            prevHash = lastBlock['@evmBlockHash'];
+            prevHash = new Hash32(lastBlock['@evmBlockHash']);
             logger.info(
-                `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash ${prevHash}`);
+                `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash ${prevHash.toPrefixedString()}`);
 
         } else {
-            prevHash = createKeccakHash('keccak256')
-                .update(this.config.chainId.toString(16))
-                .digest('hex');
-            logger.info(`not found, start from ${startBlock} with hash ${prevHash}.`);
+            // prev blocks not found, start from genesis or EVM_PREV_HASH
+            if (this.config.startBlock == this.config.evmDeployBlock) {
+                prevHash = this.ethGenesisHash;
+
+            } else if (this.config.evmPrevHash != '') {
+                prevHash = new Hash32(this.config.evmPrevHash);
+
+            } else
+                throw new Error('Configuration error, no way to get prev hash.');
+
+            logger.info(`start from ${startBlock} with hash ${prevHash.toPrefixedString()}.`);
         }
 
         this.hasher = new StaticPool({

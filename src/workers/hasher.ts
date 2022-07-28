@@ -3,9 +3,19 @@ import { parentPort, workerData } from 'worker_threads';
 import { ConnectorConfig  } from '../types/indexer';
 import { ElasticConnector } from '../database/connector';
 
-import {StorageEosioAction, StorageEvmTransaction} from '../types/evm';
+import {
+    ethBlockHeader,
+    StorageEosioAction, StorageEvmTransaction,
+    Hash32,
+    TreeRoot,
+    BigIntHex,
+    BLOCK_GAS_LIMIT,
+    HexString,
+    BloomHex
+} from '../types/evm';
 
 import logger from '../utils/winston';
+import Bloom from '../utils/evm';
 
 var PriorityQueue = require("js-priority-queue");
 
@@ -13,6 +23,7 @@ const createKeccakHash = require('keccak');
 
 
 export interface HasherBlockInfo{
+    nativeBlockHash: string,
     nativeBlockNumber: number,
     evmBlockNumber: number,
     blockTimestamp: string,
@@ -30,7 +41,7 @@ const args: {
     chainId: number,
     elasticConf: ConnectorConfig,
     startBlock: number,
-    prevHash: string
+    prevHash: Hash32 
 } = workerData;
 
 const connector = new ElasticConnector(
@@ -48,6 +59,79 @@ const blockDrain = new PriorityQueue({
 let lastInOrder = args.startBlock;
 let prevHash = args.prevHash;
 
+
+function generateTxRootHash(
+    evmTxs: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }>
+): TreeRoot {
+    const hash = createKeccakHash('keccak256');
+
+    evmTxs.sort(
+        // @ts-ignore
+        (a, b) => {
+            return a.action_ordinal - b.action_ordinal;
+        }
+    );
+
+    for (const tx of evmTxs)
+        hash.update(tx.evmTx.hash);
+
+    return new TreeRoot(hash.digest('hex'));
+}
+
+
+function getBlockGasUsed(
+    evmTxs: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }>
+): BigIntHex {
+
+    let totalGasUsed = 0;
+
+    for (const evmTx of evmTxs)
+        totalGasUsed += evmTx.evmTx.gasused;
+
+    return new BigIntHex(totalGasUsed);
+}
+
+function generateReceiptRootHash(
+    evmTxs: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }>
+): TreeRoot {
+    
+    return new TreeRoot(''); 
+}
+
+function generateBloom(
+    evmTxs: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }>
+):BloomHex {
+    const blockBloom: Bloom = new Bloom();
+
+    for (const evmTx of evmTxs) {
+        if (evmTx.evmTx.bloom)
+            blockBloom.or(evmTx.evmTx.bloom);
+    }
+
+    return new BloomHex(blockBloom.bitvector.toString('hex'));
+}
+
+
 function drainBlocks() {
 
     if (blockDrain.length == 0)
@@ -56,23 +140,22 @@ function drainBlocks() {
     let current: HasherBlockInfo = blockDrain.peek();
     while (current.nativeBlockNumber == lastInOrder + 1) {
 
-        // genereate block hash
-        const hash = createKeccakHash('keccak256');
-        hash.update(prevHash);
+        const evmTxs = current.evmTxs;
 
-        const evmTxs = current.evmTxs; 
+        // genereate 'valid' block header
+        const blockHeader = ethBlockHeader();
 
-        evmTxs.sort(
-            // @ts-ignore
-            (a, b) => {
-                return a.action_ordinal - b.action_ordinal;
-            }
-        );
+        blockHeader.set('parentHash', prevHash);
+        blockHeader.set('transactionRoot', generateTxRootHash(evmTxs));
+        //blockHeader.set('receiptRoot', generateReceiptRootHash(evmTxs));
+        blockHeader.set('bloom', generateBloom(evmTxs));
+        blockHeader.set('blockNumber', new BigIntHex(current.evmBlockNumber));
+        blockHeader.set('gasLimit', new BigIntHex(BLOCK_GAS_LIMIT));
+        blockHeader.set('gasUsed', getBlockGasUsed(current.evmTxs));
+        blockHeader.set('timestamp', new BigIntHex(Date.parse(current.blockTimestamp) / 1000));
+        blockHeader.set('extraData', new HexString(current.nativeBlockHash));
 
-        for (const tx of evmTxs)
-            hash.update(tx.evmTx.hash);
-
-        const currentBlockHash = hash.digest('hex');
+        const currentBlockHash = blockHeader.hash().toString();
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -108,7 +191,7 @@ function drainBlocks() {
 
         lastInOrder = current.nativeBlockNumber;
 
-        prevHash = currentBlockHash;
+        prevHash = new Hash32(currentBlockHash);
         blockDrain.dequeue();
 
         if (blockDrain.length > 0)

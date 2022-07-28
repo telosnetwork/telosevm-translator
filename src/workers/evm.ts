@@ -43,7 +43,7 @@ parentPort.on(
             let receipt;
             try {
                 receipt = JSON.parse(receiptLog);
-                logger.debug(`Receipt: ${JSON.stringify(receipt)}`);
+                logger.info(`Receipt: ${JSON.stringify(receipt)}`);
             } catch (e) {
                 logger.warn('WARNING: Failed to parse receiptLog');
                 logger.warn(receiptLog);
@@ -148,6 +148,7 @@ parentPort.on(
                             bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
                     }
 
+                    txBody['bloom'] = bloom;
                     txBody['logsBloom'] = bloom.bitvector.toString('hex');
                 }
             }
