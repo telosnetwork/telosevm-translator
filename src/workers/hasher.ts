@@ -4,14 +4,7 @@ import { ConnectorConfig  } from '../types/indexer';
 import { ElasticConnector } from '../database/connector';
 
 import {
-    ethBlockHeader,
     StorageEosioAction, StorageEvmTransaction,
-    Hash32,
-    TreeRoot,
-    BigIntHex,
-    BLOCK_GAS_LIMIT,
-    HexString,
-    BloomHex
 } from '../types/evm';
 
 import logger from '../utils/winston';
@@ -19,7 +12,10 @@ import Bloom from '../utils/evm';
 
 var PriorityQueue = require("js-priority-queue");
 
+import { BlockHeader } from '@ethereumjs/block'
+
 const createKeccakHash = require('keccak');
+const BN = require('bn.js');
 
 
 export interface HasherBlockInfo{
@@ -41,7 +37,7 @@ const args: {
     chainId: number,
     elasticConf: ConnectorConfig,
     startBlock: number,
-    prevHash: Hash32 
+    prevHash: string 
 } = workerData;
 
 const connector = new ElasticConnector(
@@ -67,7 +63,7 @@ function generateTxRootHash(
         signatures: string[],
         evmTx: StorageEvmTransaction
     }>
-): TreeRoot {
+): Buffer {
     const hash = createKeccakHash('keccak256');
 
     evmTxs.sort(
@@ -80,7 +76,7 @@ function generateTxRootHash(
     for (const tx of evmTxs)
         hash.update(tx.evmTx.hash);
 
-    return new TreeRoot(hash.digest('hex'));
+    return Buffer.from(hash.digest('hex'), 'hex');
 }
 
 
@@ -91,26 +87,14 @@ function getBlockGasUsed(
         signatures: string[],
         evmTx: StorageEvmTransaction
     }>
-): BigIntHex {
+): typeof BN {
 
     let totalGasUsed = 0;
 
     for (const evmTx of evmTxs)
         totalGasUsed += evmTx.evmTx.gasused;
 
-    return new BigIntHex(totalGasUsed);
-}
-
-function generateReceiptRootHash(
-    evmTxs: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }>
-): TreeRoot {
-    
-    return new TreeRoot(''); 
+    return new BN(totalGasUsed);
 }
 
 function generateBloom(
@@ -120,7 +104,7 @@ function generateBloom(
         signatures: string[],
         evmTx: StorageEvmTransaction
     }>
-):BloomHex {
+): Buffer {
     const blockBloom: Bloom = new Bloom();
 
     for (const evmTx of evmTxs) {
@@ -128,7 +112,7 @@ function generateBloom(
             blockBloom.or(evmTx.evmTx.bloom);
     }
 
-    return new BloomHex(blockBloom.bitvector.toString('hex'));
+    return blockBloom.bitvector;
 }
 
 
@@ -143,19 +127,19 @@ function drainBlocks() {
         const evmTxs = current.evmTxs;
 
         // genereate 'valid' block header
-        const blockHeader = ethBlockHeader();
+        const blockHeader = BlockHeader.fromHeaderData({
+            'parentHash': Buffer.from(prevHash, 'hex'),
+            'transactionsTrie': generateTxRootHash(evmTxs),
+            'bloom': generateBloom(evmTxs),
+            'number': new BN(current.evmBlockNumber),
+            'gasLimit': new BN(1000000000),
+            'gasUsed': getBlockGasUsed(evmTxs),
+            'difficulty': new BN(0),
+            'timestamp': new BN(Date.parse(current.blockTimestamp) / 1000),
+            'extraData': Buffer.from(current.nativeBlockHash, 'hex')
+        })
 
-        blockHeader.set('parentHash', prevHash);
-        blockHeader.set('transactionRoot', generateTxRootHash(evmTxs));
-        //blockHeader.set('receiptRoot', generateReceiptRootHash(evmTxs));
-        blockHeader.set('bloom', generateBloom(evmTxs));
-        blockHeader.set('blockNumber', new BigIntHex(current.evmBlockNumber));
-        blockHeader.set('gasLimit', new BigIntHex(BLOCK_GAS_LIMIT));
-        blockHeader.set('gasUsed', getBlockGasUsed(current.evmTxs));
-        blockHeader.set('timestamp', new BigIntHex(Date.parse(current.blockTimestamp) / 1000));
-        blockHeader.set('extraData', new HexString(current.nativeBlockHash));
-
-        const currentBlockHash = blockHeader.hash().toString();
+        const currentBlockHash = blockHeader.hash().toString('hex');
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -191,7 +175,7 @@ function drainBlocks() {
 
         lastInOrder = current.nativeBlockNumber;
 
-        prevHash = new Hash32(currentBlockHash);
+        prevHash = currentBlockHash;
         blockDrain.dequeue();
 
         if (blockDrain.length > 0)

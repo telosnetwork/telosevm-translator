@@ -7,8 +7,6 @@ import { StaticPool } from 'node-worker-threads-pool';
 
 import { IndexerConfig } from './types/indexer';
 
-import { ethGenesisParams, ethBlockHeader, Hash32 } from './types/evm';
-
 import {
     extractGlobalContractRow,
     extractShipTraces,
@@ -37,6 +35,8 @@ import RPCBroadcaster from './publisher';
 import { hashTxAction } from './ship';
 import {ElasticConnector} from './database/connector';
 
+import { BlockHeader } from '@ethereumjs/block'
+
 const BN = require('bn.js');
 
 const createKeccakHash = require('keccak');
@@ -62,7 +62,7 @@ export class TEVMIndexer {
     startBlock: number;
     stopBlock: number;
 
-    ethGenesisHash: Hash32;
+    ethGenesisHash: string;
 
     txsSinceLastReport: number = 0;
 
@@ -254,32 +254,21 @@ export class TEVMIndexer {
         // number of seconds since epoch
         const genesisTimestamp = Date.parse(genesisBlock.timestamp) / 1000;
 
-        const genesisParams = ethGenesisParams(
-            genesisTimestamp, this.config.chainId, 21000, genesisBlock.id);
+        const header = BlockHeader.fromHeaderData({
+            'gasLimit': new BN(21000),
+            'number': new BN(0),
+            'difficulty': new BN(0),
+            'timestamp': new BN(genesisTimestamp),
+            'extraData': Buffer.from(genesisBlock.id, 'hex'),
+            'stateRoot': Buffer.from('56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421', 'hex')
+        })
 
-        logger.info('ethereum genesis parameters: ');
-        logger.info(JSON.stringify(genesisParams.toJSON(), null, 4));
-
-        const genesisBlockHeader = ethBlockHeader();
-
-        for (const key of [
-            'coinbase',
-            'difficulty',
-            'gasLimit',
-            'timestamp',
-            'extraData',
-            'mixHash',
-            'nonce'
-        ])
-            genesisBlockHeader.set(
-                key, genesisParams.get(key));
+        this.ethGenesisHash = header.hash().toString('hex');
 
         logger.info('ethereum genesis block header: ');
-        logger.info(JSON.stringify(genesisBlockHeader.toJSON(), null, 4));
+        logger.info(JSON.stringify(header.toJSON(), null, 4));
 
-        this.ethGenesisHash = genesisBlockHeader.hash();
-
-        logger.info(`ethereum genesis hash: ${this.ethGenesisHash.toPrefixedString()}`);
+        logger.info(`ethereum genesis hash: ${this.ethGenesisHash}`);
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
@@ -294,7 +283,7 @@ export class TEVMIndexer {
             // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
             startBlock = lastBlock.block_num;
-            prevHash = new Hash32(lastBlock['@evmBlockHash']);
+            prevHash = lastBlock['@evmBlockHash'];
             logger.info(
                 `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash ${prevHash.toPrefixedString()}`);
 
@@ -304,12 +293,12 @@ export class TEVMIndexer {
                 prevHash = this.ethGenesisHash;
 
             } else if (this.config.evmPrevHash != '') {
-                prevHash = new Hash32(this.config.evmPrevHash);
+                prevHash = this.config.evmPrevHash;
 
             } else
                 throw new Error('Configuration error, no way to get prev hash.');
 
-            logger.info(`start from ${startBlock} with hash ${prevHash.toPrefixedString()}.`);
+            logger.info(`start from ${startBlock} with hash ${prevHash}.`);
         }
 
         this.hasher = new StaticPool({
