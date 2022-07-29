@@ -1,3 +1,4 @@
+import {ethers} from "ethers";
 import Bloom from "../utils/evm";
 
 const BN = require('bn.js');
@@ -132,6 +133,7 @@ export const EMPTY_UNCLE_HASH = '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7
 export const EMPTY_SHA3 = '0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421';
 export const EMPTY_ROOT_HASH = '0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421';
 
+
 export class HexString {
     protected str: string;
 
@@ -160,7 +162,7 @@ export class BigIntHex extends HexString {
             hexStr = val;
 
         else
-            hexStr = '0x' + new BN(val).toString(16);
+            hexStr = '0x' + new BN(val).toString(16, 2);
         super(hexStr);
     }
 };
@@ -213,6 +215,7 @@ export class NonceHex extends HexString {
 };
 
 type EthObjectValue = EthOrderedObject | HexString | Array<EthObjectValue>;
+type EthRLPValue = string | Array<EthRLPValue>;
 
 export function isEthOrderedObject(obj: any): obj is EthOrderedObject {
     return obj instanceof EthOrderedObject;
@@ -250,6 +253,38 @@ function applyToArray(
     }
 }
 
+function encodeArray(arr: Array<EthObjectValue>): Array<EthRLPValue> {
+    const newArr = [];
+    for (const val of arr) {
+        if (isEthOrderedObject(val))
+            newArr.push(flatten(val)); 
+
+        else if (isEthObjectArray(val))
+            newArr.push(encodeArray(val));
+
+        else if (val instanceof HexString)
+            arr.push(val)
+    }
+    return newArr;
+}
+
+function flatten(obj: EthOrderedObject): Array<EthRLPValue> {
+    const arr: Array<EthRLPValue> = [];
+
+    for (const val of obj.data.values()) {
+        if (isEthOrderedObject(val))
+            arr.push(flatten(val)); 
+
+        else if (isEthObjectArray(val))
+            arr.push(encodeArray(val));
+              
+        else if (val instanceof HexString)
+            arr.push(val.toPrefixedString()) 
+    }
+
+    return arr;
+}
+
 export class EthOrderedObject {
     data: Map<
         string,
@@ -272,28 +307,21 @@ export class EthOrderedObject {
         this.data.set(key, val);
     }
 
+    flatten(): Array<EthRLPValue> {
+        return flatten(this);
+    }
+
     hash(): Hash32 {
-        const hash = createKeccakHash('keccak256');
+        const flatParams = this.flatten();
+        const rlpEncoded = ethers.utils.RLP.encode(flatParams);
+        const rlpHash = createKeccakHash('keccak256')
+            .update(rlpEncoded)
+            .digest('hex');
 
-        const ethObjFn = (obj: EthOrderedObject, i: number) => {
-            hash.update(obj.hash());
-        };
-
-        const hexStrFn = (val: HexString, i: number) => {
-            hash.update(val.toPrefixedString());
-        };
-
-        const hashArray: EthObjectValue[] = [];
-        for (const val of this.data.values())
-            hashArray.push(val);
-
-        applyToArray(hashArray, ethObjFn, hexStrFn);
-
-        return new Hash32(hash.digest('hex'));
+        return new Hash32(rlpHash);
     }
 
     toJSON() {
-
         const obj = Object.fromEntries(this.data);
         const newObj: {[k: string]: any} = {};
         const keysArray: string[] = [];
