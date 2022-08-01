@@ -1,10 +1,4 @@
-import {ethers} from "ethers";
-import Bloom from "../utils/evm";
-import logger from '../utils/winston';
-
-const BN = require('bn.js');
-const createKeccakHash = require('keccak');
-
+import {Transaction} from "@ethereumjs/tx"
 
 export interface EosioEvmRaw {
     ram_payer: string,
@@ -64,7 +58,7 @@ export interface InteralEvmTransaction {
 
 export interface StorageEvmTransaction {
     hash: string,
-    from: string,
+    from?: string,
     trx_index: number,
     block: number,
     block_hash: string,
@@ -85,12 +79,13 @@ export interface StorageEvmTransaction {
     output: string,
     logs?: {
         address: string,
-        topics: string[]
+        topics: string[],
+        data: string
     }[],
-    bloom?: Bloom,
     logsBloom?: string,
     errors?: string[],
-    value_d?: number 
+    value_d?: number,
+    raw?: Buffer
 }
 
 export interface StorageEosioAction {

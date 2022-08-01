@@ -17,6 +17,7 @@ import {
 } from './utils/eosio';
 
 import * as eosioEvmAbi from './abis/evm.json'
+import * as eosioMsigAbi from './abis/msig.json';
 import * as eosioTokenAbi from './abis/token.json'
 import * as eosioSystemAbi from './abis/system.json'
 
@@ -38,8 +39,6 @@ import {ElasticConnector} from './database/connector';
 import { BlockHeader } from '@ethereumjs/block'
 
 const BN = require('bn.js');
-
-const createKeccakHash = require('keccak');
 
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
@@ -65,6 +64,8 @@ export class TEVMIndexer {
     ethGenesisHash: string;
 
     txsSinceLastReport: number = 0;
+    lastMsigBlock: number = -1;
+    lastMsigAuth: string = null;
 
     config: IndexerConfig;
 
@@ -104,11 +105,13 @@ export class TEVMIndexer {
 
         this.abis = {
             'eosio.evm': eosioEvmAbi.abi,
+            'eosio.msig': eosioMsigAbi.abi,
             'eosio.token': eosioTokenAbi.abi,
             'eosio': eosioSystemAbi.abi
         };
         this.contracts = {
             'eosio.evm': getContract(eosioEvmAbi.abi),
+            'eosio.msig': getContract(eosioMsigAbi.abi),
             'eosio.token': getContract(eosioTokenAbi.abi),
             'eosio': getContract(eosioSystemAbi.abi)
         };
@@ -135,8 +138,14 @@ export class TEVMIndexer {
         const transactions = extractShipTraces(resp.traces);
 
         for (const tx of transactions) {
-            const contractWhitelist = ["eosio.evm", "eosio.token"];
-            const actionWhitelist = ["raw", "withdraw", "transfer"]
+            const contractWhitelist = [
+                "eosio.evm", "eosio.token",  // evm
+                "eosio.msig"  // deferred transaction sig catch
+            ];
+            const actionWhitelist = [
+                "raw", "withdraw", "transfer",  // evm
+                "exec" // msig deferred sig catch 
+            ]
 
             const action = tx.trace.act;
 
@@ -151,6 +160,7 @@ export class TEVMIndexer {
             const actionData = deserializeEosioType(
                 type, action.data, this.contracts[action.account].types);
 
+            // discard transfers to accounts other than eosio.evm
             if (action.name == "transfer" && actionData.to != "eosio.evm")
                 continue;
 
@@ -165,18 +175,35 @@ export class TEVMIndexer {
                 }
             }
 
-            if (!foundSig) {
-                logger.info(JSON.stringify(tx, null, 4));
-                logger.error('Couldn\'t find signature that matches trace:');
-                logger.error('action: ' + JSON.stringify(action));
-                logger.error('actionData: ' + JSON.stringify(actionData));
-                logger.error('hash:   ' + JSON.stringify(actionHash));
-                logger.error('signatures:');
-                logger.error(JSON.stringify(resp.block.signatures, null, 4));
-                throw new Error();
-            }
+            let signature = null;
 
-            const signature = resp.block.signatures[actionHash][0];
+            if (!foundSig) {
+                // handle deferred transactions, if we had an msig
+                // in the last 3 blocks use that auth for evm transaction
+                if (currentBlock - this.lastMsigBlock <= 3)
+                       signature = this.lastMsigAuth;
+
+                else {
+                    logger.info(JSON.stringify(tx, null, 4));
+                    logger.error('Couldn\'t find signature that matches trace:');
+                    logger.error(`last msig block: ${this.lastMsigBlock}`);
+                    logger.error(`last msig auth: ${this.lastMsigAuth}`);
+                    logger.error('action: ' + JSON.stringify(action));
+                    logger.error('actionData: ' + JSON.stringify(actionData));
+                    logger.error('hash:   ' + JSON.stringify(actionHash));
+                    logger.error('signatures:');
+                    logger.error(JSON.stringify(resp.block.signatures, null, 4));
+                    throw new Error();
+                }
+            } else
+                signature = resp.block.signatures[actionHash][0];
+
+            if (action.account == 'eosio.msig' && action.name == 'exec') {
+                this.lastMsigBlock = currentBlock;
+                this.lastMsigAuth = signature;
+                logger.info("Multi sig exec signature captured")
+                continue;
+            }
 
             let evmTx: StorageEvmTransaction = null;
             if (action.account == "eosio.evm") {
@@ -268,7 +295,7 @@ export class TEVMIndexer {
         logger.info('ethereum genesis block header: ');
         logger.info(JSON.stringify(header.toJSON(), null, 4));
 
-        logger.info(`ethereum genesis hash: ${this.ethGenesisHash}`);
+        logger.info(`ethereum genesis hash: 0x${this.ethGenesisHash}`);
 
         let startBlock = this.startBlock;
         let stopBlock = this.stopBlock;
@@ -285,7 +312,7 @@ export class TEVMIndexer {
             startBlock = lastBlock.block_num;
             prevHash = lastBlock['@evmBlockHash'];
             logger.info(
-                `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash ${prevHash.toPrefixedString()}`);
+                `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`);
 
         } else {
             // prev blocks not found, start from genesis or EVM_PREV_HASH
@@ -298,7 +325,7 @@ export class TEVMIndexer {
             } else
                 throw new Error('Configuration error, no way to get prev hash.');
 
-            logger.info(`start from ${startBlock} with hash ${prevHash}.`);
+            logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
         }
 
         this.hasher = new StaticPool({

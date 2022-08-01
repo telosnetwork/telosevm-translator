@@ -9,34 +9,37 @@ import { parseAsset } from './utils/eosio';
 import logger from './utils/winston';
 
 const {Signature} = require('eosjs-ecc');
-const createKeccakHash = require('keccak');
 
 // ethereum tools
 var Units = require('ethereumjs-units');
-const ethers = require('ethers')
 const BN = require('bn.js');
 import {Transaction} from '@ethereumjs/tx';
-import {default as ethCommon} from '@ethereumjs/common';
+import Common from '@ethereumjs/common'
+import { Chain, Hardfork } from '@ethereumjs/common'
 import {JsonRpc} from 'eosjs';
 import {StaticPool} from 'node-worker-threads-pool';
+import {isValidAddress} from '@ethereumjs/util';
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 
-
-let common: ethCommon = null;
+let common: Common = null;
+let deseralizationPool: StaticPool<(x: any) => any> = null;
 
 export function setCommon(chainId: number) {
-    common = ethCommon.forCustomChain(
-        "mainnet",
-        {chainId: chainId},
-        "istanbul" 
-    );
+    common = Common.custom({
+        chainId: chainId,
+        defaultHardfork: Hardfork.Istanbul
+    }, {
+        baseChain: Chain.Mainnet
+    });
+    deseralizationPool = new StaticPool({
+        size: 8,
+        task: './build/workers/evm.js',
+        workerData: {
+            chainId: chainId
+        }
+    });
 }
-
-const deseralizationPool = new StaticPool({
-    size: 8,
-    task: './build/workers/evm.js'
-});
 
 export async function handleEvmTx(
     blockNum: number,
@@ -50,8 +53,10 @@ export async function handleEvmTx(
 
     if (result.success)
         return result.tx;
-    else
+    else {
+        logger.error(JSON.stringify(result, null, 4));
         return null;
+    }
 }
 
 const stdGasPrice = "0x7a307efa80";
@@ -97,10 +102,10 @@ export async function handleEvmDeposit(
             return null;
         }
     } else {
-        try {
-            toAddr = ethers.utils.getAddress(tx.memo);
+        if(isValidAddress(tx.memo))
+            toAddr = tx.memo;
 
-        } catch (error) {
+        else {
             const address = await queryAddress(tx.from, rpc);
 
             if (!address) {
@@ -150,6 +155,7 @@ export async function handleEvmDeposit(
         gasusedblock: 0,
         charged_gas_price: 0,
         output: "",
+        raw: evmTx.serialize()
     };
 
     return txBody;
@@ -203,6 +209,7 @@ export async function handleEvmWithdraw(
         gasusedblock: 0,
         charged_gas_price: 0,
         output: "",
+        raw: evmTx.serialize()
     };
 
     return txBody;

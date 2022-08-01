@@ -12,25 +12,33 @@ import Bloom from '../utils/evm';
 
 var PriorityQueue = require("js-priority-queue");
 
-import { BlockHeader } from '@ethereumjs/block'
+import { BlockHeader } from '@ethereumjs/block';
+import { Trie } from '@ethereumjs/trie';
+import RLP from 'rlp';
+import {
+  bigIntToBuffer,
+  bufArrToArr,
+  intToBuffer,
+} from '@ethereumjs/util';
+import {Log} from '@ethereumjs/vm/dist/evm/types';
 
-const createKeccakHash = require('keccak');
 const BN = require('bn.js');
 
+
+type TxArray = Array<{
+    trx_id: string,
+    action_ordinal: number,
+    signatures: string[],
+    evmTx: StorageEvmTransaction
+}>;
 
 export interface HasherBlockInfo{
     nativeBlockHash: string,
     nativeBlockNumber: number,
     evmBlockNumber: number,
     blockTimestamp: string,
-    evmTxs: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }>
+    evmTxs: TxArray
 };
-
 
 const args: {
     chainName: string,
@@ -55,39 +63,79 @@ const blockDrain = new PriorityQueue({
 let lastInOrder = args.startBlock;
 let prevHash = args.prevHash;
 
+function generateTxRootHash(evmTxs: TxArray): Buffer {
+    const trie = new Trie()
+    for (const [i, tx] of evmTxs.entries())
+        trie.put(Buffer.from(RLP.encode(i)), tx.evmTx.raw).then();
 
-function generateTxRootHash(
-    evmTxs: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }>
-): Buffer {
-    const hash = createKeccakHash('keccak256');
-
-    evmTxs.sort(
-        // @ts-ignore
-        (a, b) => {
-            return a.action_ordinal - b.action_ordinal;
-        }
-    );
-
-    for (const tx of evmTxs)
-        hash.update(tx.evmTx.hash);
-
-    return Buffer.from(hash.digest('hex'), 'hex');
+    return trie.root
 }
 
+interface TxReceipt {
+    cumulativeGasUsed: typeof BN,
+    bitvector: Buffer,
+    logs: Log[],
+    status: number
+};
 
-function getBlockGasUsed(
-    evmTxs: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }>
-): typeof BN {
+/**
+ * Returns the encoded tx receipt.
+ */
+export function encodeReceipt(receipt: TxReceipt) {
+    const encoded = Buffer.from(
+        RLP.encode(
+            bufArrToArr([
+                (receipt.status === 0
+                    ? Buffer.from([])
+                    : Buffer.from('01', 'hex')),
+                bigIntToBuffer(receipt.cumulativeGasUsed),
+                receipt.bitvector,
+                receipt.logs,
+            ])
+        )
+    )
+
+    return encoded
+}
+
+function generateReceiptRootHash(evmTxs: TxArray): Buffer {
+    const receiptTrie = new Trie()
+    for (const [i, tx] of evmTxs.entries()) {
+        const logs: Log[] = [];
+
+        let bloom = new Bloom().bitvector;
+
+        if (tx.evmTx.logsBloom)
+            bloom = Buffer.from(tx.evmTx.logsBloom, 'hex');
+
+        if (tx.evmTx.logs) {
+            for (const [j, hexLogs] of tx.evmTx.logs.entries()) {
+                const topics: Buffer[] = [];
+
+                for (const topic of hexLogs.topics)
+                    topics.push(Buffer.from(topic, 'hex'))
+
+                logs.push([ 
+                    Buffer.from(hexLogs.address, 'hex'),
+                    topics,
+                    Buffer.from(hexLogs.data, 'hex')
+                ]);
+            }
+        }
+
+        const receipt: TxReceipt = {
+            cumulativeGasUsed: new BN(tx.evmTx.gasusedblock),
+            bitvector: bloom,
+            logs: logs,
+            status: tx.evmTx.status
+        };
+        const encodedReceipt = encodeReceipt(receipt)
+        receiptTrie.put(Buffer.from(RLP.encode(i)), encodedReceipt).then();
+    }
+    return receiptTrie.root
+}
+
+function getBlockGasUsed(evmTxs: TxArray): typeof BN {
 
     let totalGasUsed = 0;
 
@@ -97,20 +145,13 @@ function getBlockGasUsed(
     return new BN(totalGasUsed);
 }
 
-function generateBloom(
-    evmTxs: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }>
-): Buffer {
+function generateBloom(evmTxs: TxArray): Buffer {
     const blockBloom: Bloom = new Bloom();
 
-    for (const evmTx of evmTxs) {
-        if (evmTx.evmTx.bloom)
-            blockBloom.or(evmTx.evmTx.bloom);
-    }
+    for (const evmTx of evmTxs)
+        if (evmTx.evmTx.logsBloom)
+            blockBloom.or(
+                new Bloom(Buffer.from(evmTx.evmTx.logsBloom, 'hex')));
 
     return blockBloom.bitvector;
 }
@@ -126,10 +167,11 @@ function drainBlocks() {
 
         const evmTxs = current.evmTxs;
 
-        // genereate 'valid' block header
+        // generate 'valid' block header
         const blockHeader = BlockHeader.fromHeaderData({
             'parentHash': Buffer.from(prevHash, 'hex'),
             'transactionsTrie': generateTxRootHash(evmTxs),
+            'receiptTrie': generateReceiptRootHash(evmTxs),
             'bloom': generateBloom(evmTxs),
             'number': new BN(current.evmBlockNumber),
             'gasLimit': new BN(1000000000),
@@ -160,6 +202,7 @@ function drainBlocks() {
         if (evmTxs.length > 0) {
             for (const [i, evmTxData] of evmTxs.entries()) {
                 evmTxData.evmTx.block_hash = currentBlockHash;
+                delete evmTxData.evmTx['raw'];
                 storableActions.push({
                     "@timestamp": current.blockTimestamp,
                     "trx_id": evmTxData.trx_id,
