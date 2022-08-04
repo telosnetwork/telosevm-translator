@@ -6,7 +6,7 @@ import {
 const {Signature} = require('eosjs-ecc');
 
 // ethereum tools
-import Bloom from '../utils/evm';
+import {Bloom} from '../utils/evm';
 import { Transaction, TransactionFactory } from '@ethereumjs/tx'
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'

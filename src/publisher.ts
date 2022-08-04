@@ -1,7 +1,7 @@
 import uWS, {TemplatedApp} from "uWebSockets.js";
 
 import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer";
-import Bloom from "./utils/evm";
+import {Bloom} from "./utils/evm";
 
 import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm";
 

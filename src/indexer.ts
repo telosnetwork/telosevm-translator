@@ -36,7 +36,9 @@ import RPCBroadcaster from './publisher';
 import { hashTxAction } from './ship';
 import {ElasticConnector} from './database/connector';
 
-import { BlockHeader } from '@ethereumjs/block'
+import { BlockHeader } from './utils/evm'
+
+import moment from 'moment';
 
 const BN = require('bn.js');
 
@@ -279,11 +281,11 @@ export class TEVMIndexer {
         logger.info(JSON.stringify(genesisBlock, null, 4));
 
         // number of seconds since epoch
-        const genesisTimestamp = Date.parse(genesisBlock.timestamp) / 1000;
+        const genesisTimestamp = moment.utc(genesisBlock.timestamp).unix();
 
         const header = BlockHeader.fromHeaderData({
-            'gasLimit': new BN(21000),
-            'number': new BN(0),
+            'gasLimit': new BN(0),
+            'number': new BN(this.evmDeployBlock - this.config.evmDelta - 1),
             'difficulty': new BN(0),
             'timestamp': new BN(genesisTimestamp),
             'extraData': Buffer.from(genesisBlock.id, 'hex'),

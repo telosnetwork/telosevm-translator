@@ -8,11 +8,10 @@ import {
 } from '../types/evm';
 
 import logger from '../utils/winston';
-import Bloom from '../utils/evm';
+import {Bloom, BlockHeader} from '../utils/evm';
 
 var PriorityQueue = require("js-priority-queue");
 
-import { BlockHeader } from '@ethereumjs/block';
 import { Trie } from '@ethereumjs/trie';
 import RLP from 'rlp';
 import {

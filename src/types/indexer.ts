@@ -25,6 +25,7 @@ export type IndexerConfig = {
     wsEndpoint: string;
     evmDeployBlock: number;
     evmPrevHash: string;
+    evmDelta: number;
     startBlock: number;
     stopBlock: number;
     perf: {
