@@ -5,7 +5,7 @@ import {
     StorageEvmTransaction
 } from './types/evm';
 
-import { parseAsset } from './utils/eosio';
+import {parseAsset} from './utils/eosio';
 import logger from './utils/winston';
 
 const {Signature} = require('eosjs-ecc');
@@ -89,7 +89,6 @@ export async function handleEvmDeposit(
     rpc: JsonRpc
 ) : Promise<StorageEvmTransaction> {
     const quantity = parseAsset(tx.quantity);
-    const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
     let toAddr = null;
     if (!tx.memo.startsWith('0x')) {
@@ -125,7 +124,7 @@ export async function handleEvmDeposit(
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
         to: toAddr,
-        value: `0x${new BN(quantWei, 16)._strip()}`,
+        value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
         data: "0x",
         v: `0x${(27).toString(16).padStart(64, '0')}`,
         r: `0x${sig.r.toHex().padStart(64, '0')}`,
@@ -143,12 +142,12 @@ export async function handleEvmDeposit(
         to: evmTx.to?.toString(),
         input_data: inputData,
         input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-        value: evmTx.value?.toString(),
+        value: '0x' + evmTx.value?.toString(16),
         value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
         nonce: evmTx.nonce?.toString(),
         gas_price: evmTx.gasPrice?.toString(),
         gas_limit: evmTx.gasLimit?.toString(),
-        status: 0,
+        status: 1,
         itxs: new Array(),
         epoch: 0,
         createdaddr: "",
@@ -171,7 +170,6 @@ export async function handleEvmWithdraw(
     const address = await queryAddress(tx.to, rpc);
 
     const quantity = parseAsset(tx.quantity);
-    const quantWei = Units.convert(quantity.amount, 'eth', 'wei');
 
     const sig = Signature.fromString(nativeSig);
     const txParams = {
@@ -180,7 +178,7 @@ export async function handleEvmWithdraw(
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
         to: "0x0000000000000000000000000000000000000000",
-        value: `0x${new BN(quantWei, 16)._strip()}`,
+        value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
         data: "0x",
         v: `0x${(27).toString(16).padStart(64, '0')}`,
         r: `0x${sig.r.toHex().padStart(64, '0')}`,
@@ -191,19 +189,19 @@ export async function handleEvmWithdraw(
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
-        from: address.toLowerCase(), 
+        from: '0x' + address.toLowerCase(), 
         trx_index: 0,
         block: blockNum,
         block_hash: "",
         to: evmTx.to?.toString(),
         input_data: inputData,
         input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-        value: evmTx.value?.toString(),
+        value: '0x' + evmTx.value?.toString(16),
         value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
         nonce: evmTx.nonce?.toString(),
         gas_price: evmTx.gasPrice?.toString(),
         gas_limit: evmTx.gasLimit?.toString(),
-        status: 0,
+        status: 1,
         itxs: new Array(),
         epoch: 0,
         createdaddr: "",
