@@ -111,6 +111,7 @@ parentPort.on(
                 input_data: evmTx.data?.toString('hex'),
                 input_trimmed: evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
                 value: evmTx.value?.toString('hex'),
+                value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
                 nonce: evmTx.nonce?.toString('hex'),
                 gas_price: evmTx.gasPrice?.toString('hex'),
                 gas_limit: evmTx.gasLimit?.toString('hex'),
@@ -127,6 +128,9 @@ parentPort.on(
 
             if (fromAddr != null)
                 txBody['from'] = fromAddr;
+
+            else
+                txBody['from'] = evmTx.getSenderAddress().toString().toLowerCase();
 
             if (receipt.logs) {
                 txBody.logs = receipt.logs;
@@ -154,10 +158,6 @@ parentPort.on(
                     //console.log('------- ERRORS -----------');
                     //console.log(txBody['errors'])
                 }
-            }
-
-            if (txBody.value) {  // divide values by 18 decimal places to bring them to telosland
-                txBody['value_d'] = new BN(evmTx.value.toString()) / new BN('1000000000000000000');
             }
 
             return parentPort.postMessage({success: true, tx: txBody});

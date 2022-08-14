@@ -98,17 +98,16 @@ export const EMPTY_LOGS = '0x000000000000000000000000000000000000000000000000000
 export const BLOCK_GAS_LIMIT = '0x3b9aca00'
 
 export const NEW_HEADS_TEMPLATE = {
-    Difficulty: '0x0',
-    Extra: NULL_HASH,
-    GasLimit: BLOCK_GAS_LIMIT,
-    GasUsed: '0x0',
-    Coinbase: ZERO_ADDR,
-    Nonce: '0x0000000000000000',
-    ParentHash: NULL_HASH,
-    ReceiptHash: NULL_HASH,
-    UncleHash: NULL_HASH,
-    Root: NULL_HASH,
-    TxHash: NULL_HASH,
+    difficulty: "0x0",
+    extraData: NULL_HASH,
+    gasLimit: BLOCK_GAS_LIMIT,
+    miner: ZERO_ADDR,
+    nonce: "0x0000000000000000",
+    parentHash: NULL_HASH,
+    receiptsRoot: NULL_HASH,
+    sha3Uncles: NULL_HASH,
+    stateRoot: NULL_HASH,
+    transactionsRoot: NULL_HASH,
 };
 
 

@@ -1,6 +1,7 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
-import { ConnectorConfig, IndexedBlockInfo } from '../types/indexer';
+import RPCBroadcaster from '../publisher';
+import { IndexerConfig, IndexedBlockInfo } from '../types/indexer';
 
 import logger from '../utils/winston';
 
@@ -14,17 +15,38 @@ interface ConfigInterface {
 };
 
 
-export class ElasticConnector {
+export class Connector {
+    config: IndexerConfig;
     elastic: typeof Client;
+    broadcast: RPCBroadcaster;
     chainName: string;
+
     blockDrain: {
         done: any[];
         building: any[];
     };
 
-    constructor(chainName: string, config: ConnectorConfig) {
-        this.chainName = chainName;
-        this.elastic = new Client(config);
+    opDrain: {
+        done: any[];
+        building: any[];
+    };
+
+    draining: boolean = false;
+    isBroadcaster: boolean;
+
+    constructor(config: IndexerConfig, isBroadcaster: boolean) {
+        this.config = config;
+        this.chainName = config.chainName;
+        this.elastic = new Client(config.elastic);
+        this.isBroadcaster = isBroadcaster;
+
+        if (isBroadcaster)
+            this.broadcast = new RPCBroadcaster(config.broadcast);
+
+        this.opDrain = {
+            done: [],
+            building: []
+        };
 
         this.blockDrain = {
             done: [],
@@ -71,6 +93,11 @@ export class ElasticConnector {
             }
         }
         logger.info(`${updateCounter} index templates updated`);
+
+        logger.info('Initializing ws broadcaster...');
+
+        if (this.isBroadcaster)
+            this.broadcast.initUWS();
     }
 
     async getLastIndexedBlock() {
@@ -101,12 +128,19 @@ export class ElasticConnector {
 
         const operations = [...txOperations, {index: {_index: dtIndex}}, blockInfo.delta];
 
-        this.blockDrain.building = [...this.blockDrain.building, ...operations];
+        this.opDrain.building = [...this.opDrain.building, ...operations];
+        this.blockDrain.building.push(blockInfo);
 
-        if (this.blockDrain.building.length >= 4096) {
+        if (!this.draining &&
+            this.opDrain.building.length >= this.config.perf.elasticDumpSize) {
+
+            this.opDrain.done = this.opDrain.building;
+            this.opDrain.building = [];
+
             this.blockDrain.done = this.blockDrain.building;
             this.blockDrain.building = [];
 
+            this.draining = true;
             setTimeout(
                 this.drainBlocks.bind(this), 0);
         }
@@ -115,12 +149,20 @@ export class ElasticConnector {
     async drainBlocks() {
         const bulkResponse = await this.elastic.bulk({
             refresh: true,
-            operations: this.blockDrain.done
+            operations: this.opDrain.done
         });
 
         if (bulkResponse.errors)
             throw new Error(JSON.stringify(bulkResponse, null, 4));
 
-        logger.info(`drained ${this.blockDrain.done.length} operations.`);
+        logger.info(`drained ${this.opDrain.done.length} operations.`);
+        logger.info(`broadcasting ${this.blockDrain.done.length} blocks...`)
+
+        for (const block of this.blockDrain.done)
+            this.broadcast.broadcastBlock(block);
+
+        logger.info('done.');
+
+        this.draining = false;
     }
 };

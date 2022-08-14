@@ -30,11 +30,10 @@ import {
     handleEvmTx, handleEvmDeposit, handleEvmWithdraw
 } from './handlers';
 
-import {StorageEosioAction, StorageEvmTransaction} from './types/evm';
-import RPCBroadcaster from './publisher';
+import {StorageEvmTransaction} from './types/evm';
 
 import { hashTxAction } from './ship';
-import {ElasticConnector} from './database/connector';
+import {Connector} from './database/connector';
 
 import { BlockHeader } from './utils/evm'
 
@@ -76,9 +75,8 @@ export class TEVMIndexer {
 
     hasher: StaticPool<(x: {type: string, params: any}) => any>;
     reader: StateHistoryBlockReader;
-    broadcaster: RPCBroadcaster;
     rpc: JsonRpc;
-    connector: ElasticConnector; 
+    connector: Connector; 
     
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -91,10 +89,8 @@ export class TEVMIndexer {
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
 
-        this.broadcaster = new RPCBroadcaster(telosConfig.broadcast);
         this.rpc = getRPCClient(telosConfig);
-        this.connector = new ElasticConnector(
-            telosConfig.chainName, telosConfig.elastic); 
+        this.connector = new Connector(telosConfig, false); 
 
         this.reader = new StateHistoryBlockReader(this.wsEndpoint);
         this.reader.setOptions({
@@ -334,9 +330,7 @@ export class TEVMIndexer {
             size: 1,
             task: './build/workers/hasher.js',
             workerData: {
-                chainName: this.config.chainName,
-                chainId: this.config.chainId,
-                elasticConf: this.config.elastic,
+                config: this.config,
                 startBlock: startBlock,
                 prevHash: prevHash 
             }

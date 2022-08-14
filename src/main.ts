@@ -17,6 +17,9 @@ if (process.env.TELOS_WS_ENDPOINT)
 if (process.env.EVM_DEPLOY_BLOCK)
     conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
 
+if (process.env.EVM_DELTA)
+    conf.evmDelta = parseInt(process.env.EVM_DELTA, 10);
+
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
 
@@ -34,6 +37,9 @@ if (process.env.BROADCAST_PORT)
 
 if (process.env.ELASTIC_NODE)
     conf.elastic.node = process.env.ELASTIC_NODE;
+
+if (process.env.ELASTIC_DUMP_SIZE)
+    conf.perf.elasticDumpSize = parseInt(process.env.ELASTIC_DUMP_SIZE, 10);
 
 if (process.env.ELASTIC_USERNAME)
     conf.elastic.auth.username = process.env.ELASTIC_USERNAME;

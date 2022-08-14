@@ -1,10 +1,5 @@
 import {StorageEosioAction, StorageEosioDelta} from '../types/evm';
 
-export type IndexerStateDocument = {
-    timestamp: string;
-    lastIndexedBlock: number;
-};
-
 export type ConnectorConfig = {
     node: string;
     auth: {
@@ -30,6 +25,7 @@ export type IndexerConfig = {
     stopBlock: number;
     perf: {
         workerAmount: number;
+        elasticDumpSize: number;
         maxMsgsInFlight: number;
     },
     elastic: ConnectorConfig;
@@ -40,4 +36,9 @@ export type IndexerConfig = {
 export type IndexedBlockInfo = {
     transactions: StorageEosioAction[];
     delta: StorageEosioDelta;
+    nativeHash: string;
+    parentHash: string;
+    transactionsRoot: string;
+    receiptsRoot: string;
+    blockBloom: string;
 };

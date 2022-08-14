@@ -30,21 +30,19 @@ Consume `nodeos` state history endpoint and take and EVM dump.
 ### launch elastic:
 
     docker run \
-        -it \
+        -itd \
         --rm \
         --network=host \
         --mount type=bind,source="$(pwd)"/elastic,target=/usr/share/elasticsearch/data \
         --env "elastic_username=elastic" \
         --env "elastic_password=password" \
-        --env "http.port=10000-10100" \
-        --env "transport.port=10100-10200" \
         --env "xpack.security.enabled=false" \
         telosevm-indexer:elastic
 
 ### launch kibana:
 
     docker run \
-        -it \
+        -itd \
         --rm \
         --network=host \
         --env "ELASTICSEARCH_HOSTS=http://localhost:9200" \

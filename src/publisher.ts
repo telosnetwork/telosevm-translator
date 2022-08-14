@@ -47,23 +47,19 @@ export default class RPCBroadcaster {
 
     broadcastBlock(blockInfo: IndexedBlockInfo) {
         let gasUsed = 0;
-        let logsBloom = new Bloom();
 
-        for (const tx of blockInfo.transactions) {
-            gasUsed = tx['@raw'].gasusedblock;
-            if (tx['@raw'].logsBloom) {
-                logsBloom = new Bloom(
-                    Buffer.from(tx['@raw'].logsBloom, 'hex'));
-            }
-
-            this.broadcastData('raw', tx);
-        }
+        if (blockInfo.transactions.length > 0)
+            blockInfo.transactions[0]['@raw'].gasusedblock;
 
         const head = Object.assign({}, NEW_HEADS_TEMPLATE, {
+            parentHash: `0x${blockInfo.parentHash}`,
+            extraData: `0x${blockInfo.nativeHash}`,
+            receiptsRoot: `0x${blockInfo.receiptsRoot}`,
+            transactionsRoot: `0x${blockInfo.transactionsRoot}`,
+
             gasUsed: gasUsed,
-            logsBloom: `0x${logsBloom.bitvector.toString("hex")}`,
+            logsBloom: `0x${blockInfo.blockBloom}`,
             number: numToHex(blockInfo.delta['@global'].block_num),
-            parentHash: '0x00',
             timestamp: `0x${this.convertTimestampToEpoch(blockInfo.delta['@timestamp']).toString(16)}`,
         })
 

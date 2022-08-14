@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'worker_threads';
 
-import { ConnectorConfig  } from '../types/indexer';
-import { ElasticConnector } from '../database/connector';
+import { IndexerConfig  } from '../types/indexer';
+import { Connector } from '../database/connector';
 
 import {
     StorageEosioAction, StorageEvmTransaction,
@@ -40,15 +40,13 @@ export interface HasherBlockInfo{
 };
 
 const args: {
-    chainName: string,
-    chainId: number,
-    elasticConf: ConnectorConfig,
+    config: IndexerConfig,
     startBlock: number,
     prevHash: string 
 } = workerData;
 
-const connector = new ElasticConnector(
-    args.chainName, args.elasticConf);
+const connector = new Connector(
+    args.config, true);
 
 logger.info('Launching hasher worker...');
 
@@ -166,12 +164,16 @@ function drainBlocks() {
 
         const evmTxs = current.evmTxs;
 
+        const transactionsRoot = generateTxRootHash(evmTxs);
+        const receiptsRoot = generateReceiptRootHash(evmTxs);
+        const bloom = generateBloom(evmTxs);
+
         // generate 'valid' block header
         const blockHeader = BlockHeader.fromHeaderData({
             'parentHash': Buffer.from(prevHash, 'hex'),
-            'transactionsTrie': generateTxRootHash(evmTxs),
-            'receiptTrie': generateReceiptRootHash(evmTxs),
-            'bloom': generateBloom(evmTxs),
+            'transactionsTrie': transactionsRoot,
+            'receiptTrie': receiptsRoot,
+            'bloom': bloom,
             'number': new BN(current.evmBlockNumber),
             'gasLimit': new BN(1000000000),
             'gasUsed': getBlockGasUsed(evmTxs),
@@ -195,7 +197,12 @@ function drainBlocks() {
                     "block_num": current.evmBlockNumber
                 },
                 "@evmBlockHash": currentBlockHash 
-            }
+            },
+            "nativeHash": current.nativeBlockHash.toLowerCase(),
+            "parentHash": prevHash,
+            "transactionsRoot": transactionsRoot.toString('hex'),
+            "receiptsRoot": receiptsRoot.toString('hex'),
+            "blockBloom": bloom.toString('hex')
         };
 
         if (evmTxs.length > 0) {

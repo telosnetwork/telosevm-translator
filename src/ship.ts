@@ -311,15 +311,16 @@ export default class StateHistoryBlockReader {
                             deserializedBlock = await block;
 
                             // grab signatures
-                            for (const tx of deserializedBlock.transactions) {
+                            if (deserializedBlock && 'transactions' in deserializedBlock) {
+                                for (const tx of deserializedBlock.transactions) {
 
-                                if (tx.trx[0] !== "packed_transaction")
-                                    continue;
+                                    if (tx.trx[0] !== "packed_transaction")
+                                        continue;
 
-                                const packed_trx = tx.trx[1].packed_trx;
-                                let trx = null;
+                                    const packed_trx = tx.trx[1].packed_trx;
+                                    let trx = null;
 
-                                for (const dsType of DS_TYPES) {
+                                    for (const dsType of DS_TYPES) {
                                     try {
                                         trx = await this.deserializeParallel(dsType, packed_trx);
 
@@ -350,11 +351,11 @@ export default class StateHistoryBlockReader {
 
                                 if (trx == null)
                                     logger.error(`block_num: ${response.this_block.block_num}`)
+                                }
                             }
-
-
+                        
                         } catch (error) {
-                            logger.error('Failed to deserialize block #' + response.this_block.block_num, error);
+                            logger.error('Failed to deserialize block, response: \n' + JSON.stringify(response, null, 4), error);
 
                             this.blocksQueue.clear();
                             this.blocksQueue.pause();
