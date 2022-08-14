@@ -6,8 +6,8 @@ import {
 const {Signature} = require('eosjs-ecc');
 
 // ethereum tools
-import {Bloom} from '../utils/evm';
-import { Transaction, TransactionFactory } from '@ethereumjs/tx'
+import {Bloom, generateUniqueVRS} from '../utils/evm';
+import { Transaction } from '@ethereumjs/tx'
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
@@ -36,9 +36,10 @@ const RECEIPT_LOG_END = "}}RCPT";
 parentPort.on(
     'message',
     (param: Array<{
+        nativeBlockHash: string,
+        trx_index: number,
         blockNum: number,
         tx: EosioEvmRaw,
-        nativeSig: string,
         consoleLog: string
     }>) => {
         const arg = param[0];
@@ -71,10 +72,11 @@ parentPort.on(
             let fromAddr = null;
 
             if (arg.tx.sender != null) {
-                const sig = Signature.fromString(arg.nativeSig);
-                evmTxParams.v = `0x${(27).toString(16).padStart(64, '0')}`;
-                evmTxParams.r = `0x${sig.r.toHex().padStart(64, '0')}`;
-                evmTxParams.s = `0x${sig.s.toHex()}`;
+                const [v, r, s] = generateUniqueVRS(arg.nativeBlockHash, arg.trx_index);
+
+                evmTxParams.v = v;
+                evmTxParams.r = r;
+                evmTxParams.s = s;
 
                 evmTx = Transaction.fromTxData(evmTxParams, {common});
 
@@ -104,7 +106,7 @@ parentPort.on(
 
             const txBody: StorageEvmTransaction = {
                 hash: evmTx.hash().toString('hex'),
-                trx_index: receipt.trx_index,
+                trx_index: arg.trx_index,
                 block: arg.blockNum,
                 block_hash: "",
                 to: evmTx.to?.toString(),

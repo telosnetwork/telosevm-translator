@@ -119,6 +119,14 @@ export function numToHex(input: number | string) {
     }
 }
 
+export function generateUniqueVRS(blockHash: string, trx_index: number) {
+    return [
+        `0x${(27).toString(16).padStart(64, '0')}`,
+        `0x${blockHash}`,
+        `0x${trx_index.toString(16).padStart(64, '0')}`
+    ];
+}
+
 /**
  * Custom BlockHeader without dao-hard-fork validation
  */

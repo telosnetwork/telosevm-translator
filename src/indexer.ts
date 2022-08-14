@@ -65,8 +65,6 @@ export class TEVMIndexer {
     ethGenesisHash: string;
 
     txsSinceLastReport: number = 0;
-    lastMsigBlock: number = -1;
-    lastMsigAuth: string = null;
 
     config: IndexerConfig;
 
@@ -134,6 +132,7 @@ export class TEVMIndexer {
         }> = [];
         // traces
         const transactions = extractShipTraces(resp.traces);
+        let gasUsedBlock = 0;
 
         for (const tx of transactions) {
             const contractWhitelist = [
@@ -173,62 +172,38 @@ export class TEVMIndexer {
                 }
             }
 
-            let signature = null;
-
-            if (!foundSig) {
-                // handle deferred transactions, if we had an msig
-                // in the last 3 blocks use that auth for evm transaction
-                if (currentBlock - this.lastMsigBlock <= 3)
-                       signature = this.lastMsigAuth;
-
-                else {
-                    logger.info(JSON.stringify(tx, null, 4));
-                    logger.error('Couldn\'t find signature that matches trace:');
-                    logger.error(`last msig block: ${this.lastMsigBlock}`);
-                    logger.error(`last msig auth: ${this.lastMsigAuth}`);
-                    logger.error('action: ' + JSON.stringify(action));
-                    logger.error('actionData: ' + JSON.stringify(actionData));
-                    logger.error('hash:   ' + JSON.stringify(actionHash));
-                    logger.error('signatures:');
-                    logger.error(JSON.stringify(resp.block.signatures, null, 4));
-                    throw new Error();
-                }
-            } else
-                signature = resp.block.signatures[actionHash][0];
-
-            if (action.account == 'eosio.msig' && action.name == 'exec') {
-                this.lastMsigBlock = currentBlock;
-                this.lastMsigAuth = signature;
-                logger.info("Multi sig exec signature captured")
-                continue;
-            }
-
             let evmTx: StorageEvmTransaction = null;
             if (action.account == "eosio.evm") {
                 if (action.name == "raw") {
                     evmTx = await handleEvmTx(
+                        resp.this_block.block_id,
+                        evmTransactions.length,
                         evmBlockNumber,
                         actionData,
-                        signature,
                         tx.trace.console
                     );
-                } else if (action.name == "withdraw" ){
+                    gasUsedBlock = evmTx.gasusedblock;
+                } else if (action.name == "withdraw"){
                     evmTx = await handleEvmWithdraw(
+                        resp.this_block.block_id,
+                        evmTransactions.length,
                         evmBlockNumber,
                         actionData,
-                        signature,
-                        this.rpc
+                        this.rpc,
+                        gasUsedBlock
                     );
                 }
             } else if (action.account == "eosio.token" &&
-                    action.name == "transfer" &&
-                    actionData.to == "eosio.evm") {
-                    evmTx = await handleEvmDeposit(
-                        evmBlockNumber,
-                        actionData,
-                        signature,
-                        this.rpc
-                    );
+                       action.name == "transfer" &&
+                       actionData.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(
+                    resp.this_block.block_id,
+                    evmTransactions.length,
+                    evmBlockNumber,
+                    actionData,
+                    this.rpc,
+                    gasUsedBlock
+                );
             } else
                 continue;
 
@@ -237,13 +212,17 @@ export class TEVMIndexer {
                 continue;
             }
 
+            let signatures: string[] = [];
+            if (foundSig)
+                signatures = resp.block.signatures[actionHash];
+
             evmTransactions.push({
                 trx_id: tx.tx.id,
                 action_ordinal: tx.trace.action_ordinal,
-                signatures: resp.block.signatures[actionHash],
+                signatures: signatures,
                 evmTx: evmTx
             });
-            this.txsSinceLastReport++; 
+            this.txsSinceLastReport++;
         }
 
         const hasherResp = await this.hasher.exec({

@@ -20,6 +20,9 @@ import {JsonRpc} from 'eosjs';
 import {StaticPool} from 'node-worker-threads-pool';
 import {isValidAddress} from '@ethereumjs/util';
 
+import {generateUniqueVRS} from './utils/evm';
+
+
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 
 let common: Common = null;
@@ -42,13 +45,14 @@ export function setCommon(chainId: number) {
 }
 
 export async function handleEvmTx(
+    nativeBlockHash: string,
+    trx_index: number,
     blockNum: number,
     tx: EosioEvmRaw,
-    nativeSig: string,
     consoleLog: string
 ) : Promise<StorageEvmTransaction> {
     const result = await deseralizationPool.exec([{
-        blockNum, tx, nativeSig, consoleLog
+        nativeBlockHash, trx_index, blockNum, tx, consoleLog
     }]);
 
     if (result.success)
@@ -83,10 +87,12 @@ async function queryAddress(accountName: string, rpc: JsonRpc) {
 }
 
 export async function handleEvmDeposit(
+    nativeBlockHash: string,
+    trx_index: number,
     blockNum: number,
     tx: EosioEvmDeposit,
-    nativeSig: string,
-    rpc: JsonRpc
+    rpc: JsonRpc,
+    gasUsedBlock: number
 ) : Promise<StorageEvmTransaction> {
     const quantity = parseAsset(tx.quantity);
 
@@ -117,7 +123,8 @@ export async function handleEvmDeposit(
         }
     }
 
-    const sig = Signature.fromString(nativeSig);
+    const [v, r, s] = generateUniqueVRS(nativeBlockHash, trx_index);
+
     const txParams = {
         from: "0x0000000000000000000000000000000000000000",
         nonce: 0,
@@ -126,9 +133,9 @@ export async function handleEvmDeposit(
         to: toAddr,
         value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
         data: "0x",
-        v: `0x${(27).toString(16).padStart(64, '0')}`,
-        r: `0x${sig.r.toHex().padStart(64, '0')}`,
-        s: `0x${sig.s.toHex()}`
+        v: v,
+        r: r,
+        s: s 
     };
     const evmTx = Transaction.fromTxData(txParams);
 
@@ -136,7 +143,7 @@ export async function handleEvmDeposit(
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
         from: "0x0000000000000000000000000000000000000000",
-        trx_index: 0,
+        trx_index: trx_index,
         block: blockNum,
         block_hash: "",
         to: evmTx.to?.toString(),
@@ -152,7 +159,7 @@ export async function handleEvmDeposit(
         epoch: 0,
         createdaddr: "",
         gasused: 0,
-        gasusedblock: 0,
+        gasusedblock: gasUsedBlock,
         charged_gas_price: 0,
         output: "",
         raw: evmTx.serialize()
@@ -162,16 +169,18 @@ export async function handleEvmDeposit(
 }
 
 export async function handleEvmWithdraw(
+    nativeBlockHash: string,
+    trx_index: number,
     blockNum: number,
     tx: EosioEvmWithdraw,
-    nativeSig: string,
-    rpc: JsonRpc
+    rpc: JsonRpc,
+    gasUsedBlock: number
 ) : Promise<StorageEvmTransaction> {
     const address = await queryAddress(tx.to, rpc);
 
     const quantity = parseAsset(tx.quantity);
 
-    const sig = Signature.fromString(nativeSig);
+    const [v, r, s] = generateUniqueVRS(nativeBlockHash, trx_index);
     const txParams = {
         from: address.toLowerCase(), 
         nonce: 0,
@@ -180,9 +189,9 @@ export async function handleEvmWithdraw(
         to: "0x0000000000000000000000000000000000000000",
         value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
         data: "0x",
-        v: `0x${(27).toString(16).padStart(64, '0')}`,
-        r: `0x${sig.r.toHex().padStart(64, '0')}`,
-        s: `0x${sig.s.toHex()}`
+        v: v,
+        r: r,
+        s: s 
     };
     const evmTx = new Transaction(txParams, {common: common});
 
@@ -190,7 +199,7 @@ export async function handleEvmWithdraw(
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
         from: '0x' + address.toLowerCase(), 
-        trx_index: 0,
+        trx_index: trx_index,
         block: blockNum,
         block_hash: "",
         to: evmTx.to?.toString(),
@@ -206,7 +215,7 @@ export async function handleEvmWithdraw(
         epoch: 0,
         createdaddr: "",
         gasused: 0,
-        gasusedblock: 0,
+        gasusedblock: gasUsedBlock,
         charged_gas_price: 0,
         output: "",
         raw: evmTx.serialize()
