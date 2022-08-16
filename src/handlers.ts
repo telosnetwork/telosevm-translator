@@ -5,15 +5,15 @@ import {
     StorageEvmTransaction
 } from './types/evm';
 
-import {parseAsset} from './utils/eosio';
+import {TEVMTransaction} from './utils/evm';
+
+import {nameToUint64, parseAsset} from './utils/eosio';
 import logger from './utils/winston';
 
-const {Signature} = require('eosjs-ecc');
 
 // ethereum tools
 var Units = require('ethereumjs-units');
 const BN = require('bn.js');
-import {Transaction} from '@ethereumjs/tx';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 import {JsonRpc} from 'eosjs';
@@ -27,6 +27,17 @@ const KEYWORD_STRING_TRIM_SIZE = 32000;
 
 let common: Common = null;
 let deseralizationPool: StaticPool<(x: any) => any> = null;
+
+class TxDeserializationError extends Error {
+    info: any;
+
+    constructor(public message: string, info: any) {
+        super(message);
+        this.name = "TxDeserializationError";
+        this.stack = (<any> new Error()).stack;
+        this.info = info;
+    }
+}
 
 export function setCommon(chainId: number) {
     common = Common.custom({
@@ -58,8 +69,8 @@ export async function handleEvmTx(
     if (result.success)
         return result.tx;
     else {
-        logger.error(JSON.stringify(result, null, 4));
-        return null;
+        logger.error(result.message['stack']);
+        throw new TxDeserializationError('EVM worker crashed.', result.message);
     }
 }
 
@@ -67,14 +78,16 @@ const stdGasPrice = "0x7a307efa80";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
 async function queryAddress(accountName: string, rpc: JsonRpc) {
+    const acctInt = nameToUint64(accountName)
     const result = await rpc.get_table_rows({
         code: 'eosio.evm',
-        table: 'account',
         scope: 'eosio.evm',
-        index_position: '3',
-        key_type: 'name',
-        upper_bound: accountName,
-        lower_bound: accountName
+        table: 'account',
+        key_type: 'i64',
+        index_position: 3,
+        lower_bound: acctInt,
+        upper_bound: acctInt,
+        limit: 1
     });
 
     if (result.rows.length == 1) {
@@ -137,7 +150,7 @@ export async function handleEvmDeposit(
         r: r,
         s: s 
     };
-    const evmTx = Transaction.fromTxData(txParams);
+    const evmTx = TEVMTransaction.fromTxData(txParams);
 
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
@@ -193,7 +206,7 @@ export async function handleEvmWithdraw(
         r: r,
         s: s 
     };
-    const evmTx = new Transaction(txParams, {common: common});
+    const evmTx = new TEVMTransaction(txParams, {common: common});
 
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {

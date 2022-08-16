@@ -13,10 +13,12 @@ Consume `nodeos` state history endpoint and take and EVM dump.
         -it \
         --rm \
         --network=host \
-        --env "CHAIN_NAME=telos-local-testnet" \
+        --env "CHAIN_NAME=telos-testnet" \
         --env "CHAIN_ID=41" \
         --env "TELOS_ENDPOINT=http://mainnet.telos.net" \
         --env "TELOS_WS_ENDPOINT=ws://api2.hosts.caleos.io:8999" \
+        --env "EVM_DEPLOY_BLOCK=180841000" \
+        --env "EVM_DELTA=57" \
         --env "INDEXER_START_BLOCK=180841000" \
         --env "INDEXER_STOP_BLOCK=4294967295" \
         --env "BROADCAST_HOST=127.0.0.1" \

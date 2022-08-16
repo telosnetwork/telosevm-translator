@@ -3,11 +3,8 @@ import {
     StorageEvmTransaction
 } from '../types/evm';
 
-const {Signature} = require('eosjs-ecc');
-
 // ethereum tools
-import {Bloom, generateUniqueVRS} from '../utils/evm';
-import { Transaction } from '@ethereumjs/tx'
+import {Bloom, generateUniqueVRS, TEVMTransaction} from '../utils/evm';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
@@ -65,20 +62,21 @@ parentPort.on(
 
             const txRaw = Buffer.from(arg.tx.tx, 'hex');
            
-            let evmTx = Transaction.fromSerializedTx(
+            let evmTx = TEVMTransaction.fromSerializedTx(
                 txRaw, {common});
 
             const evmTxParams = evmTx.toJSON();
             let fromAddr = null;
 
             if (arg.tx.sender != null) {
-                const [v, r, s] = generateUniqueVRS(arg.nativeBlockHash, arg.trx_index);
+                const [v, r, s] = generateUniqueVRS(
+                    arg.nativeBlockHash, arg.trx_index);
 
                 evmTxParams.v = v;
                 evmTxParams.r = r;
                 evmTxParams.s = s;
 
-                evmTx = Transaction.fromTxData(evmTxParams, {common});
+                evmTx = TEVMTransaction.fromTxData(evmTxParams, {common});
 
                 let senderAddr = arg.tx.sender.toLowerCase();
 
@@ -105,7 +103,7 @@ parentPort.on(
             }
 
             const txBody: StorageEvmTransaction = {
-                hash: evmTx.hash().toString('hex'),
+                hash: '0x'+ evmTx.hash().toString('hex'),
                 trx_index: arg.trx_index,
                 block: arg.blockNum,
                 block_hash: "",
@@ -164,7 +162,11 @@ parentPort.on(
 
             return parentPort.postMessage({success: true, tx: txBody});
         } catch (e) {
-            return parentPort.postMessage({success: false, message: String(e)});
+            return parentPort.postMessage({success: false, message: {
+                'stack': e.stack,
+                'name': e.name,
+                'message': e.message
+            }});
         }
     }
 );

@@ -41,6 +41,8 @@ import moment from 'moment';
 
 const BN = require('bn.js');
 
+const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
+
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -248,9 +250,19 @@ export class TEVMIndexer {
 
     async launch() {
 
-        // get genesis information
-        const genesisBlock = await this.rpc.get_block(
-            this.evmDeployBlock - 1);
+        let genesisBlock = null;
+        while(genesisBlock == null) {
+            try {
+                // get genesis information
+                genesisBlock = await this.rpc.get_block(
+                    this.evmDeployBlock - 1);
+
+            } catch (e) {
+                logger.warn('couldn\'t get genesis block retrying in 5 seg...');
+                await sleep(5000);
+                continue
+            }
+        }
 
         logger.info('evm deployment native genesis block: ');
         logger.info(JSON.stringify(genesisBlock, null, 4));

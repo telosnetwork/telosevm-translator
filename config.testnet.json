@@ -1,5 +1,5 @@
 {
-    "chainName": "telos-local-testnet",
+    "chainName": "telos-testnet",
     "chainId": 41,
 
     "endpoint": "http://testnet.telos.net",
