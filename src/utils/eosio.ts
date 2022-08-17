@@ -206,7 +206,7 @@ export function extractGlobalContractRow(deltas: ShipTableDelta[]): EosioContrac
         }
     }
 
-    throw new Error("Couldn't get eosio global state table delta.");
+    return null; 
 }
 
 export function getTableAbiType(abi: Abi, contract: string, table: string): string {

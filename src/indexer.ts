@@ -66,6 +66,13 @@ export class TEVMIndexer {
 
     ethGenesisHash: string;
 
+    evmBlockNum: number = 0;
+    evmTransactions: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }> = [];
     txsSinceLastReport: number = 0;
 
     config: IndexerConfig;
@@ -122,16 +129,13 @@ export class TEVMIndexer {
 
         // process deltas to catch evm block num
         const globalDelta = extractGlobalContractRow(resp.deltas);
-        const eosioGlobalState = deserializeEosioType(
-            deltaType, globalDelta.value, this.contracts['eosio'].types);
 
-        const evmBlockNumber = eosioGlobalState.block_num;
-        const evmTransactions: Array<{
-            trx_id: string,
-            action_ordinal: number,
-            signatures: string[],
-            evmTx: StorageEvmTransaction
-        }> = [];
+        if (globalDelta != null) {
+            const eosioGlobalState = deserializeEosioType(
+                deltaType, globalDelta.value, this.contracts['eosio'].types);
+
+            this.evmBlockNum = eosioGlobalState.block_num;
+        }
         // traces
         const transactions = extractShipTraces(resp.traces);
         let gasUsedBlock = 0;
@@ -179,8 +183,8 @@ export class TEVMIndexer {
                 if (action.name == "raw") {
                     evmTx = await handleEvmTx(
                         resp.this_block.block_id,
-                        evmTransactions.length,
-                        evmBlockNumber,
+                        this.evmTransactions.length,
+                        this.evmBlockNum,
                         actionData,
                         tx.trace.console
                     );
@@ -188,8 +192,8 @@ export class TEVMIndexer {
                 } else if (action.name == "withdraw"){
                     evmTx = await handleEvmWithdraw(
                         resp.this_block.block_id,
-                        evmTransactions.length,
-                        evmBlockNumber,
+                        this.evmTransactions.length,
+                        this.evmBlockNum,
                         actionData,
                         this.rpc,
                         gasUsedBlock
@@ -200,8 +204,8 @@ export class TEVMIndexer {
                        actionData.to == "eosio.evm") {
                 evmTx = await handleEvmDeposit(
                     resp.this_block.block_id,
-                    evmTransactions.length,
-                    evmBlockNumber,
+                    this.evmTransactions.length,
+                    this.evmBlockNum,
                     actionData,
                     this.rpc,
                     gasUsedBlock
@@ -218,7 +222,7 @@ export class TEVMIndexer {
             if (foundSig)
                 signatures = resp.block.signatures[actionHash];
 
-            evmTransactions.push({
+            this.evmTransactions.push({
                 trx_id: tx.tx.id,
                 action_ordinal: tx.trace.action_ordinal,
                 signatures: signatures,
@@ -227,23 +231,26 @@ export class TEVMIndexer {
             this.txsSinceLastReport++;
         }
 
-        const hasherResp = await this.hasher.exec({
-            type: 'block', params: {
-                nativeBlockHash: resp.block.block_id,
-                nativeBlockNumber: currentBlock,
-                evmBlockNumber: eosioGlobalState.block_num,
-                blockTimestamp: resp.block.timestamp,
-                evmTxs: evmTransactions
-            }});
+        if (globalDelta != null) {
+            const hasherResp = await this.hasher.exec({
+                type: 'block', params: {
+                    nativeBlockHash: resp.block.block_id,
+                    nativeBlockNumber: currentBlock,
+                    evmBlockNumber: this.evmBlockNum,
+                    blockTimestamp: resp.block.timestamp,
+                    evmTxs: this.evmTransactions
+                }});
 
-        if (!hasherResp.success) {
-            logger.error(hasherResp);
-            process.exit(1);
-        }
+            if (!hasherResp.success) {
+                logger.error(hasherResp);
+                process.exit(1);
+            }
 
-        if (currentBlock % 1000 == 0) {
-            logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
-            this.txsSinceLastReport = 0;
+            if (currentBlock % 1000 == 0) {
+                logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
+                this.txsSinceLastReport = 0;
+            }
+            this.evmTransactions = [];
         }
         
     }
