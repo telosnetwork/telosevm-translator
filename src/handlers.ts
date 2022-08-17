@@ -5,7 +5,7 @@ import {
     StorageEvmTransaction
 } from './types/evm';
 
-import {TEVMTransaction} from './utils/evm';
+import {TEVMTransaction} from './utils/evm-tx';
 
 import {nameToUint64, parseAsset} from './utils/eosio';
 import logger from './utils/winston';
@@ -150,7 +150,8 @@ export async function handleEvmDeposit(
         r: r,
         s: s 
     };
-    const evmTx = TEVMTransaction.fromTxData(txParams);
+    const evmTx = TEVMTransaction.fromTxData(
+        txParams, {common: common});
 
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {

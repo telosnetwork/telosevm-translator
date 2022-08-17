@@ -4,7 +4,8 @@ import {
 } from '../types/evm';
 
 // ethereum tools
-import {Bloom, generateUniqueVRS, TEVMTransaction} from '../utils/evm';
+import {Bloom, generateUniqueVRS} from '../utils/evm';
+import {TEVMTransaction} from '../utils/evm-tx';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 

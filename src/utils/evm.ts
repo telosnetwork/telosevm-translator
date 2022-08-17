@@ -129,45 +129,6 @@ export function generateUniqueVRS(blockHash: string, trx_index: number) {
     ];
 }
 
-/*
- * Custom Transaction without leading zeroes validation
- */
-import { Transaction } from '@ethereumjs/tx'
-import type { TxOptions, TxValuesArray } from '@ethereumjs/tx/dist/types'
-
-export class TEVMTransaction extends Transaction {
-
-    /**
-    * Create a transaction from a values array.
-    *
-    * Format: `[nonce, gasPrice, gasLimit, to, value, data, v, r, s]`
-    */
-    public static fromValuesArray(values: TxValuesArray, opts: TxOptions = {}) {
-        // If length is not 6, it has length 9. If v/r/s are empty Buffers, it is still an unsigned transaction
-        // This happens if you get the RLP data from `raw()`
-        if (values.length !== 6 && values.length !== 9) {
-            throw new Error(
-                'Invalid transaction. Only expecting 6 values (for unsigned tx) or 9 values (for signed tx).'
-            )
-        }
-
-        const [nonce, gasPrice, gasLimit, to, value, data, v, r, s] = values
-
-        return new TEVMTransaction({
-                nonce,
-                gasPrice,
-                gasLimit,
-                to,
-                value,
-                data,
-                v,
-                r,
-                s,
-            },
-            opts
-        )
-    }
-};
 
 /*
  * Custom BlockHeader without dao-hard-fork validation
