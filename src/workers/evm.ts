@@ -47,15 +47,34 @@ parentPort.on(
                 arg.consoleLog.indexOf(RECEIPT_LOG_END)
             );
 
-            let receipt;
+            let receipt: {
+                status: number,
+                epoch: number,
+                itxs: any[],
+                logs: any[],
+                errors?: any[],
+                output: string,
+                gasused: string,
+                gasusedblock: string,
+                charged_gas: string,
+                createdaddr: string
+            } = {
+                status: 1,
+                epoch: 0,
+                itxs: [],
+                logs: [],
+                errors: [],
+                output: '',
+                gasused: '',
+                gasusedblock: '',
+                charged_gas: '',
+                createdaddr: ''
+            };
             try {
                 receipt = JSON.parse(receiptLog);
                 // logger.info(`Receipt: ${JSON.stringify(receipt)}`);
             } catch (e) {
-                logger.warn('WARNING: Failed to parse receiptLog');
-                logger.warn(receiptLog);
-                return parentPort.postMessage({success: false, message: String(e)});
-
+                logger.warn('Failed to parse receiptLog');
             }
 
             // disable this check due to the posibility of onblock failing
