@@ -8,11 +8,9 @@ import {
 import {TEVMTransaction} from './utils/evm-tx';
 
 import {nameToUint64, parseAsset} from './utils/eosio';
-import logger from './utils/winston';
 
 
 // ethereum tools
-var Units = require('ethereumjs-units');
 const BN = require('bn.js');
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
