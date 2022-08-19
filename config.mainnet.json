@@ -1,4 +1,6 @@
 {
+    "debug": false,
+
     "chainName": "telos-mainnet",
     "chainId": 40,
 
@@ -22,6 +24,11 @@
         "auth": {
             "username": "elastic",
             "password": "password"
+        },
+        "subfix": {
+            "delta": "delta-v1.5",
+            "transaction": "action-v1.5",
+            "error": "error-v1.5"
         }
     },
 

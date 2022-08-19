@@ -1,3 +1,4 @@
+import {TxDeserializationError} from '../handlers';
 import {StorageEosioAction, StorageEosioDelta} from '../types/evm';
 
 export type ConnectorConfig = {
@@ -5,6 +6,11 @@ export type ConnectorConfig = {
     auth: {
         username: string;
         password: string;
+    },
+    subfix: {
+        delta: string;
+        error: string;
+        transaction: string;
     }
 };
 
@@ -14,6 +20,7 @@ export type BroadcasterConfig = {
 };
 
 export type IndexerConfig = {
+    debug: boolean;
     chainName: string;
     chainId: number;
     endpoint: string;
@@ -35,6 +42,7 @@ export type IndexerConfig = {
 
 export type IndexedBlockInfo = {
     transactions: StorageEosioAction[];
+    errors: TxDeserializationError[],
     delta: StorageEosioDelta;
     nativeHash: string;
     parentHash: string;

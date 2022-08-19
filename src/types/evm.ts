@@ -1,5 +1,3 @@
-import {Transaction} from "@ethereumjs/tx"
-
 export interface EosioEvmRaw {
     ram_payer: string,
     tx: string,
@@ -38,7 +36,6 @@ export interface EvmTransaction {
 
 
 // Hyperion plugin compat
-
 export interface InteralEvmTransaction {
     callType: string,
     from: string,

@@ -20,6 +20,7 @@ import {
   intToBuffer,
 } from '@ethereumjs/util';
 import {Log} from '@ethereumjs/vm/dist/evm/types';
+import {TxDeserializationError} from '../handlers';
 
 const BN = require('bn.js');
 
@@ -36,7 +37,8 @@ export interface HasherBlockInfo{
     nativeBlockNumber: number,
     evmBlockNumber: number,
     blockTimestamp: string,
-    evmTxs: TxArray
+    evmTxs: TxArray,
+    errors: TxDeserializationError[]
 };
 
 const args: {
@@ -188,6 +190,7 @@ function drainBlocks() {
         const storableActions: StorageEosioAction[] = [];
         const storableBlockInfo = {
             "transactions": storableActions,
+            "errors": current.errors,
             "delta": {
                 "@timestamp": current.blockTimestamp,
                 "block_num": current.nativeBlockNumber,

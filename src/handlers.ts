@@ -28,10 +28,10 @@ const KEYWORD_STRING_TRIM_SIZE = 32000;
 let common: Common = null;
 let deseralizationPool: StaticPool<(x: any) => any> = null;
 
-class TxDeserializationError extends Error {
-    info: any;
+export class TxDeserializationError extends Error {
+    info: {[key: string]: string};
 
-    constructor(public message: string, info: any) {
+    constructor(public message: string, info: {[key: string]: any}) {
         super(message);
         this.name = "TxDeserializationError";
         this.stack = (<any> new Error()).stack;
@@ -68,10 +68,14 @@ export async function handleEvmTx(
 
     if (result.success)
         return result.tx;
-    else {
-        logger.error(result.message['stack']);
-        throw new TxDeserializationError('EVM worker crashed.', result.message);
-    }
+    else
+        throw new TxDeserializationError(
+            'Raw EVM deserialization error',
+            {
+                'nativeBlockHash': nativeBlockHash,
+                'error': result.message
+            }
+        );
 }
 
 const stdGasPrice = "0x7a307efa80";
@@ -93,7 +97,13 @@ async function queryAddress(accountName: string, rpc: JsonRpc) {
     if (result.rows.length == 1) {
         return result.rows[0].address;
     } else if (result.rows.length > 1) {
-        throw new Error("multiple address for one account? shouldn\'t happen");
+        throw new TxDeserializationError(
+            "Multiple address for one account.",
+            {
+                'account': accountName,
+                'account_int': acctInt.toString(),
+                'rows': result.rows
+            });
     } else {
         return null;
     }
@@ -116,8 +126,12 @@ export async function handleEvmDeposit(
         if (address) {
             toAddr = `0x${address}`;
         } else {
-            logger.error('seems user deposited without registering!');
-            return null;
+            throw new TxDeserializationError(
+                "User deposited without registering",
+                {
+                    'nativeBlockHash': nativeBlockHash,
+                    'tx': tx
+                });
         }
     } else {
         if(isValidAddress(tx.memo))
@@ -127,9 +141,12 @@ export async function handleEvmDeposit(
             const address = await queryAddress(tx.from, rpc);
 
             if (!address) {
-                logger.error(JSON.stringify(tx));
-                logger.error('seems user deposited to an invalid address!');
-                return null;
+                throw new TxDeserializationError(
+                    "User deposited to an invalid address",
+                    {
+                        'nativeBlockHash': nativeBlockHash,
+                        'tx': tx
+                    });
             }
 
             toAddr = `0x${address}`;

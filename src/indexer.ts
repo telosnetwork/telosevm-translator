@@ -27,7 +27,7 @@ import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 
 import { 
     setCommon,
-    handleEvmTx, handleEvmDeposit, handleEvmWithdraw
+    handleEvmTx, handleEvmDeposit, handleEvmWithdraw, TxDeserializationError
 } from './handlers';
 
 import {StorageEvmTransaction} from './types/evm';
@@ -138,6 +138,7 @@ export class TEVMIndexer {
         }
         // traces
         const transactions = extractShipTraces(resp.traces);
+        const errors = [];
         let gasUsedBlock = 0;
 
         for (const tx of transactions) {
@@ -179,18 +180,31 @@ export class TEVMIndexer {
             }
 
             let evmTx: StorageEvmTransaction = null;
-            if (action.account == "eosio.evm") {
-                if (action.name == "raw") {
-                    evmTx = await handleEvmTx(
-                        resp.this_block.block_id,
-                        this.evmTransactions.length,
-                        this.evmBlockNum,
-                        actionData,
-                        tx.trace.console
-                    );
-                    gasUsedBlock = evmTx.gasusedblock;
-                } else if (action.name == "withdraw"){
-                    evmTx = await handleEvmWithdraw(
+            try {
+                if (action.account == "eosio.evm") {
+                    if (action.name == "raw") {
+                        evmTx = await handleEvmTx(
+                            resp.this_block.block_id,
+                            this.evmTransactions.length,
+                            this.evmBlockNum,
+                            actionData,
+                            tx.trace.console
+                        );
+                        gasUsedBlock = evmTx.gasusedblock;
+                    } else if (action.name == "withdraw"){
+                        evmTx = await handleEvmWithdraw(
+                            resp.this_block.block_id,
+                            this.evmTransactions.length,
+                            this.evmBlockNum,
+                            actionData,
+                            this.rpc,
+                            gasUsedBlock
+                        );
+                    }
+                } else if (action.account == "eosio.token" &&
+                        action.name == "transfer" &&
+                        actionData.to == "eosio.evm") {
+                    evmTx = await handleEvmDeposit(
                         resp.this_block.block_id,
                         this.evmTransactions.length,
                         this.evmBlockNum,
@@ -198,24 +212,15 @@ export class TEVMIndexer {
                         this.rpc,
                         gasUsedBlock
                     );
-                }
-            } else if (action.account == "eosio.token" &&
-                       action.name == "transfer" &&
-                       actionData.to == "eosio.evm") {
-                evmTx = await handleEvmDeposit(
-                    resp.this_block.block_id,
-                    this.evmTransactions.length,
-                    this.evmBlockNum,
-                    actionData,
-                    this.rpc,
-                    gasUsedBlock
-                );
-            } else
-                continue;
+                } else
+                    continue;
 
-            if (evmTx == null) {
-                logger.warn(`null evmTx in block: ${currentBlock}`);
-                continue;
+            } catch (error) {
+                if (this.config.debug) {
+                    errors.push((error as TxDeserializationError));
+                    continue;
+                } else
+                    throw error;
             }
 
             let signatures: string[] = [];
@@ -238,7 +243,8 @@ export class TEVMIndexer {
                     nativeBlockNumber: currentBlock,
                     evmBlockNumber: this.evmBlockNum,
                     blockTimestamp: resp.block.timestamp,
-                    evmTxs: this.evmTransactions
+                    evmTxs: this.evmTransactions,
+                    errors: errors
                 }});
 
             if (!hasherResp.success) {
