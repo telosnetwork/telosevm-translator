@@ -27,7 +27,7 @@ import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 
 import { 
     setCommon,
-    handleEvmTx, handleEvmDeposit, handleEvmWithdraw, TxDeserializationError
+    handleEvmTx, handleEvmDeposit, handleEvmWithdraw, TxDeserializationError, isTxDeserializationError
 } from './handlers';
 
 import {StorageEvmTransaction} from './types/evm';
@@ -212,32 +212,20 @@ export class TEVMIndexer {
                 }
             }
 
-            let evmTx: StorageEvmTransaction = null;
-            try {
-                if (action.account == "eosio.evm") {
-                    if (action.name == "raw") {
-                        evmTx = await handleEvmTx(
-                            resp.this_block.block_id,
-                            evmTransactions.length,
-                            evmBlockNum,
-                            actionData,
-                            tx.trace.console
-                        );
+            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
+            if (action.account == "eosio.evm") {
+                if (action.name == "raw") {
+                    evmTx = await handleEvmTx(
+                        resp.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        actionData,
+                        tx.trace.console
+                    );
+                    if (!isTxDeserializationError(evmTx))
                         gasUsedBlock = evmTx.gasusedblock;
-                    } else if (action.name == "withdraw"){
-                        evmTx = await handleEvmWithdraw(
-                            resp.this_block.block_id,
-                            evmTransactions.length,
-                            evmBlockNum,
-                            actionData,
-                            this.rpc,
-                            gasUsedBlock
-                        );
-                    }
-                } else if (action.account == "eosio.token" &&
-                        action.name == "transfer" &&
-                        actionData.to == "eosio.evm") {
-                    evmTx = await handleEvmDeposit(
+                } else if (action.name == "withdraw"){
+                    evmTx = await handleEvmWithdraw(
                         resp.this_block.block_id,
                         evmTransactions.length,
                         evmBlockNum,
@@ -245,15 +233,27 @@ export class TEVMIndexer {
                         this.rpc,
                         gasUsedBlock
                     );
-                } else
-                    continue;
+                }
+            } else if (action.account == "eosio.token" &&
+                    action.name == "transfer" &&
+                    actionData.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(
+                    resp.this_block.block_id,
+                    evmTransactions.length,
+                    evmBlockNum,
+                    actionData,
+                    this.rpc,
+                    gasUsedBlock
+                );
+            } else
+                continue;
 
-            } catch (error) {
+            if (isTxDeserializationError(evmTx)) {
                 if (this.config.debug) {
-                    errors.push((error as TxDeserializationError));
+                    errors.push(evmTx);
                     continue;
                 } else
-                    throw error;
+                    throw new Error(JSON.stringify(evmTx));
             }
 
             let signatures: string[] = [];
