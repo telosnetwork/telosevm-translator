@@ -21,6 +21,7 @@ import {
 } from '@ethereumjs/util';
 import {Log} from '@ethereumjs/vm/dist/evm/types';
 import {TxDeserializationError} from '../handlers';
+import moment from 'moment';
 
 const BN = require('bn.js');
 
@@ -170,6 +171,8 @@ function drainBlocks() {
         const receiptsRoot = generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
+        const blockTimestamp = moment.utc(current.blockTimestamp);
+
         // generate 'valid' block header
         const blockHeader = BlockHeader.fromHeaderData({
             'parentHash': Buffer.from(prevHash, 'hex'),
@@ -180,7 +183,7 @@ function drainBlocks() {
             'gasLimit': new BN(1000000000),
             'gasUsed': getBlockGasUsed(evmTxs),
             'difficulty': new BN(0),
-            'timestamp': new BN(Date.parse(current.blockTimestamp) / 1000),
+            'timestamp': new BN(blockTimestamp.unix()),
             'extraData': Buffer.from(current.nativeBlockHash, 'hex')
         })
 
@@ -192,7 +195,7 @@ function drainBlocks() {
             "transactions": storableActions,
             "errors": current.errors,
             "delta": {
-                "@timestamp": current.blockTimestamp,
+                "@timestamp": blockTimestamp.format(),
                 "block_num": current.nativeBlockNumber,
                 "code": "eosio",
                 "table": "global",

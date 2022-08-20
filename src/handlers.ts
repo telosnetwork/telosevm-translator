@@ -18,7 +18,7 @@ import {JsonRpc} from 'eosjs';
 import {StaticPool} from 'node-worker-threads-pool';
 import {isValidAddress} from '@ethereumjs/util';
 
-import {generateUniqueVRS} from './utils/evm';
+import {generateUniqueVRS, ZERO_ADDR} from './utils/evm';
 
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
@@ -151,10 +151,10 @@ export async function handleEvmDeposit(
         }
     }
 
-    const [v, r, s] = generateUniqueVRS(nativeBlockHash, trx_index);
+    const [v, r, s] = generateUniqueVRS(
+        nativeBlockHash, ZERO_ADDR, trx_index);
 
     const txParams = {
-        from: "0x0000000000000000000000000000000000000000",
         nonce: 0,
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
@@ -171,7 +171,7 @@ export async function handleEvmDeposit(
     const inputData = '0x' + evmTx.data?.toString('hex');
     const txBody: StorageEvmTransaction = {
         hash: '0x' + evmTx.hash()?.toString('hex'),
-        from: "0x0000000000000000000000000000000000000000",
+        from: ZERO_ADDR,
         trx_index: trx_index,
         block: blockNum,
         block_hash: "",
@@ -209,13 +209,14 @@ export async function handleEvmWithdraw(
 
     const quantity = parseAsset(tx.quantity);
 
-    const [v, r, s] = generateUniqueVRS(nativeBlockHash, trx_index);
+    const [v, r, s] = generateUniqueVRS(
+        nativeBlockHash, address, trx_index);
+
     const txParams = {
-        from: address.toLowerCase(), 
         nonce: 0,
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
-        to: "0x0000000000000000000000000000000000000000",
+        to: ZERO_ADDR,
         value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
         data: "0x",
         v: v,

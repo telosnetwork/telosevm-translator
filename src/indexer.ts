@@ -43,6 +43,17 @@ const BN = require('bn.js');
 
 const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
+interface InprogressBuffers {
+    evmTransactions: Array<{
+        trx_id: string,
+        action_ordinal: number,
+        signatures: string[],
+        evmTx: StorageEvmTransaction
+    }>;
+    errors: TxDeserializationError[];
+    evmBlockNum: number;
+};
+
 
 function getContract(contractAbi: RpcInterfaces.Abi) {
     const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
@@ -66,13 +77,10 @@ export class TEVMIndexer {
 
     ethGenesisHash: string;
 
-    evmBlockNum: number = 0;
-    evmTransactions: Array<{
-        trx_id: string,
-        action_ordinal: number,
-        signatures: string[],
-        evmTx: StorageEvmTransaction
-    }> = [];
+    inprogress: Map<number, InprogressBuffers> = new Map();
+
+    lastEvmBlockNum: number;
+
     txsSinceLastReport: number = 0;
 
     config: IndexerConfig;
@@ -130,15 +138,40 @@ export class TEVMIndexer {
         // process deltas to catch evm block num
         const globalDelta = extractGlobalContractRow(resp.deltas);
 
+        let buffs: InprogressBuffers = null;
+
         if (globalDelta != null) {
             const eosioGlobalState = deserializeEosioType(
                 deltaType, globalDelta.value, this.contracts['eosio'].types);
 
-            this.evmBlockNum = eosioGlobalState.block_num;
+            this.lastEvmBlockNum = eosioGlobalState.block_num;
+            if (this.inprogress.has(this.lastEvmBlockNum))
+                buffs = this.inprogress.get(this.lastEvmBlockNum);
+            else {
+                buffs = {
+                    evmTransactions: [],
+                    errors: [],
+                    evmBlockNum: this.lastEvmBlockNum
+                };
+                this.inprogress.set(
+                    this.lastEvmBlockNum, buffs);
+            }
+        } else {
+            buffs = {
+                evmTransactions: [],
+                errors: [],
+                evmBlockNum: this.lastEvmBlockNum + 1
+            };
+            this.inprogress.set(
+                this.lastEvmBlockNum + 1, buffs);
         }
+
+        const evmBlockNum = buffs.evmBlockNum;
+        const evmTransactions = buffs.evmTransactions;
+        const errors = buffs.errors;
+
         // traces
         const transactions = extractShipTraces(resp.traces);
-        const errors = [];
         let gasUsedBlock = 0;
 
         for (const tx of transactions) {
@@ -185,8 +218,8 @@ export class TEVMIndexer {
                     if (action.name == "raw") {
                         evmTx = await handleEvmTx(
                             resp.this_block.block_id,
-                            this.evmTransactions.length,
-                            this.evmBlockNum,
+                            evmTransactions.length,
+                            evmBlockNum,
                             actionData,
                             tx.trace.console
                         );
@@ -194,8 +227,8 @@ export class TEVMIndexer {
                     } else if (action.name == "withdraw"){
                         evmTx = await handleEvmWithdraw(
                             resp.this_block.block_id,
-                            this.evmTransactions.length,
-                            this.evmBlockNum,
+                            evmTransactions.length,
+                            evmBlockNum,
                             actionData,
                             this.rpc,
                             gasUsedBlock
@@ -206,8 +239,8 @@ export class TEVMIndexer {
                         actionData.to == "eosio.evm") {
                     evmTx = await handleEvmDeposit(
                         resp.this_block.block_id,
-                        this.evmTransactions.length,
-                        this.evmBlockNum,
+                        evmTransactions.length,
+                        evmBlockNum,
                         actionData,
                         this.rpc,
                         gasUsedBlock
@@ -227,7 +260,7 @@ export class TEVMIndexer {
             if (foundSig)
                 signatures = resp.block.signatures[actionHash];
 
-            this.evmTransactions.push({
+            evmTransactions.push({
                 trx_id: tx.tx.id,
                 action_ordinal: tx.trace.action_ordinal,
                 signatures: signatures,
@@ -241,9 +274,9 @@ export class TEVMIndexer {
                 type: 'block', params: {
                     nativeBlockHash: resp.block.block_id,
                     nativeBlockNumber: currentBlock,
-                    evmBlockNumber: this.evmBlockNum,
+                    evmBlockNumber: evmBlockNum,
                     blockTimestamp: resp.block.timestamp,
-                    evmTxs: this.evmTransactions,
+                    evmTxs: evmTransactions,
                     errors: errors
                 }});
 
@@ -256,7 +289,8 @@ export class TEVMIndexer {
                 logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
                 this.txsSinceLastReport = 0;
             }
-            this.evmTransactions = [];
+
+            this.inprogress.delete(evmBlockNum);
         }
         
     }

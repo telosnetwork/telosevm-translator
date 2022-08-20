@@ -121,12 +121,23 @@ export function numToHex(input: number | string) {
 
 import {unpadHexString} from '@ethereumjs/util';
 
-export function generateUniqueVRS(blockHash: string, trx_index: number) {
-    return [
-        `0x${(27).toString(16).padStart(64, '0')}`,
-        unpadHexString(`0x${blockHash.toLowerCase()}`),
-        unpadHexString(`0x${trx_index.toString(16)}`)
-    ];
+export function generateUniqueVRS(
+    blockHash: string,
+    sender: string,
+    trx_index: number
+) {
+    const v = `0x${(42).toString(16).padStart(64, '0')}`;
+
+    const trxIndexBN = new BN(trx_index);
+    const blockHashBN = new BN(
+        blockHash.toLowerCase(), 'hex')
+
+    const r = unpadHexString(
+        `0x${blockHashBN.add(trxIndexBN).toString('hex')}`);
+    const s = unpadHexString(
+        `0x${sender.toLowerCase().padEnd(64, '0')}`);
+
+    return [v, r, s];
 }
 
 

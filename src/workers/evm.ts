@@ -90,19 +90,20 @@ parentPort.on(
             let fromAddr = null;
 
             if (arg.tx.sender != null) {
+
+                let senderAddr = arg.tx.sender.toLowerCase();
+
+                if (!isHexPrefixed(senderAddr))
+                    senderAddr = `0x${senderAddr}`;
+
                 const [v, r, s] = generateUniqueVRS(
-                    arg.nativeBlockHash, arg.trx_index);
+                    arg.nativeBlockHash, senderAddr, arg.trx_index);
 
                 evmTxParams.v = v;
                 evmTxParams.r = r;
                 evmTxParams.s = s;
 
                 evmTx = TEVMTransaction.fromTxData(evmTxParams, {common});
-
-                let senderAddr = arg.tx.sender.toLowerCase();
-
-                if (!isHexPrefixed(senderAddr))
-                    senderAddr = `0x${senderAddr}`;
 
                 if(isValidAddress(senderAddr)) {
                     fromAddr = senderAddr;
