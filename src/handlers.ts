@@ -19,6 +19,7 @@ import {StaticPool} from 'node-worker-threads-pool';
 import {isValidAddress} from '@ethereumjs/util';
 
 import {generateUniqueVRS, ZERO_ADDR} from './utils/evm';
+import moment from 'moment';
 
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
@@ -28,12 +29,17 @@ let deseralizationPool: StaticPool<(x: any) => any> = null;
 
 export class TxDeserializationError extends Error {
     info: {[key: string]: string};
+    '@timestamp': string;
 
-    constructor(public message: string, info: {[key: string]: any}) {
+    constructor(
+        public message: string,
+        info: {[key: string]: any}
+    ) {
         super(message);
         this.name = "TxDeserializationError";
         this.stack = (<any> new Error()).stack;
         this.info = info;
+        this['@timestamp'] = moment.utc().format();
     }
 }
 
