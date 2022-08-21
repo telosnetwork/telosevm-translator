@@ -173,16 +173,17 @@ export class TEVMIndexer {
         // traces
         const transactions = extractShipTraces(resp.traces);
         let gasUsedBlock = 0;
+        const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
+        const contractWhitelist = [
+            "eosio.evm", "eosio.token",  // evm
+            "eosio.msig"  // deferred transaction sig catch
+        ];
+        const actionWhitelist = [
+            "raw", "withdraw", "transfer",  // evm
+            "exec" // msig deferred sig catch 
+        ]
 
         for (const tx of transactions) {
-            const contractWhitelist = [
-                "eosio.evm", "eosio.token",  // evm
-                "eosio.msig"  // deferred transaction sig catch
-            ];
-            const actionWhitelist = [
-                "raw", "withdraw", "transfer",  // evm
-                "exec" // msig deferred sig catch 
-            ]
 
             const action = tx.trace.act;
 
@@ -198,7 +199,9 @@ export class TEVMIndexer {
                 type, action.data, this.contracts[action.account].types);
 
             // discard transfers to accounts other than eosio.evm
-            if (action.name == "transfer" && actionData.to != "eosio.evm")
+            // and transfers from system accounts
+            if ((action.name == "transfer" && actionData.to != "eosio.evm") || 
+               (action.name == "transfer" && actionData.from in systemAccounts))
                 continue;
 
             // find correct auth in related traces list
