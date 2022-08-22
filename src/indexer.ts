@@ -114,7 +114,7 @@ export class TEVMIndexer {
 
         this.reader = new StateHistoryBlockReader(this.wsEndpoint);
         this.reader.setOptions({
-            min_block_confirmation: 1,
+            min_block_confirmation: 0,
             ds_threads: telosConfig.perf.workerAmount,
             allow_empty_deltas: true,
             allow_empty_traces: true,
@@ -158,11 +158,18 @@ export class TEVMIndexer {
         }
 
         // fork detection
+        let forkData = null;
         if (!this.cleanupInProgress) {
             if (resp.this_block.block_num in this.knownBlocks) {
                 const newHead = resp.this_block.block_num;
-                logger.warn(
-                    `fork detected!, reverse all blocks after ${newHead}`);
+                const msg = `fork detected!, reverse all blocks after ${newHead}`;
+                logger.warn(msg);
+
+                forkData = new TxDeserializationError(
+                    msg, {
+                        'known': this.knownBlocks,
+                        'newHead': newHead
+                    });
             
                 this.cleanupInProgress = true;
                 // await hasher worker and db cleanup
@@ -223,6 +230,10 @@ export class TEVMIndexer {
         const evmBlockNum = buffs.evmBlockNum;
         const evmTransactions = buffs.evmTransactions;
         const errors = buffs.errors;
+
+        // inject fork data into errors
+        if (forkData != null)
+            errors.push(forkData);
 
         // traces
         const transactions = extractShipTraces(resp.traces);
