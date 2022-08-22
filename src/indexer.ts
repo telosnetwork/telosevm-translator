@@ -5,7 +5,7 @@ import {
 
 import { StaticPool } from 'node-worker-threads-pool';
 
-import { IndexerConfig } from './types/indexer';
+import { IndexerConfig, IndexerState } from './types/indexer';
 
 import {
     extractGlobalContractRow,
@@ -64,7 +64,6 @@ function getContract(contractAbi: RpcInterfaces.Abi) {
     return { types, actions }
 }
 
-
 const deltaType = getTableAbiType(eosioSystemAbi.abi, 'eosio', 'global');
 
 export class TEVMIndexer {
@@ -78,6 +77,12 @@ export class TEVMIndexer {
     ethGenesisHash: string;
 
     inprogress: Map<number, InprogressBuffers> = new Map();
+
+    knownBlocks: number[] = [];
+
+    state: IndexerState = IndexerState.SYNC;
+    switchingState: boolean = false;
+    cleanupInProgress: boolean = false;
 
     lastEvmBlockNum: number;
 
@@ -133,7 +138,56 @@ export class TEVMIndexer {
     }
 
     async consumer(resp: ShipBlockResponse): Promise<void> {
+
+        // SYNC & HEAD mode swtich detection
+        const blocksUntilHead = resp.head.block_num - resp.this_block.block_num;
+
+        if (this.state == IndexerState.SYNC &&
+            !this.switchingState &&
+            blocksUntilHead <= this.config.perf.elasticDumpSize) {
+            this.switchingState = true;
+            await this.hasher.exec({
+                type: 'state', params: {
+                    state: IndexerState.HEAD
+                }});
+            this.state = IndexerState.HEAD;
+
+            logger.info(
+                'switched to HEAD mode! blocks will be written to db asap.');
+            this.switchingState = false;
+        }
+
+        // fork detection
+        if (!this.cleanupInProgress) {
+            if (resp.this_block.block_num in this.knownBlocks) {
+                const newHead = resp.this_block.block_num;
+                logger.warn(
+                    `fork detected!, reverse all blocks after ${newHead}`);
+            
+                this.cleanupInProgress = true;
+                // await hasher worker and db cleanup
+                await this.hasher.exec({
+                    type: 'fork', params: {
+                        blockNum: newHead 
+                    }});
+
+                // delete forked knownBlocks
+                while (this.knownBlocks.pop() != newHead)
+                    continue
+
+                this.cleanupInProgress = false;
+            }
+        } else {
+            while (this.cleanupInProgress)
+                await new Promise(f => setTimeout(f, 200));
+        }
+
         const currentBlock = resp.this_block.block_num;
+        this.knownBlocks.push(currentBlock);
+
+        // only allow up to half an hour of blocks 
+        if (this.knownBlocks.length > 3600)
+            this.knownBlocks.splice(3599)
 
         // process deltas to catch evm block num
         const globalDelta = extractGlobalContractRow(resp.deltas);

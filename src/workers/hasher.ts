@@ -1,6 +1,6 @@
 import { parentPort, workerData } from 'worker_threads';
 
-import { IndexerConfig  } from '../types/indexer';
+import { IndexerConfig, IndexerState  } from '../types/indexer';
 import { Connector } from '../database/connector';
 
 import {
@@ -245,6 +245,7 @@ parentPort.on(
 
     try {
 
+        // block handler
         if (msg.type == 'block') {
             const blockInfo: HasherBlockInfo = msg.params;
             blockDrain.queue(blockInfo);
@@ -253,6 +254,21 @@ parentPort.on(
                 drainBlocks();
 
             return parentPort.postMessage({success: true, qlen: blockDrain.length});
+        }
+
+        // db write mode change handler
+        if (msg.type == 'state') {
+            connector.setState(msg.params.state);
+            return parentPort.postMessage({success: true});
+        }
+
+        // fork handler
+        if (msg.type == 'fork') {
+            connector.cleanupFork(msg.params['blockNum']).then(
+                r => {
+                    return parentPort.postMessage({success: true});
+                }
+            )
         }
 
         return parentPort.postMessage({

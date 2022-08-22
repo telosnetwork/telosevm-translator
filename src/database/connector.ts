@@ -1,7 +1,7 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
 import RPCBroadcaster from '../publisher';
-import { IndexerConfig, IndexedBlockInfo } from '../types/indexer';
+import { IndexerConfig, IndexedBlockInfo, IndexerState } from '../types/indexer';
 import { getTemplatesForChain } from './templates';
 
 import logger from '../utils/winston';
@@ -18,6 +18,8 @@ export class Connector {
     broadcast: RPCBroadcaster;
     chainName: string;
 
+    state: IndexerState;
+
     blockDrain: {
         done: any[];
         building: any[];
@@ -29,6 +31,7 @@ export class Connector {
     };
 
     draining: boolean = false;
+    cleanupInProgress: boolean = false;
     isBroadcaster: boolean;
 
     constructor(config: IndexerConfig, isBroadcaster: boolean) {
@@ -49,10 +52,16 @@ export class Connector {
             done: [],
             building: []
         };
+
+        this.state = IndexerState.SYNC;
     }
 
     getSubfix(blockNum: number) {
         return String(Math.floor(blockNum / 10000000)).padStart(8, '0');
+    }
+
+    setState(state: IndexerState) {
+        this.state = state;
     }
 
     async init() {
@@ -119,7 +128,6 @@ export class Connector {
         const suffix = this.getSubfix(blockInfo.delta.block_num);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
-
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`; 
         
         const txOperations = blockInfo.transactions.flatMap(
@@ -138,7 +146,9 @@ export class Connector {
         this.blockDrain.building.push(blockInfo);
 
         if (!this.draining &&
-            this.opDrain.building.length >= this.config.perf.elasticDumpSize) {
+            !this.cleanupInProgress &&
+            (this.state == IndexerState.HEAD ||
+             this.opDrain.building.length >= this.config.perf.elasticDumpSize)) {
 
             this.opDrain.done = this.opDrain.building;
             this.opDrain.building = [];
@@ -195,5 +205,58 @@ export class Connector {
         logger.info('done.');
 
         this.draining = false;
+    }
+
+    async cleanupFork(blockNum: number) {
+        // set fork cleanup flag, no new write tasks should start
+        this.cleanupInProgress = true;
+
+        // wait until `draining` flag is false, this means all data has been
+        // wrote to db, we can begin cleanup
+        while (this.draining)
+            await new Promise(f => setTimeout(f, 1000));
+
+        // cleanup operation queues
+        // nuke done queue
+        this.opDrain.done.splice(0);
+
+        // search for specific block num and splice at that point
+        let spliceIndex = this.opDrain.building.length - 1;
+        while (spliceIndex < 0) {
+            if ('block_num' in this.opDrain.building[spliceIndex] &&
+               this.opDrain.building[spliceIndex].block_num < blockNum)
+                break;
+            spliceIndex--;
+        }
+        this.opDrain.building.splice(spliceIndex);
+
+        // repeat process for block header queues
+        this.blockDrain.done.splice(0);
+        spliceIndex = this.blockDrain.building.length - 1;
+        while (spliceIndex < 0) {
+            if (this.blockDrain.building[spliceIndex].delta.block_num < blockNum)
+                break;
+            spliceIndex--;
+        }
+        this.blockDrain.building.splice(spliceIndex);
+
+        // finally clean up db
+        
+        // deltas
+        let resp = await this.elastic.deleteByQuery({
+            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+            q: `block_num >= ${blockNum}`
+        });
+        logger.info('delta: \n' + JSON.stringify(resp, null, 4));
+
+        // actions 
+        resp = await this.elastic.deleteByQuery({
+            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            q: `@raw.block >= ${blockNum - this.config.evmDelta}`
+        });
+        logger.info('action: \n' + JSON.stringify(resp, null, 4));
+
+        // clear fork cleanup flag, new write tasks should be created
+        this.cleanupInProgress = false;
     }
 };

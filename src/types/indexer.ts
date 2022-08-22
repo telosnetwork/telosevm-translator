@@ -50,3 +50,8 @@ export type IndexedBlockInfo = {
     receiptsRoot: string;
     blockBloom: string;
 };
+
+export enum IndexerState {
+    SYNC = 0,
+    HEAD = 1
+};
