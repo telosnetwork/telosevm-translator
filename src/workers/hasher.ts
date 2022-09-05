@@ -68,7 +68,7 @@ function generateTxRootHash(evmTxs: TxArray): Buffer {
     for (const [i, tx] of evmTxs.entries())
         trie.put(Buffer.from(RLP.encode(i)), tx.evmTx.raw).then();
 
-    return trie.root
+    return trie.root()
 }
 
 interface TxReceipt {
@@ -132,7 +132,7 @@ function generateReceiptRootHash(evmTxs: TxArray): Buffer {
         const encodedReceipt = encodeReceipt(receipt)
         receiptTrie.put(Buffer.from(RLP.encode(i)), encodedReceipt).then();
     }
-    return receiptTrie.root
+    return receiptTrie.root()
 }
 
 function getBlockGasUsed(evmTxs: TxArray): typeof BN {
