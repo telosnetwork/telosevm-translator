@@ -1,0 +1,38 @@
+{
+    "debug": true,
+    "chainName": "telos-stagenet",
+    "chainId": 41,
+
+    "endpoint": "http://testrpc.us.telos.net:8888",
+    "wsEndpoint": "ws://testrpc.us.telos.net:18999",
+
+    "evmDeployBlock": 1109372,
+    "evmPrevHash": "",
+    "evmDelta": 74390,
+
+    "startBlock": 1109372,
+    "stopBlock": 4294967295,
+    "perf": {
+        "workerAmount": 4,
+        "elasticDumpSize": 200,
+        "maxMsgsInFlight": 2000
+    },
+
+    "elastic": {
+        "node": "http://localhost:9200",
+        "auth": {
+            "username": "elastic",
+            "password": "password"
+        },
+        "subfix": {
+            "delta": "delta-v1.5",
+            "transaction": "action-v1.5",
+            "error": "error-v1.5"
+        }
+    },
+
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7320
+    }
+}

@@ -207,16 +207,15 @@ export class TEVMIndexer {
 
             this.lastEvmBlockNum = eosioGlobalState.block_num;
             if (this.inprogress.has(this.lastEvmBlockNum))
-                buffs = this.inprogress.get(this.lastEvmBlockNum);
-            else {
-                buffs = {
-                    evmTransactions: [],
-                    errors: [],
-                    evmBlockNum: this.lastEvmBlockNum
-                };
-                this.inprogress.set(
-                    this.lastEvmBlockNum, buffs);
-            }
+                this.inprogress.delete(this.lastEvmBlockNum);
+
+            buffs = {
+                evmTransactions: [],
+                errors: [],
+                evmBlockNum: this.lastEvmBlockNum
+            };
+            this.inprogress.set(
+                this.lastEvmBlockNum, buffs);
         } else {
             buffs = {
                 evmTransactions: [],
@@ -360,7 +359,6 @@ export class TEVMIndexer {
 
             this.inprogress.delete(evmBlockNum);
         }
-        
     }
 
     async launch() {
