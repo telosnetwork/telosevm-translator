@@ -448,7 +448,7 @@ export class TEVMIndexer {
             start_block_num: startBlock,
             end_block_num: stopBlock,
             max_messages_in_flight: this.config.perf.maxMsgsInFlight,
-            irreversible_only: true,
+            irreversible_only: false,
             have_positions: [],
             fetch_block: true,
             fetch_traces: true,
