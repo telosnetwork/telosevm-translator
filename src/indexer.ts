@@ -411,7 +411,7 @@ export class TEVMIndexer {
         if (lastBlock != null) {
             // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
-            startBlock = lastBlock.block_num;
+            startBlock = lastBlock.block_num + 1;
             prevHash = lastBlock['@evmBlockHash'];
             logger.info(
                 `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`);

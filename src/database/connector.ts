@@ -113,11 +113,11 @@ export class Connector {
                 index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
                 size: 1,
                 sort: [
-                    {"@timestamp": { "order": "desc"} }
+                    {"block_num": { "order": "desc"} }
                 ]
             });
 
-            return result?.hits?.hits[0]?._source; 
+            return result?.hits?.hits[0]?._source;
 
         } catch (error) {
             return null;
@@ -129,7 +129,7 @@ export class Connector {
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`; 
-        
+
         const txOperations = blockInfo.transactions.flatMap(
            doc => [{index: {_index: txIndex}}, doc]);
 
