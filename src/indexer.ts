@@ -406,13 +406,27 @@ export class TEVMIndexer {
         await this.connector.init();
 
         logger.info('checking db for blocks...');
-        const lastBlock = await this.connector.getLastIndexedBlock();
+        let lastBlock = await this.connector.getLastIndexedBlock();
 
         if (lastBlock != null) {
             // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
-            startBlock = lastBlock.block_num + 1;
+
+            startBlock = lastBlock.block_num - 5;
+
+            logger.info(`purge blocks newer than ${startBlock}`);
+
+            await this.connector.purgeBlocksNewerThan(startBlock);
+
+            logger.info('done.');
+
+            lastBlock = await this.connector.getLastIndexedBlock();
+
             prevHash = lastBlock['@evmBlockHash'];
+
+            if (lastBlock.block_num != startBlock - 1)
+                throw new Error(`woops off by one? ${lastBlock.block_num} != ${startBlock}`);
+
             logger.info(
                 `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`);
 

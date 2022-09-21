@@ -124,11 +124,29 @@ export class Connector {
         }
     }
 
+    async purgeBlocksNewerThan(blockNum: number) {
+        const result = await this.elastic.deleteByQuery({
+            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+            body: {
+                query: {
+                    range: {
+                        block_num: {
+                            gte: blockNum
+                        }
+                    }
+                }
+            },
+            refresh: true
+        })
+
+        return result;
+    }
+
     pushBlock(blockInfo: IndexedBlockInfo) {
         const suffix = this.getSubfix(blockInfo.delta.block_num);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
-        const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`; 
+        const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
 
         const txOperations = blockInfo.transactions.flatMap(
            doc => [{index: {_index: txIndex}}, doc]);
