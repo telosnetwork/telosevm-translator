@@ -107,6 +107,64 @@ export class Connector {
             this.broadcast.initUWS();
     }
 
+    async checkGaps() {
+        try {
+
+            const result = await this.elastic.search({
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                size: 0,
+                aggs: {
+                    gaps: {
+                        scripted_metric: {
+                            init_script: "state.blocks = [];",
+                            map_script: `
+                                state.blocks.add(
+                                    [doc["@global.block_num"].value, doc["block_num"].value]
+                                );
+                            `,
+                            combine_script: `
+                                def result = [];
+                                for (blockInfo in state.blocks) { result.add(blockInfo); }
+                                return result;
+                            `,
+                            reduce_script: `
+                                def blocks = [];
+                                for (b in states) {
+                                    for (bInfo in b) {
+                                    blocks.add(bInfo);
+                                    }
+                                }
+
+                                blocks.sort((a,b)-> a[0].compareTo(b[0]));
+
+                                def prevInfo = blocks.get(0);
+                                def result = [];
+                                def item = new HashMap();
+                                for (blockInfo in blocks) {
+
+                                    def gapSize = Math.abs(blockInfo[0] - prevInfo[0]);
+                                    if (gapSize > 1) {
+                                        item["gap_size"] = gapSize;
+                                        item["to"] = blockInfo;
+                                        item["from"] = prevInfo;
+                                        result.add(item);
+                                        item = new HashMap();
+                                    }
+
+                                    prevInfo = blockInfo;
+                                }
+                                return result;
+                            `
+                        }
+                    }
+                }
+            });
+            return result;
+        } catch (error) {
+            return null;
+        }
+    }
+
     async getLastIndexedBlock() {
         try {
             const result = await this.elastic.search({

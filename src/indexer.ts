@@ -97,7 +97,7 @@ export class TEVMIndexer {
     reader: StateHistoryBlockReader;
     rpc: JsonRpc;
     connector: Connector; 
-    
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -133,7 +133,7 @@ export class TEVMIndexer {
             'eosio.token': getContract(eosioTokenAbi.abi),
             'eosio': getContract(eosioSystemAbi.abi)
         };
-        
+
         setCommon(telosConfig.chainId);
     }
 
@@ -170,7 +170,7 @@ export class TEVMIndexer {
                         'known': this.knownBlocks,
                         'newHead': newHead
                     });
-            
+
                 this.cleanupInProgress = true;
                 // await hasher worker and db cleanup
                 await this.hasher.exec({
@@ -412,7 +412,15 @@ export class TEVMIndexer {
             // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
 
-            startBlock = lastBlock.block_num - 5;
+            const gaps = (await this.connector.checkGaps()).aggregations.gaps.value;
+
+            logger.info(
+                `gaps:\n${JSON.stringify(gaps, null, 4)}`);
+
+            if (gaps.length > 0)
+                startBlock = gaps[0].from[1];
+            else
+                startBlock = lastBlock.block_num - 3;
 
             logger.info(`purge blocks newer than ${startBlock}`);
 
@@ -423,9 +431,6 @@ export class TEVMIndexer {
             lastBlock = await this.connector.getLastIndexedBlock();
 
             prevHash = lastBlock['@evmBlockHash'];
-
-            if (lastBlock.block_num != startBlock - 1)
-                throw new Error(`woops off by one? ${lastBlock.block_num} != ${startBlock}`);
 
             logger.info(
                 `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`);
