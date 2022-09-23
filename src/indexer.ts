@@ -84,8 +84,6 @@ export class TEVMIndexer {
     switchingState: boolean = false;
     cleanupInProgress: boolean = false;
 
-    lastEvmBlockNum: number;
-
     txsSinceLastReport: number = 0;
 
     config: IndexerConfig;
@@ -96,7 +94,9 @@ export class TEVMIndexer {
     hasher: StaticPool<(x: {type: string, params: any}) => any>;
     reader: StateHistoryBlockReader;
     rpc: JsonRpc;
-    connector: Connector; 
+    connector: Connector;
+
+    limboBuffs: InprogressBuffers = null;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -186,7 +186,7 @@ export class TEVMIndexer {
             }
         } else {
             while (this.cleanupInProgress)
-                await new Promise(f => setTimeout(f, 200));
+                await sleep(200);
         }
 
         const currentBlock = resp.this_block.block_num;
@@ -205,25 +205,37 @@ export class TEVMIndexer {
             const eosioGlobalState = deserializeEosioType(
                 deltaType, globalDelta.value, this.contracts['eosio'].types);
 
-            this.lastEvmBlockNum = eosioGlobalState.block_num;
-            if (this.inprogress.has(this.lastEvmBlockNum))
-                this.inprogress.delete(this.lastEvmBlockNum);
+            const currentEvmBlock = eosioGlobalState.block_num;
+            if (this.inprogress.has(currentEvmBlock))
+                this.inprogress.delete(currentEvmBlock);
 
             buffs = {
                 evmTransactions: [],
                 errors: [],
-                evmBlockNum: this.lastEvmBlockNum
+                evmBlockNum: currentEvmBlock
             };
-            this.inprogress.set(
-                this.lastEvmBlockNum, buffs);
+
+            if (this.limboBuffs != null) {
+                for (const evmTx of this.limboBuffs.evmTransactions)
+                    evmTx.evmTx.block = currentEvmBlock;
+
+                buffs.evmTransactions = this.limboBuffs.evmTransactions
+                buffs.errors = this.limboBuffs.errors;
+                this.limboBuffs = null;
+            }
+            this.inprogress.set(currentEvmBlock, buffs);
         } else {
-            buffs = {
-                evmTransactions: [],
-                errors: [],
-                evmBlockNum: this.lastEvmBlockNum + 1
-            };
-            this.inprogress.set(
-                this.lastEvmBlockNum + 1, buffs);
+            logger.warn(`onblock failed at block ${currentBlock}`);
+
+            if (this.limboBuffs == null) {
+                this.limboBuffs = {
+                    evmTransactions: [],
+                    errors: [],
+                    evmBlockNum: 0 
+                };
+            }
+
+            buffs = this.limboBuffs;
         }
 
         const evmBlockNum = buffs.evmBlockNum;
@@ -352,6 +364,19 @@ export class TEVMIndexer {
                 process.exit(1);
             }
 
+            // worker catch up machinery, when a block is deserialzied and sent
+            // to hasher worker, we get back information about which block is
+            // the hasher waiting on and if is too far behind we just sleep, and repeat
+            let lastInOrder = hasherResp.last;
+
+            while (evmBlockNum - lastInOrder >= this.config.perf.workerAmount) {
+                await sleep(1000);
+                const lastResp = await this.hasher.exec({
+                    type: 'last', params: {}
+                });
+                lastInOrder = lastResp.last;
+            }
+
             if (currentBlock % 1000 == 0) {
                 logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
                 this.txsSinceLastReport = 0;
@@ -371,7 +396,8 @@ export class TEVMIndexer {
                     this.evmDeployBlock - 1);
 
             } catch (e) {
-                logger.warn('couldn\'t get genesis block retrying in 5 seg...');
+                logger.error(e);
+                logger.warn(`couldn\'t get genesis block ${this.evmDeployBlock - 1} retrying in 5 seg...`);
                 await sleep(5000);
                 continue
             }
@@ -400,6 +426,7 @@ export class TEVMIndexer {
         logger.info(`ethereum genesis hash: 0x${this.ethGenesisHash}`);
 
         let startBlock = this.startBlock;
+        let startEvmBlock = this.startBlock - this.config.evmDelta;
         let stopBlock = this.stopBlock;
         let prevHash = null;
 
@@ -417,10 +444,13 @@ export class TEVMIndexer {
             logger.info(
                 `gaps:\n${JSON.stringify(gaps, null, 4)}`);
 
-            if (gaps.length > 0)
+            if (gaps.length > 0) {
                 startBlock = gaps[0].from[1];
-            else
+                startEvmBlock = gaps[0].from[0];
+            } else {
                 startBlock = lastBlock.block_num - 3;
+                startEvmBlock = lastBlock['@global'].block_num - 3;
+            }
 
             logger.info(`purge blocks newer than ${startBlock}`);
 
@@ -454,7 +484,7 @@ export class TEVMIndexer {
             task: './build/workers/hasher.js',
             workerData: {
                 config: this.config,
-                startBlock: startBlock,
+                startEvmBlock: startEvmBlock,
                 prevHash: prevHash 
             }
         });

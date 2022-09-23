@@ -260,9 +260,13 @@ export default class StateHistoryBlockReader {
                                 return this.blocksQueue.pause();
                             }
                         }
+                    } else {
+                        logger.warn('got null block, maybe indexer finished?');
+                        return;
                     }
 
                     this.blocksQueue.add(async () => {
+
                         if (response.this_block) {
                             this.currentArgs.start_block_num = response.this_block.block_num + 1;
                         } else {
@@ -284,11 +288,13 @@ export default class StateHistoryBlockReader {
 
                         let deserializedBlock = null;
                         let signatures: {[key: string]: string[]} = {};
+                        let blockNum = response.this_block.block_num;
 
                         try {
                             deserializedTraces = await traces;
+
                         } catch (error) {
-                            logger.error('Failed to deserialize traces at block #' + response.this_block.block_num, error);
+                            logger.error('Failed to deserialize traces at block #' + blockNum, error);
 
                             this.blocksQueue.clear();
                             this.blocksQueue.pause();
@@ -299,7 +305,7 @@ export default class StateHistoryBlockReader {
                         try {
                             deserializedDeltas = await deltas;
                         } catch (error) {
-                            logger.error('Failed to deserialize deltas at block #' + response.this_block.block_num, error);
+                            logger.error('Failed to deserialize deltas at block #' + blockNum, error);
 
                             this.blocksQueue.clear();
                             this.blocksQueue.pause();
@@ -350,10 +356,10 @@ export default class StateHistoryBlockReader {
                                 }
 
                                 if (trx == null)
-                                    logger.error(`block_num: ${response.this_block.block_num}`)
+                                    logger.error(`null trx in ${blockNum}`)
                                 }
                             }
-                        
+
                         } catch (error) {
                             logger.error('Failed to deserialize block, response: \n' + JSON.stringify(response, null, 4), error);
 
@@ -380,7 +386,7 @@ export default class StateHistoryBlockReader {
                                 deltas: deserializedDeltas
                             });
                         } catch (error) {
-                            logger.error('Ship blocks queue stopped due to an error at #' + response.this_block.block_num, error);
+                            logger.error('Ship blocks queue stopped due to an error at #' + blockNum, error);
 
                             this.blocksQueue.clear();
                             this.blocksQueue.pause();
@@ -403,6 +409,8 @@ export default class StateHistoryBlockReader {
             logger.error(e);
 
             this.ws.close();
+
+            throw e;
         }
     }
 

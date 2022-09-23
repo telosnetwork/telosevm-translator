@@ -20,17 +20,11 @@ export class Connector {
 
     state: IndexerState;
 
-    blockDrain: {
-        done: any[];
-        building: any[];
-    };
+    blockDrain: any[];
+    opDrain: any[];
 
-    opDrain: {
-        done: any[];
-        building: any[];
-    };
+    writeCounter: number = 0;
 
-    draining: boolean = false;
     cleanupInProgress: boolean = false;
     isBroadcaster: boolean;
 
@@ -43,15 +37,8 @@ export class Connector {
         if (isBroadcaster)
             this.broadcast = new RPCBroadcaster(config.broadcast);
 
-        this.opDrain = {
-            done: [],
-            building: []
-        };
-
-        this.blockDrain = {
-            done: [],
-            building: []
-        };
+        this.opDrain = [];
+        this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
     }
@@ -218,30 +205,28 @@ export class Connector {
             {index: {_index: dtIndex}}, blockInfo.delta
         ];
 
-        this.opDrain.building = [...this.opDrain.building, ...operations];
-        this.blockDrain.building.push(blockInfo);
+        this.opDrain = [...this.opDrain, ...operations];
+        this.blockDrain.push(blockInfo);
 
-        if (!this.draining &&
-            !this.cleanupInProgress &&
+        if (!this.cleanupInProgress &&
             (this.state == IndexerState.HEAD ||
-             this.opDrain.building.length >= this.config.perf.elasticDumpSize)) {
+             this.blockDrain.length >= this.config.perf.elasticDumpSize)) {
 
-            this.opDrain.done = this.opDrain.building;
-            this.opDrain.building = [];
+            const ops = this.opDrain;
+            const blocks = this.blockDrain;
 
-            this.blockDrain.done = this.blockDrain.building;
-            this.blockDrain.building = [];
-
-            this.draining = true;
+            this.opDrain = [];
+            this.blockDrain = [];
+            this.writeCounter++;
             setTimeout(
-                this.drainBlocks.bind(this), 0);
+                this.drainBlocks.bind(this, ops, blocks), 0);
         }
     }
 
-    async drainBlocks() {
+    async drainBlocks(ops: any[], blocks: any[]) {
         const bulkResponse = await this.elastic.bulk({
             refresh: true,
-            operations: this.opDrain.done,
+            operations: ops,
             error_trace: true
         });
 
@@ -263,8 +248,8 @@ export class Connector {
                         status: action[operation].status,
                         // @ts-ignore
                         error: action[operation].error,
-                        operation: this.opDrain.done[i * 2],
-                        document: this.opDrain.done[i * 2 + 1]
+                        operation: ops[i * 2],
+                        document: ops[i * 2 + 1]
                     })
                 }
             });
@@ -272,15 +257,15 @@ export class Connector {
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
 
-        logger.info(`drained ${this.opDrain.done.length} operations.`);
-        logger.info(`broadcasting ${this.blockDrain.done.length} blocks...`)
+        logger.info(`drained ${ops.length} operations.`);
+        logger.info(`broadcasting ${blocks.length} blocks...`)
 
-        for (const block of this.blockDrain.done)
+        for (const block of blocks)
             this.broadcast.broadcastBlock(block);
 
         logger.info('done.');
 
-        this.draining = false;
+        this.writeCounter--;
     }
 
     async cleanupFork(blockNum: number) {
@@ -289,35 +274,30 @@ export class Connector {
 
         // wait until `draining` flag is false, this means all data has been
         // wrote to db, we can begin cleanup
-        while (this.draining)
+        while (this.writeCounter > 0)
             await new Promise(f => setTimeout(f, 1000));
 
-        // cleanup operation queues
-        // nuke done queue
-        this.opDrain.done.splice(0);
-
         // search for specific block num and splice at that point
-        let spliceIndex = this.opDrain.building.length - 1;
+        let spliceIndex = this.opDrain.length - 1;
         while (spliceIndex < 0) {
-            if ('block_num' in this.opDrain.building[spliceIndex] &&
-               this.opDrain.building[spliceIndex].block_num < blockNum)
+            if ('block_num' in this.opDrain[spliceIndex] &&
+               this.opDrain[spliceIndex].block_num < blockNum)
                 break;
             spliceIndex--;
         }
-        this.opDrain.building.splice(spliceIndex);
+        this.opDrain.splice(spliceIndex);
 
         // repeat process for block header queues
-        this.blockDrain.done.splice(0);
-        spliceIndex = this.blockDrain.building.length - 1;
+        spliceIndex = this.blockDrain.length - 1;
         while (spliceIndex < 0) {
-            if (this.blockDrain.building[spliceIndex].delta.block_num < blockNum)
+            if (this.blockDrain[spliceIndex].delta.block_num < blockNum)
                 break;
             spliceIndex--;
         }
-        this.blockDrain.building.splice(spliceIndex);
+        this.blockDrain.splice(spliceIndex);
 
         // finally clean up db
-        
+
         // deltas
         let resp = await this.elastic.deleteByQuery({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,

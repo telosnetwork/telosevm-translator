@@ -44,7 +44,7 @@ export interface HasherBlockInfo{
 
 const args: {
     config: IndexerConfig,
-    startBlock: number,
+    startEvmBlock: number,
     prevHash: string 
 } = workerData;
 
@@ -56,11 +56,11 @@ logger.info('Launching hasher worker...');
 const blockDrain = new PriorityQueue({
     // @ts-ignore
     comparator: function(a, b) {
-        return a.nativeBlockNumber - b.nativeBlockNumber;
+        return a.evmBlockNumber - b.evmBlockNumber;
     }
 });
 
-let lastInOrder = args.startBlock;
+let lastInOrder = args.startEvmBlock - 1;
 let prevHash = args.prevHash;
 
 function generateTxRootHash(evmTxs: TxArray): Buffer {
@@ -163,7 +163,7 @@ function drainBlocks() {
         return;
 
     let current: HasherBlockInfo = blockDrain.peek();
-    while (current.nativeBlockNumber == lastInOrder + 1) {
+    while (current.evmBlockNumber == lastInOrder + 1) {
 
         const evmTxs = current.evmTxs;
 
@@ -225,10 +225,10 @@ function drainBlocks() {
             }
         }
 
-        // push to db 
+        // push to db
         connector.pushBlock(storableBlockInfo);
 
-        lastInOrder = current.nativeBlockNumber;
+        lastInOrder = current.evmBlockNumber;
 
         prevHash = currentBlockHash;
         blockDrain.dequeue();
@@ -236,7 +236,7 @@ function drainBlocks() {
         if (blockDrain.length > 0)
             current = blockDrain.peek();
     }
-    
+
 }
 
 parentPort.on(
@@ -249,12 +249,14 @@ parentPort.on(
         if (msg.type == 'block') {
             const blockInfo: HasherBlockInfo = msg.params;
             blockDrain.queue(blockInfo);
+            drainBlocks();
 
-            if (lastInOrder = blockInfo.nativeBlockNumber - 1)
-                drainBlocks();
-
-            return parentPort.postMessage({success: true, qlen: blockDrain.length});
+            return parentPort.postMessage({success: true, last: lastInOrder});
         }
+
+        // lastInOrder query
+        if (msg.type == 'last')
+            return parentPort.postMessage({success: true, last: lastInOrder});
 
         // db write mode change handler
         if (msg.type == 'state') {
