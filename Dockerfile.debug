@@ -1,0 +1,17 @@
+from node:lts-bullseye
+
+run mkdir -p /indexer/build
+
+copy src/ /indexer/src 
+copy package.json /indexer
+copy tsconfig.json /indexer
+copy config.json /indexer
+
+workdir /indexer
+
+run npm i
+run npx tsc
+
+run npm i why-is-node-running -g
+
+cmd ["why-is-node-running", "build/main.js"]
