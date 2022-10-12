@@ -18,7 +18,7 @@
         "elasticDumpSize": 4096,
         "maxMsgsInFlight": 10000
     },
-    
+
     "elastic": {
         "node": "http://localhost:9200",
         "auth": {
@@ -34,6 +34,6 @@
 
     "broadcast": {
         "wsHost": "127.0.0.1",
-        "wsPort": 7300 
+        "wsPort": 7300
     }
 }

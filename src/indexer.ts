@@ -364,18 +364,18 @@ export class TEVMIndexer {
                 process.exit(1);
             }
 
-            // worker catch up machinery, when a block is deserialzied and sent
-            // to hasher worker, we get back information about which block is
-            // the hasher waiting on and if is too far behind we just sleep, and repeat
-            let lastInOrder = hasherResp.last;
+            // // worker catch up machinery, when a block is deserialzied and sent
+            // // to hasher worker, we get back information about which block is
+            // // the hasher waiting on and if is too far behind we just sleep, and repeat
+            // let lastInOrder = hasherResp.last;
 
-            while (evmBlockNum - lastInOrder >= this.config.perf.workerAmount) {
-                await sleep(1000);
-                const lastResp = await this.hasher.exec({
-                    type: 'last', params: {}
-                });
-                lastInOrder = lastResp.last;
-            }
+            // while (evmBlockNum - lastInOrder >= this.config.perf.workerAmount) {
+            //     await sleep(1000);
+            //     const lastResp = await this.hasher.exec({
+            //         type: 'last', params: {}
+            //     });
+            //     lastInOrder = lastResp.last;
+            // }
 
             if (currentBlock % 1000 == 0) {
                 logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
