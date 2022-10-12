@@ -439,18 +439,19 @@ export class TEVMIndexer {
             // found blocks on the database
             logger.info(JSON.stringify(lastBlock, null, 4));
 
-            const gaps = (await this.connector.checkGaps()).aggregations.gaps.value;
+            // disable gap checking
+            // const gaps = (await this.connector.checkGaps()).aggregations.gaps.value;
 
-            logger.info(
-                `gaps:\n${JSON.stringify(gaps, null, 4)}`);
+            // logger.info(
+            //     `gaps:\n${JSON.stringify(gaps, null, 4)}`);
 
-            if (gaps.length > 0) {
-                startBlock = gaps[0].from[1];
-                startEvmBlock = gaps[0].from[0];
-            } else {
-                startBlock = lastBlock.block_num - 3;
-                startEvmBlock = lastBlock['@global'].block_num - 3;
-            }
+            // if (gaps.length > 0) {
+            //     startBlock = gaps[0].from[1];
+            //     startEvmBlock = gaps[0].from[0];
+            // } else {
+            startBlock = lastBlock.block_num - 3;
+            startEvmBlock = lastBlock['@global'].block_num - 3;
+            // }
 
             logger.info(`purge blocks newer than ${startBlock}`);
 
