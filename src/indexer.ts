@@ -364,25 +364,28 @@ export class TEVMIndexer {
                 process.exit(1);
             }
 
-            // // worker catch up machinery, when a block is deserialzied and sent
-            // // to hasher worker, we get back information about which block is
-            // // the hasher waiting on and if is too far behind we just sleep, and repeat
-            // let lastInOrder = hasherResp.last;
+            this.inprogress.delete(evmBlockNum);
 
-            // while (evmBlockNum - lastInOrder >= this.config.perf.workerAmount) {
-            //     await sleep(1000);
-            //     const lastResp = await this.hasher.exec({
-            //         type: 'last', params: {}
-            //     });
-            //     lastInOrder = lastResp.last;
-            // }
+            if (this.state == IndexerState.SYNC) {
+                let delta = evmBlockNum - hasherResp.last;
+                const startTime = Date.now() / 1000.0;
+                while (delta >= this.config.perf.workerAmount) {
+                    const currTime = Date.now() / 1000.0;
+                    logger.warn(
+                        `worker ${currentBlock
+                            } waiting. total time: ${(currTime - startTime).toFixed(2)
+                                }, dt: ${delta}`);
+                    await sleep(500);
+                    const lastResp = await this.hasher.exec({type: 'last', params: {}});
+                    delta = evmBlockNum - lastResp.last;
+                }
+            }
 
             if (currentBlock % 1000 == 0) {
                 logger.info(`${currentBlock} indexed, ${this.txsSinceLastReport} txs.`)
                 this.txsSinceLastReport = 0;
             }
 
-            this.inprogress.delete(evmBlockNum);
         }
     }
 
