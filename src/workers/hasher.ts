@@ -241,7 +241,7 @@ function drainBlocks() {
 
 parentPort.on(
     'message',
-    (msg: {type: string, params: any}) => {
+    async (msg: {type: string, params: any}) => {
 
     try {
 
@@ -266,11 +266,8 @@ parentPort.on(
 
         // fork handler
         if (msg.type == 'fork') {
-            connector.cleanupFork(msg.params['blockNum']).then(
-                r => {
-                    return parentPort.postMessage({success: true});
-                }
-            )
+            await connector.cleanupFork(msg.params['blockNum'])
+            return parentPort.postMessage({success: true});
         }
 
         return parentPort.postMessage({
