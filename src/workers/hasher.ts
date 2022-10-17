@@ -1,6 +1,6 @@
 import { parentPort, workerData } from 'worker_threads';
 
-import { IndexerConfig, IndexerState  } from '../types/indexer';
+import {IndexedBlockInfo, IndexerConfig} from '../types/indexer';
 import { Connector } from '../database/connector';
 
 import {
@@ -10,14 +10,13 @@ import {
 import logger from '../utils/winston';
 import {Bloom, BlockHeader} from '../utils/evm';
 
-var PriorityQueue = require("js-priority-queue");
+const PriorityQueue = require("js-priority-queue");
 
 import { Trie } from '@ethereumjs/trie';
 import RLP from 'rlp';
 import {
   bigIntToBuffer,
   bufArrToArr,
-  intToBuffer,
 } from '@ethereumjs/util';
 import {Log} from '@ethereumjs/vm/dist/evm/types';
 import {TxDeserializationError} from '../handlers';
@@ -53,14 +52,14 @@ const connector = new Connector(
 
 logger.info('Launching hasher worker...');
 
-const blockDrain = new PriorityQueue({
+const hashedBlocksQueue = new PriorityQueue({
     // @ts-ignore
     comparator: function(a, b) {
         return a.evmBlockNumber - b.evmBlockNumber;
     }
 });
 
-let lastInOrder = args.startEvmBlock - 1;
+let lastBlockSentToDB = args.startEvmBlock - 1;
 let prevHash = args.prevHash;
 
 function generateTxRootHash(evmTxs: TxArray): Buffer {
@@ -156,22 +155,22 @@ function generateBloom(evmTxs: TxArray): Buffer {
     return blockBloom.bitvector;
 }
 
+function sendNextBlocksFromQueue() {
 
-function drainBlocks() {
-
-    if (blockDrain.length == 0)
+    if (hashedBlocksQueue.length == 0)
         return;
 
-    let current: HasherBlockInfo = blockDrain.peek();
-    while (current.evmBlockNumber == lastInOrder + 1) {
-
-        const evmTxs = current.evmTxs;
+    let newestHashedBlock: HasherBlockInfo = hashedBlocksQueue.peek();
+    logger.debug(`Before hashed block draining loop, newestHashedBlock.evmBlockNumber = ${newestHashedBlock.evmBlockNumber} and lastBlockSentToDB: ${lastBlockSentToDB}`);
+    while (newestHashedBlock.evmBlockNumber == lastBlockSentToDB + 1) {
+        logger.debug(`In hashed block draining loop, newestHashedBlock.evmBlockNumber = ${newestHashedBlock.evmBlockNumber} and lastBlockSentToDB: ${lastBlockSentToDB}`);
+        const evmTxs = newestHashedBlock.evmTxs;
 
         const transactionsRoot = generateTxRootHash(evmTxs);
         const receiptsRoot = generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
-        const blockTimestamp = moment.utc(current.blockTimestamp);
+        const blockTimestamp = moment.utc(newestHashedBlock.blockTimestamp);
 
         // generate 'valid' block header
         const blockHeader = BlockHeader.fromHeaderData({
@@ -179,32 +178,32 @@ function drainBlocks() {
             'transactionsTrie': transactionsRoot,
             'receiptTrie': receiptsRoot,
             'bloom': bloom,
-            'number': new BN(current.evmBlockNumber),
+            'number': new BN(newestHashedBlock.evmBlockNumber),
             'gasLimit': new BN(1000000000),
             'gasUsed': getBlockGasUsed(evmTxs),
             'difficulty': new BN(0),
             'timestamp': new BN(blockTimestamp.unix()),
-            'extraData': Buffer.from(current.nativeBlockHash, 'hex')
+            'extraData': Buffer.from(newestHashedBlock.nativeBlockHash, 'hex')
         })
 
         const currentBlockHash = blockHeader.hash().toString('hex');
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
-        const storableBlockInfo = {
+        const storableBlockInfo: IndexedBlockInfo = {
             "transactions": storableActions,
-            "errors": current.errors,
+            "errors": newestHashedBlock.errors,
             "delta": {
                 "@timestamp": blockTimestamp.format(),
-                "block_num": current.nativeBlockNumber,
+                "block_num": newestHashedBlock.nativeBlockNumber,
                 "code": "eosio",
                 "table": "global",
                 "@global": {
-                    "block_num": current.evmBlockNumber
+                    "block_num": newestHashedBlock.evmBlockNumber
                 },
                 "@evmBlockHash": currentBlockHash 
             },
-            "nativeHash": current.nativeBlockHash.toLowerCase(),
+            "nativeHash": newestHashedBlock.nativeBlockHash.toLowerCase(),
             "parentHash": prevHash,
             "transactionsRoot": transactionsRoot.toString('hex'),
             "receiptsRoot": receiptsRoot.toString('hex'),
@@ -216,7 +215,7 @@ function drainBlocks() {
                 evmTxData.evmTx.block_hash = currentBlockHash;
                 delete evmTxData.evmTx['raw'];
                 storableActions.push({
-                    "@timestamp": current.blockTimestamp,
+                    "@timestamp": newestHashedBlock.blockTimestamp,
                     "trx_id": evmTxData.trx_id,
                     "action_ordinal": evmTxData.action_ordinal,
                     "signatures": evmTxData.signatures,
@@ -228,13 +227,13 @@ function drainBlocks() {
         // push to db
         connector.pushBlock(storableBlockInfo);
 
-        lastInOrder = current.evmBlockNumber;
+        lastBlockSentToDB = newestHashedBlock.evmBlockNumber;
 
         prevHash = currentBlockHash;
-        blockDrain.dequeue();
+        hashedBlocksQueue.dequeue();
 
-        if (blockDrain.length > 0)
-            current = blockDrain.peek();
+        if (hashedBlocksQueue.length > 0)
+            newestHashedBlock = hashedBlocksQueue.peek();
     }
 
 }
@@ -242,37 +241,39 @@ function drainBlocks() {
 parentPort.on(
     'message',
     async (msg: {type: string, params: any}) => {
+        logger.debug(`In message hasher handler, lastBlockSentToDB is ${lastBlockSentToDB} and got message type: ${msg.type}`);
+        try {
+            // block handler
+            if (msg.type == 'block') {
+                const blockInfo: HasherBlockInfo = msg.params;
+                logger.debug(`In message hasher handler block is: ${blockInfo.evmBlockNumber}`);
+                hashedBlocksQueue.queue(blockInfo);
+                sendNextBlocksFromQueue();
 
-    try {
+                return parentPort.postMessage({success: true, last: lastBlockSentToDB});
+            }
 
-        // block handler
-        if (msg.type == 'block') {
-            const blockInfo: HasherBlockInfo = msg.params;
-            blockDrain.queue(blockInfo);
-            drainBlocks();
+            // lastBlockSentToDB query
+            if (msg.type == 'last')
+                return parentPort.postMessage({success: true, last: lastBlockSentToDB});
 
-            return parentPort.postMessage({success: true, last: lastInOrder});
+            // db write mode change handler
+            if (msg.type == 'state') {
+                logger.debug(`In message hasher handler state is changed to: ${msg.params.state}`);
+                connector.setState(msg.params.state);
+                return parentPort.postMessage({success: true});
+            }
+
+            // fork handler
+            if (msg.type == 'fork') {
+                logger.debug(`In message hasher handler fork blockNum: ${msg.params['blockNum']}`);
+                await connector.cleanupFork(msg.params['blockNum'])
+                return parentPort.postMessage({success: true});
+            }
+
+            return parentPort.postMessage({success: false, error: 'unknown type'});
+        } catch (e) {
+            logger.debug(`In message hasher handler, sending error to parent: ${e.message}`);
+            return parentPort.postMessage({success: false, message: e});
         }
-
-        // lastInOrder query
-        if (msg.type == 'last')
-            return parentPort.postMessage({success: true, last: lastInOrder});
-
-        // db write mode change handler
-        if (msg.type == 'state') {
-            connector.setState(msg.params.state);
-            return parentPort.postMessage({success: true});
-        }
-
-        // fork handler
-        if (msg.type == 'fork') {
-            await connector.cleanupFork(msg.params['blockNum'])
-            return parentPort.postMessage({success: true});
-        }
-
-        return parentPort.postMessage({
-            success: false, error: 'unknown type'});
-    } catch (e) {
-        return parentPort.postMessage({success: false, message: e});
-    }
 });

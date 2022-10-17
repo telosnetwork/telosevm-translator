@@ -15,7 +15,9 @@ import * as AbiEOS from "@eosrio/node-abieos";
 
 import {
     EosioAction
-} from './types/eosio';const WebSocket = require('ws');
+} from './types/eosio';
+
+const WebSocket = require('ws');
 
 const createHash = require("sha1-uint8array").createHash
 

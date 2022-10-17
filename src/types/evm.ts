@@ -99,5 +99,7 @@ export interface StorageEosioDelta {
     "@global": {
         "block_num": number
     },
-    "@evmBlockHash": string
+    "@evmBlockHash": string,
+    "code": string,
+    "table": string
 }
