@@ -47,7 +47,7 @@ export class TEVMIndexer {
     config: IndexerConfig;
 
     private reader: StateHistoryBlockReader;
-    private connector: Connector;
+    connector: Connector;
 
     private prevHash: string;
     private lastOrderedBlock: number;

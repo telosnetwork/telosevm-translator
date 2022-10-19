@@ -671,6 +671,7 @@ export default class StateHistoryBlockReader {
 
         if (blocksUntilHead <= this.indexer.config.perf.elasticDumpSize) {
             this.indexer.state = IndexerState.HEAD;
+            this.indexer.connector.state = IndexerState.HEAD;
 
             logger.info(
                 'switched to HEAD mode! blocks will be written to db asap.');
