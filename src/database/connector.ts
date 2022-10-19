@@ -25,17 +25,12 @@ export class Connector {
 
     writeCounter: number = 0;
 
-    cleanupInProgress: boolean = false;
-    isBroadcaster: boolean;
-
-    constructor(config: IndexerConfig, isBroadcaster: boolean) {
+    constructor(config: IndexerConfig) {
         this.config = config;
         this.chainName = config.chainName;
         this.elastic = new Client(config.elastic);
-        this.isBroadcaster = isBroadcaster;
 
-        if (isBroadcaster)
-            this.broadcast = new RPCBroadcaster(config.broadcast);
+        this.broadcast = new RPCBroadcaster(config.broadcast);
 
         this.opDrain = [];
         this.blockDrain = [];
@@ -90,66 +85,7 @@ export class Connector {
 
         logger.info('Initializing ws broadcaster...');
 
-        if (this.isBroadcaster)
-            this.broadcast.initUWS();
-    }
-
-    async checkGaps() {
-        try {
-
-            const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-                size: 0,
-                aggs: {
-                    gaps: {
-                        scripted_metric: {
-                            init_script: "state.blocks = [];",
-                            map_script: `
-                                state.blocks.add(
-                                    [doc["@global.block_num"].value, doc["block_num"].value]
-                                );
-                            `,
-                            combine_script: `
-                                def result = [];
-                                for (blockInfo in state.blocks) { result.add(blockInfo); }
-                                return result;
-                            `,
-                            reduce_script: `
-                                def blocks = [];
-                                for (b in states) {
-                                    for (bInfo in b) {
-                                    blocks.add(bInfo);
-                                    }
-                                }
-
-                                blocks.sort((a,b)-> a[0].compareTo(b[0]));
-
-                                def prevInfo = blocks.get(0);
-                                def result = [];
-                                def item = new HashMap();
-                                for (blockInfo in blocks) {
-
-                                    def gapSize = Math.abs(blockInfo[0] - prevInfo[0]);
-                                    if (gapSize > 1) {
-                                        item["gap_size"] = gapSize;
-                                        item["to"] = blockInfo;
-                                        item["from"] = prevInfo;
-                                        result.add(item);
-                                        item = new HashMap();
-                                    }
-
-                                    prevInfo = blockInfo;
-                                }
-                                return result;
-                            `
-                        }
-                    }
-                }
-            });
-            return result;
-        } catch (error) {
-            return null;
-        }
+        this.broadcast.initUWS();
     }
 
     async getLastIndexedBlock() {
@@ -208,9 +144,8 @@ export class Connector {
         this.opDrain = [...this.opDrain, ...operations];
         this.blockDrain.push(blockInfo);
 
-        if (!this.cleanupInProgress &&
-            (this.state == IndexerState.HEAD ||
-             this.blockDrain.length >= this.config.perf.elasticDumpSize)) {
+        if (this.state == IndexerState.HEAD ||
+             this.blockDrain.length >= this.config.perf.elasticDumpSize) {
 
             const ops = this.opDrain;
             const blocks = this.blockDrain;
@@ -219,11 +154,11 @@ export class Connector {
             this.blockDrain = [];
             this.writeCounter++;
             setTimeout(
-                this.drainBlocks.bind(this, ops, blocks), 0);
+                this.writeBlocks.bind(this, ops, blocks), 0);
         }
     }
 
-    async drainBlocks(ops: any[], blocks: any[]) {
+    async writeBlocks(ops: any[], blocks: any[]) {
         const bulkResponse = await this.elastic.bulk({
             refresh: true,
             operations: ops,
@@ -268,51 +203,4 @@ export class Connector {
         this.writeCounter--;
     }
 
-    async cleanupFork(blockNum: number) {
-        // set fork cleanup flag, no new write tasks should start
-        this.cleanupInProgress = true;
-
-        // wait until `draining` flag is false, this means all data has been
-        // wrote to db, we can begin cleanup
-        while (this.writeCounter > 0)
-            await new Promise(f => setTimeout(f, 1000));
-
-        // search for specific block num and splice at that point
-        let spliceIndex = this.opDrain.length - 1;
-        while (spliceIndex < 0) {
-            if ('block_num' in this.opDrain[spliceIndex] &&
-               this.opDrain[spliceIndex].block_num < blockNum)
-                break;
-            spliceIndex--;
-        }
-        this.opDrain.splice(spliceIndex);
-
-        // repeat process for block header queues
-        spliceIndex = this.blockDrain.length - 1;
-        while (spliceIndex < 0) {
-            if (this.blockDrain[spliceIndex].delta.block_num < blockNum)
-                break;
-            spliceIndex--;
-        }
-        this.blockDrain.splice(spliceIndex);
-
-        // finally clean up db
-
-        // deltas
-        let resp = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-            q: `block_num >= ${blockNum}`
-        });
-        logger.info('delta: \n' + JSON.stringify(resp, null, 4));
-
-        // actions 
-        resp = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
-            q: `@raw.block >= ${blockNum - this.config.evmDelta}`
-        });
-        logger.info('action: \n' + JSON.stringify(resp, null, 4));
-
-        // clear fork cleanup flag, new write tasks should be created
-        this.cleanupInProgress = false;
-    }
 };

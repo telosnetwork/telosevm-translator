@@ -1,83 +1,54 @@
 import PQueue from 'p-queue';
-import { Serialize } from 'eosjs';
+import { Serialize , RpcInterfaces, JsonRpc } from 'eosjs';
 import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
 import { StaticPool } from 'node-worker-threads-pool';
+
+import * as eosioEvmAbi from './abis/evm.json'
+import * as eosioMsigAbi from './abis/msig.json';
+import * as eosioTokenAbi from './abis/token.json'
+import * as eosioSystemAbi from './abis/system.json'
 
 import logger from './utils/winston';
 import {
     BlockRequestType,
     IBlockReaderOptions, ShipBlockResponse
 } from './types/ship';
-import { deserializeEosioType, serializeEosioType  } from './utils/eosio';
+
+import {
+    extractGlobalContractRow,
+    extractShipTraces,
+    deserializeEosioType,
+    serializeEosioType,
+    getTableAbiType,
+    getActionAbiType,
+    getRPCClient
+} from './utils/eosio';
+
 import { getTypesFromAbi } from './utils/serialize';
+
+import { BlockConsumer, DS_TYPES, EVMTxWrapper, getContract, getErrorMessage, hashTxAction } from './utils/evm';
+
+import {StorageEvmTransaction} from './types/evm';
 
 import * as AbiEOS from "@eosrio/node-abieos";
 
-import {
-    EosioAction
-} from './types/eosio';
+import { 
+    setCommon,
+    handleEvmTx, handleEvmDeposit, handleEvmWithdraw,
+    TxDeserializationError, isTxDeserializationError
+} from './handlers';
+import {IndexerConfig, IndexerState} from './types/indexer';
+import {TEVMIndexer} from './indexer';
 
 const WebSocket = require('ws');
 
-const createHash = require("sha1-uint8array").createHash
+const deltaType = getTableAbiType(eosioSystemAbi.abi, 'eosio', 'global');
 
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message
-  return String(error)
-}
-
-const DS_TYPES = [
-    'transaction',
-    'code_id',
-    'account_v0',
-    'account_metadata_v0',
-    'code_v0',
-    'contract_table_v0',
-    'contract_row_v0',
-    'contract_index64_v0',
-    'contract_index128_v0',
-    'contract_index256_v0',
-    'contract_index_double_v0',
-    'contract_index_long_double_v0',
-    'account',
-    'account_metadata',
-    'code',
-    'contract_table',
-    'contract_row',
-    'contract_index64',
-    'contract_index128',
-    'contract_index256',
-    'contract_index_double',
-    'contract_index_long_double'
-];
-const debug = true;
-export function hashTxAction(action: EosioAction) {
-    if (debug) {
-        // debug mode, pretty responses
-        let uid = action.account;
-        uid = uid + "." + action.name;
-        for (const auth of action.authorization) {
-            uid = uid + "." + auth.actor;
-            uid = uid + "." + auth.permission;
-        }
-        uid = uid + "." + createHash().update(action.data).digest("hex");
-        return uid;
-    } else {
-        // release mode, only hash
-        const hash = createHash();
-        hash.update(action.account);
-        hash.update(action.name);
-        for (const auth of action.authorization) {
-            hash.update(auth.actor);
-            hash.update(auth.permission);
-        }
-        hash.update(action.data);
-        return hash.digest("hex");
-    }
-}
-
-export type BlockConsumer = (block: ShipBlockResponse) => any;
+interface InprogressBuffers {
+    evmTransactions: Array<EVMTxWrapper>;
+    errors: TxDeserializationError[];
+    evmBlockNum: number;
+};
 
 export default class StateHistoryBlockReader {
     currentArgs: BlockRequestType;
@@ -88,6 +59,8 @@ export default class StateHistoryBlockReader {
     tables: Map<string, string>;
 
     blocksQueue: PQueue;
+
+    rpc: JsonRpc;
 
     private ws: any;
 
@@ -100,9 +73,19 @@ export default class StateHistoryBlockReader {
     private unconfirmed: number;
     private consumer: BlockConsumer;
 
+    private limboBuffs: InprogressBuffers = null;
+
+    private contracts: {[key: string]: Serialize.Contract};
+    private abis: {[key: string]: RpcInterfaces.Abi};
+
+    private options: IBlockReaderOptions;
+
+    // debug info
+    headBlock: number;
+    currentBlock: number;
+
     constructor(
-        private readonly endpoint: string,
-        private options: IBlockReaderOptions = {min_block_confirmation: 1, ds_threads: 4, allow_empty_deltas: false, allow_empty_traces: false, allow_empty_blocks: false}
+        private readonly indexer: TEVMIndexer
     ) {
         this.connected = false;
         this.connecting = false;
@@ -118,6 +101,22 @@ export default class StateHistoryBlockReader {
         this.tables = new Map();
 
         this.deltaWhitelist = [];
+
+        this.abis = {
+            'eosio.evm': eosioEvmAbi.abi,
+            'eosio.msig': eosioMsigAbi.abi,
+            'eosio.token': eosioTokenAbi.abi,
+            'eosio': eosioSystemAbi.abi
+        };
+        this.contracts = {
+            'eosio.evm': getContract(eosioEvmAbi.abi),
+            'eosio.msig': getContract(eosioMsigAbi.abi),
+            'eosio.token': getContract(eosioTokenAbi.abi),
+            'eosio': getContract(eosioSystemAbi.abi)
+        };
+
+        this.rpc = getRPCClient(indexer.config);
+        setCommon(indexer.config.chainId);
     }
 
     setOptions(options?: IBlockReaderOptions, deltas?: string[]): void {
@@ -132,12 +131,12 @@ export default class StateHistoryBlockReader {
 
     connect(): void {
         if (!this.connected && !this.connecting && !this.stopped) {
-            logger.info(`Connecting to ship endpoint ${this.endpoint}`);
+            logger.info(`Connecting to ship endpoint ${this.indexer.config.wsEndpoint}`);
             logger.info(`Ship connect options ${JSON.stringify({...this.currentArgs, have_positions: 'removed'})}`);
 
             this.connecting = true;
 
-            this.ws = new WebSocket(this.endpoint, { perMessageDeflate: false, maxPayload: 512 * 1024 * 1024 * 1024 });
+            this.ws = new WebSocket(this.indexer.config.wsEndpoint, { perMessageDeflate: false, maxPayload: 512 * 1024 * 1024 * 1024 });
 
             this.ws.on('open', () => this.onConnect());
             this.ws.on('message', (data: any) => this.onMessage(data));
@@ -268,6 +267,9 @@ export default class StateHistoryBlockReader {
                     }
 
                     this.blocksQueue.add(async () => {
+
+                        this.headBlock = response.head.block_num;
+                        this.currentBlock = response.this_block.block_num;
 
                         if (response.this_block) {
                             this.currentArgs.start_block_num = response.this_block.block_num + 1;
@@ -497,15 +499,182 @@ export default class StateHistoryBlockReader {
             return;
         }
 
-        if (this.consumer) {
-            await this.consumer(block);
+        if (this.indexer.state == IndexerState.SYNC)
+            this.handleStateSwitch(block);
+
+        const currentBlock = block.this_block.block_num;
+
+        // process deltas to catch evm block num
+        const globalDelta = extractGlobalContractRow(block.deltas);
+
+        let buffs: InprogressBuffers = null;
+
+        if (globalDelta != null) {
+            const eosioGlobalState = deserializeEosioType(
+                deltaType, globalDelta.value, this.contracts['eosio'].types);
+
+            const currentEvmBlock = eosioGlobalState.block_num;
+
+            buffs = {
+                evmTransactions: [],
+                errors: [],
+                evmBlockNum: currentEvmBlock
+            };
+
+            if (this.limboBuffs != null) {
+                for (const evmTx of this.limboBuffs.evmTransactions)
+                    evmTx.evmTx.block = currentEvmBlock;
+
+                buffs.evmTransactions = this.limboBuffs.evmTransactions
+                buffs.errors = this.limboBuffs.errors;
+                this.limboBuffs = null;
+            }
+        } else {
+            logger.warn(`onblock failed at block ${currentBlock}`);
+
+            if (this.limboBuffs == null) {
+                this.limboBuffs = {
+                    evmTransactions: [],
+                    errors: [],
+                    evmBlockNum: 0
+                };
+            }
+
+            buffs = this.limboBuffs;
         }
 
-        return;
+        const evmBlockNum = buffs.evmBlockNum;
+        const evmTransactions = buffs.evmTransactions;
+        const errors = buffs.errors;
+
+        // traces
+        const transactions = extractShipTraces(block.traces);
+        let gasUsedBlock = 0;
+        const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
+        const contractWhitelist = [
+            "eosio.evm", "eosio.token",  // evm
+            "eosio.msig"  // deferred transaction sig catch
+        ];
+        const actionWhitelist = [
+            "raw", "withdraw", "transfer",  // evm
+            "exec" // msig deferred sig catch
+        ]
+
+        for (const tx of transactions) {
+
+            const action = tx.trace.act;
+
+            if (!contractWhitelist.includes(action.account) ||
+                !actionWhitelist.includes(action.name))
+                continue;
+
+            const type = getActionAbiType(
+                this.abis[action.account],
+                action.account, action.name);
+
+            const actionData = deserializeEosioType(
+                type, action.data, this.contracts[action.account].types);
+
+            // discard transfers to accounts other than eosio.evm
+            // and transfers from system accounts
+            if ((action.name == "transfer" && actionData.to != "eosio.evm") ||
+               (action.name == "transfer" && actionData.from in systemAccounts))
+                continue;
+
+            // find correct auth in related traces list
+            let foundSig = false;
+            let actionHash = "";
+            for (const trace of tx.tx.traces) {
+                actionHash = hashTxAction(trace.act);
+                if (actionHash in block.block.signatures) {
+                    foundSig = true;
+                    break;
+                }
+            }
+
+            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
+            if (action.account == "eosio.evm") {
+                if (action.name == "raw") {
+                    evmTx = await handleEvmTx(
+                        block.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        actionData,
+                        tx.trace.console
+                    );
+                    if (!isTxDeserializationError(evmTx))
+                        gasUsedBlock = evmTx.gasusedblock;
+                } else if (action.name == "withdraw"){
+                    evmTx = await handleEvmWithdraw(
+                        block.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        actionData,
+                        this.rpc,
+                        gasUsedBlock
+                    );
+                }
+            } else if (action.account == "eosio.token" &&
+                    action.name == "transfer" &&
+                    actionData.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(
+                    block.this_block.block_id,
+                    evmTransactions.length,
+                    evmBlockNum,
+                    actionData,
+                    this.rpc,
+                    gasUsedBlock
+                );
+            } else
+                continue;
+
+            if (isTxDeserializationError(evmTx)) {
+                if (this.indexer.config.debug) {
+                    errors.push(evmTx);
+                    continue;
+                } else
+                    throw new Error(JSON.stringify(evmTx));
+            }
+
+            let signatures: string[] = [];
+            if (foundSig)
+                signatures = block.block.signatures[actionHash];
+
+            evmTransactions.push({
+                trx_id: tx.tx.id,
+                action_ordinal: tx.trace.action_ordinal,
+                signatures: signatures,
+                evmTx: evmTx
+            });
+        }
+
+        if (this.consumer && globalDelta) {
+            await this.consumer({
+                nativeBlockHash: block.block.block_id,
+                nativeBlockNumber: currentBlock,
+                evmBlockNumber: evmBlockNum,
+                blockTimestamp: block.block.timestamp,
+                evmTxs: evmTransactions,
+                errors: errors
+            });
+        }
+
     }
 
     consume(consumer: BlockConsumer): void {
         this.consumer = consumer;
+    }
+
+    private handleStateSwitch(resp: ShipBlockResponse) {
+        // SYNC & HEAD mode swtich detection
+        const blocksUntilHead = resp.head.block_num - resp.this_block.block_num;
+
+        if (blocksUntilHead <= this.indexer.config.perf.elasticDumpSize) {
+            this.indexer.state = IndexerState.HEAD;
+
+            logger.info(
+                'switched to HEAD mode! blocks will be written to db asap.');
+        }
     }
 
     async deserializeParallel(type: string, data: Uint8Array): Promise<any> {

@@ -1,3 +1,5 @@
+const BN = require('bn.js');
+
 export function removeHexPrefix(str: string) {
     if (str.startsWith('0x')) {
         return str.slice(2)
@@ -119,7 +121,7 @@ export function numToHex(input: number | string) {
     }
 }
 
-import {addHexPrefix, unpadHexString} from '@ethereumjs/util';
+import {addHexPrefix, bigIntToBuffer, unpadHexString} from '@ethereumjs/util';
 
 export function generateUniqueVRS(
     blockHash: string,
@@ -148,7 +150,6 @@ export function generateUniqueVRS(
 
 import Common, { Chain, ConsensusAlgorithm, ConsensusType, Hardfork } from '@ethereumjs/common'
 import {
-  BN,
   Address,
   bnToHex,
   bnToUnpaddedBuffer,
@@ -188,15 +189,15 @@ export class BlockHeader {
   public readonly transactionsTrie: Buffer
   public readonly receiptTrie: Buffer
   public readonly logsBloom: Buffer
-  public readonly difficulty: BN
-  public readonly number: BN
-  public readonly gasLimit: BN
-  public readonly gasUsed: BN
-  public readonly timestamp: BN
+  public readonly difficulty: typeof BN
+  public readonly number: typeof BN
+  public readonly gasLimit: typeof BN
+  public readonly gasUsed: typeof BN
+  public readonly timestamp: typeof BN
   public readonly extraData: Buffer
   public readonly mixHash: Buffer
   public readonly nonce: Buffer
-  public readonly baseFeePerGas?: BN
+  public readonly baseFeePerGas?: typeof BN
 
   public readonly _common: Common
 
@@ -378,16 +379,16 @@ export class BlockHeader {
     transactionsTrie: Buffer,
     receiptTrie: Buffer,
     logsBloom: Buffer,
-    difficulty: BN,
-    number: BN,
-    gasLimit: BN,
-    gasUsed: BN,
-    timestamp: BN,
+    difficulty: typeof BN,
+    number: typeof BN,
+    gasLimit: typeof BN,
+    gasUsed: typeof BN,
+    timestamp: typeof BN,
     extraData: Buffer,
     mixHash: Buffer,
     nonce: Buffer,
     options: BlockOptions = {},
-    baseFeePerGas?: BN
+    baseFeePerGas?: typeof BN
   ) {
     if (options.common) {
       this._common = options.common.copy()
@@ -600,7 +601,7 @@ export class BlockHeader {
    *
    * @param parentBlockHeader - the header from the parent `Block` of this header
    */
-  canonicalDifficulty(parentBlockHeader: BlockHeader): BN {
+  canonicalDifficulty(parentBlockHeader: BlockHeader): typeof BN {
     if (this._common.consensusType() !== ConsensusType.ProofOfWork) {
       const msg = this._errorMsg('difficulty calculation is only supported on PoW chains')
       throw new Error(msg)
@@ -623,7 +624,7 @@ export class BlockHeader {
     let num = this.number.clone()
 
     // We use a ! here as TS cannot follow this hardfork-dependent logic, but it always gets assigned
-    let dif!: BN
+    let dif!: typeof BN
 
     if (this._common.hardforkGteHardfork(hardfork, Hardfork.Byzantium)) {
       // max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 9), -99) (EIP100)
@@ -902,14 +903,14 @@ export class BlockHeader {
   /**
    * Calculates the base fee for a potential next block
    */
-  public calcNextBaseFee(): BN {
+  public calcNextBaseFee(): typeof BN {
     if (!this._common.isActivatedEIP(1559)) {
       const msg = this._errorMsg(
         'calcNextBaseFee() can only be called with EIP1559 being activated'
       )
       throw new Error(msg)
     }
-    let nextBaseFee: BN
+    let nextBaseFee: typeof BN
     const elasticity = new BN(this._common.param('gasConfig', 'elasticityMultiplier'))
     const parentGasTarget = this.gasLimit.div(elasticity)
 
@@ -1219,4 +1220,189 @@ export class BlockHeader {
   protected _errorMsg(msg: string) {
     return `${msg} (${this.errorStr()})`
   }
+}
+
+import {StorageEvmTransaction} from '../types/evm';
+import {EosioAction} from "../types/eosio";
+import {RpcInterfaces, Serialize} from "eosjs";
+import {TxDeserializationError} from "../handlers";
+import {Trie} from "@ethereumjs/trie";
+import RLP from "rlp";
+import {Log} from "@ethereumjs/vm/dist/evm/types";
+import {bufArrToArr} from '@ethereumjs/util';
+
+export function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+export interface EVMTxWrapper {
+    trx_id: string,
+    action_ordinal: number,
+    signatures: string[],
+    evmTx: StorageEvmTransaction
+};
+
+
+export const DS_TYPES = [
+    'transaction',
+    'code_id',
+    'account_v0',
+    'account_metadata_v0',
+    'code_v0',
+    'contract_table_v0',
+    'contract_row_v0',
+    'contract_index64_v0',
+    'contract_index128_v0',
+    'contract_index256_v0',
+    'contract_index_double_v0',
+    'contract_index_long_double_v0',
+    'account',
+    'account_metadata',
+    'code',
+    'contract_table',
+    'contract_row',
+    'contract_index64',
+    'contract_index128',
+    'contract_index256',
+    'contract_index_double',
+    'contract_index_long_double'
+];
+const debug = true;
+const createHash = require("sha1-uint8array").createHash
+export function hashTxAction(action: EosioAction) {
+    if (debug) {
+        // debug mode, pretty responses
+        let uid = action.account;
+        uid = uid + "." + action.name;
+        for (const auth of action.authorization) {
+            uid = uid + "." + auth.actor;
+            uid = uid + "." + auth.permission;
+        }
+        uid = uid + "." + createHash().update(action.data).digest("hex");
+        return uid;
+    } else {
+        // release mode, only hash
+        const hash = createHash();
+        hash.update(action.account);
+        hash.update(action.name);
+        for (const auth of action.authorization) {
+            hash.update(auth.actor);
+            hash.update(auth.permission);
+        }
+        hash.update(action.data);
+        return hash.digest("hex");
+    }
+}
+
+export function getContract(contractAbi: RpcInterfaces.Abi) {
+    const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
+    const actions = new Map()
+    for (const { name, type } of contractAbi.actions) {
+        actions.set(name, Serialize.getType(types, type))
+    }
+    return { types, actions }
+}
+
+export interface ProcessedBlock {
+    nativeBlockHash: string,
+    nativeBlockNumber: number,
+    evmBlockNumber: number,
+    blockTimestamp: string,
+    evmTxs: Array<EVMTxWrapper>,
+    errors: Array<TxDeserializationError>
+}
+export type BlockConsumer = (block: ProcessedBlock) => any;
+
+export function generateTxRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
+    const trie = new Trie()
+    for (const [i, tx] of evmTxs.entries())
+        trie.put(Buffer.from(RLP.encode(i)), tx.evmTx.raw).then();
+
+    return trie.root()
+}
+
+interface TxReceipt {
+    cumulativeGasUsed: typeof BN,
+    bitvector: Buffer,
+    logs: Log[],
+    status: number
+};
+
+/**
+ * Returns the encoded tx receipt.
+ */
+export function encodeReceipt(receipt: TxReceipt) {
+    const encoded = Buffer.from(
+        RLP.encode(
+            bufArrToArr([
+                (receipt.status === 0
+                    ? Buffer.from([])
+                    : Buffer.from('01', 'hex')),
+                bigIntToBuffer(BigInt(receipt.cumulativeGasUsed.toString())),
+                receipt.bitvector,
+                receipt.logs,
+            ])
+        )
+    )
+
+    return encoded
+}
+
+export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
+    const receiptTrie = new Trie()
+    for (const [i, tx] of evmTxs.entries()) {
+        const logs: Log[] = [];
+
+        let bloom = new Bloom().bitvector;
+
+        if (tx.evmTx.logsBloom)
+            bloom = Buffer.from(tx.evmTx.logsBloom, 'hex');
+
+        if (tx.evmTx.logs) {
+            for (const [j, hexLogs] of tx.evmTx.logs.entries()) {
+                const topics: Buffer[] = [];
+
+                for (const topic of hexLogs.topics)
+                    topics.push(Buffer.from(topic, 'hex'))
+
+                logs.push([ 
+                    Buffer.from(hexLogs.address, 'hex'),
+                    topics,
+                    Buffer.from(hexLogs.data, 'hex')
+                ]);
+            }
+        }
+
+        const receipt: TxReceipt = {
+            cumulativeGasUsed: new BN(tx.evmTx.gasusedblock),
+            bitvector: bloom,
+            logs: logs,
+            status: tx.evmTx.status
+        };
+        const encodedReceipt = encodeReceipt(receipt)
+        receiptTrie.put(Buffer.from(RLP.encode(i)), encodedReceipt).then();
+    }
+    return receiptTrie.root()
+}
+
+export function getBlockGasUsed(evmTxs: Array<EVMTxWrapper>): typeof BN {
+
+    let totalGasUsed = 0;
+
+    for (const evmTx of evmTxs)
+        totalGasUsed += evmTx.evmTx.gasused;
+
+    return new BN(totalGasUsed);
+}
+
+export function generateBloom(evmTxs: Array<EVMTxWrapper>): Buffer {
+    const blockBloom: Bloom = new Bloom();
+
+    for (const evmTx of evmTxs)
+        if (evmTx.evmTx.logsBloom)
+            blockBloom.or(
+                new Bloom(Buffer.from(evmTx.evmTx.logsBloom, 'hex')));
+
+    return blockBloom.bitvector;
 }
