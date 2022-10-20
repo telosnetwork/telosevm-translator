@@ -632,8 +632,10 @@ export default class StateHistoryBlockReader {
                 if (this.indexer.config.debug) {
                     errors.push(evmTx);
                     continue;
-                } else
+                } else {
+                    logger.error(evmTx.info.error);
                     throw new Error(JSON.stringify(evmTx));
+                }
             }
 
             let signatures: string[] = [];

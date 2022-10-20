@@ -82,7 +82,10 @@ export interface StorageEvmTransaction {
     logsBloom?: string,
     errors?: string[],
     value_d?: number,
-    raw?: Buffer
+    raw?: Buffer,
+    v: number,
+    r: string,
+    s: string
 }
 
 export interface StorageEosioAction {

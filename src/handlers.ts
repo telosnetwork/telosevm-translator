@@ -177,7 +177,7 @@ export async function handleEvmDeposit(
         data: "0x",
         v: v,
         r: r,
-        s: s 
+        s: s
     };
 
     try {
@@ -207,7 +207,10 @@ export async function handleEvmDeposit(
             gasusedblock: gasUsedBlock,
             charged_gas_price: 0,
             output: "",
-            raw: evmTx.serialize()
+            raw: evmTx.serialize(),
+            v: v,
+            r: r,
+            s: s
         };
 
         return txBody;
@@ -247,7 +250,7 @@ export async function handleEvmWithdraw(
         data: "0x",
         v: v,
         r: r,
-        s: s 
+        s: s
     };
     try {
         const evmTx = new TEVMTransaction(txParams, {common: common});
@@ -275,7 +278,10 @@ export async function handleEvmWithdraw(
             gasusedblock: gasUsedBlock,
             charged_gas_price: 0,
             output: "",
-            raw: evmTx.serialize()
+            raw: evmTx.serialize(),
+            v: v,
+            r: r,
+            s: s
         };
 
         return txBody;

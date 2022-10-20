@@ -127,8 +127,8 @@ export function generateUniqueVRS(
     blockHash: string,
     sender: string,
     trx_index: number
-) {
-    const v = addHexPrefix((42).toString(16).padStart(64, '0'));
+): [number, string, string] {
+    const v = 42;  // why is v 42? well cause its the anwser to life
 
     const trxIndexBN = new BN(trx_index);
     const blockHashBN = new BN(
@@ -136,7 +136,7 @@ export function generateUniqueVRS(
 
     const r = unpadHexString(
         addHexPrefix(blockHashBN.add(trxIndexBN).toString('hex')));
-    
+
     const s = unpadHexString(
         addHexPrefix(sender.toLowerCase().padEnd(64, '0')));
 
