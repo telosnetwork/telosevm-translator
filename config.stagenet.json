@@ -14,6 +14,7 @@
     "stopBlock": 4294967295,
     "perf": {
         "workerAmount": 4,
+        "concurrencyAmount": 8,
         "elasticDumpSize": 200,
         "maxMsgsInFlight": 2000
     },
