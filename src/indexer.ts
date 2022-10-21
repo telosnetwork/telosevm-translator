@@ -200,10 +200,11 @@ export class TEVMIndexer {
         this.queuedUpLastSecond++;
 
         // worker catch up machinery
-        this.idleWorkers++;
-        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.workerAmount)
-            await sleep(200);
-        this.idleWorkers--;
+        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.workerAmount) {
+            this.idleWorkers++;
+            await sleep(40);
+            this.idleWorkers--;
+        }
     }
 
     async launch() {
