@@ -91,7 +91,7 @@ export default class StateHistoryBlockReader {
         this.connecting = false;
         this.stopped = true;
 
-        this.blocksQueue = new PQueue({concurrency: 16, autoStart: true});
+        this.blocksQueue = new PQueue({concurrency: indexer.config.perf.workerAmount, autoStart: true});
         this.deserializeWorkers = undefined;
 
         this.consumer = null;

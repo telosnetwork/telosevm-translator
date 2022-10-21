@@ -60,6 +60,7 @@ export class TEVMIndexer {
     // debug status
     private queuedUpLastSecond: number = 0;
     private pushedLastSecond: number = 0;
+    private idleWorkers: number = 0;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -91,7 +92,8 @@ export class TEVMIndexer {
 
     updateDebugStats() {
         logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
-        let statsString = `${this.lastOrderedBlock} pushed, at ${this.pushedLastSecond} blocks/sec`;
+        let statsString = `${this.lastOrderedBlock} pushed, at ${this.pushedLastSecond} blocks/sec` +
+            ` ${this.idleWorkers}/${this.config.perf.workerAmount} workers idle `;
         const untilHead = this.reader.headBlock - this.reader.currentBlock;
 
         if (untilHead > 3) {
@@ -196,6 +198,12 @@ export class TEVMIndexer {
     async consumer(block: ProcessedBlock): Promise<void> {
         this.blocksQueue.queue(block);
         this.queuedUpLastSecond++;
+
+        // worker catch up machinery
+        this.idleWorkers++;
+        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.workerAmount)
+            await sleep(200);
+        this.idleWorkers--;
     }
 
     async launch() {
