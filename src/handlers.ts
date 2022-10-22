@@ -9,6 +9,7 @@ import {TEVMTransaction} from './utils/evm-tx';
 
 import {nameToUint64, parseAsset} from './utils/eosio';
 
+import logger from './utils/winston';
 
 // ethereum tools
 const BN = require('bn.js');
@@ -20,6 +21,8 @@ import {isValidAddress} from '@ethereumjs/util';
 
 import {generateUniqueVRS, ZERO_ADDR} from './utils/evm';
 import moment from 'moment';
+
+const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
@@ -98,17 +101,33 @@ const stdGasPrice = "0x7a307efa80";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
 async function queryAddress(accountName: string, rpc: JsonRpc) {
-    const acctInt = nameToUint64(accountName)
-    const result = await rpc.get_table_rows({
-        code: 'eosio.evm',
-        scope: 'eosio.evm',
-        table: 'account',
-        key_type: 'i64',
-        index_position: 3,
-        lower_bound: acctInt,
-        upper_bound: acctInt,
-        limit: 1
-    });
+    const acctInt = nameToUint64(accountName);
+    let retry = 5;
+    let result = null;
+    while (retry > 0) {
+        retry--;
+        try {
+            result = await rpc.get_table_rows({
+                code: 'eosio.evm',
+                scope: 'eosio.evm',
+                table: 'account',
+                key_type: 'i64',
+                index_position: 3,
+                lower_bound: acctInt,
+                upper_bound: acctInt,
+                limit: 1
+            });
+
+        } catch (error) {
+            logger.warn(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
+            logger.warn(error);
+            if (retry > 0) {
+                await sleep(1000);
+                continue;
+            } else
+                throw error;
+        }
+    }
 
     if (result.rows.length == 1) {
         return result.rows[0].address;
