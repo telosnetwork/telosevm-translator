@@ -16,6 +16,7 @@
     "perf": {
         "workerAmount": 8,
         "concurrencyAmount": 16,
+        "maxBlocksBehind": 1000,
         "elasticDumpSize": 4096,
         "maxMsgsInFlight": 10000
     },

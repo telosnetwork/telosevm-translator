@@ -33,6 +33,7 @@ export type IndexerConfig = {
     perf: {
         workerAmount: number;
         concurrencyAmount: number;
+        maxBlocksBehind: number;
         elasticDumpSize: number;
         maxMsgsInFlight: number;
     },

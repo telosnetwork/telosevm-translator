@@ -200,9 +200,9 @@ export class TEVMIndexer {
         this.queuedUpLastSecond++;
 
         // worker catch up machinery
-        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.workerAmount) {
+        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.maxBlocksBehind) {
             this.idleWorkers++;
-            await sleep(40);
+            await sleep(100);
             this.idleWorkers--;
         }
     }
