@@ -1,5 +1,6 @@
 {
     "debug": true,
+
     "chainName": "telos-stagenet",
     "chainId": 41,
 

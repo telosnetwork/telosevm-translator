@@ -5,7 +5,7 @@
     "chainId": 41,
 
     "endpoint": "http://testnet.telos.net",
-    "wsEndpoint": "ws://api2.hosts.caleos.io:28999",
+    "wsEndpoint": "ws://141.193.240.11:18993",
 
     "evmDeployBlock": 136393814,
     "evmPrevHash": "",
@@ -36,6 +36,6 @@
 
     "broadcast": {
         "wsHost": "127.0.0.1",
-        "wsPort": 7300 
+        "wsPort": 7300
     }
 }

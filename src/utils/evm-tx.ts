@@ -14,6 +14,7 @@ import { TxOptions, TxData, JsonTx, N_DIV_2, TxValuesArray, Capability } from '@
 import { BaseTransaction } from '@ethereumjs/tx/dist/baseTransaction'
 import Common from '@ethereumjs/common'
 import { checkMaxInitCodeSize } from '@ethereumjs/tx/dist/util'
+import {numToHex} from './evm'
 
 /**
  * An Ethereum non-typed (legacy) transaction
@@ -172,6 +173,19 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
       this.r !== undefined ? bnToUnpaddedBuffer(this.r) : Buffer.from([]),
       this.s !== undefined ? bnToUnpaddedBuffer(this.s) : Buffer.from([]),
     ]
+  }
+
+  public isSigned(): boolean {
+    const { v, r, s } = this
+    if ((v === undefined || r === undefined || s === undefined)) {
+      return false;
+    } else if ((v == this.common.chainIdBN()) && (bnToHex(r) === numToHex(0)) && (bnToHex(s) === numToHex(0))) {
+      return false;
+    } else if ((bnToHex(v) === numToHex(0)) && (bnToHex(r) === numToHex(0)) && (bnToHex(s) === numToHex(0))) {
+      return false;
+    } else {
+      return true;
+    }
   }
 
   /**
