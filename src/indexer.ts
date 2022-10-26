@@ -50,13 +50,13 @@ export class TEVMIndexer {
     connector: Connector;
 
     private prevHash: string;
-    private lastOrderedBlock: number;
-    private blocksQueue: typeof PriorityQueue = new PriorityQueue({
-        comparator: function(a: ProcessedBlock, b: ProcessedBlock) {
-            return a.evmBlockNumber - b.evmBlockNumber;
-        }
-    });
-
+    lastOrderedBlock: number;
+    // private blocksQueue: typeof PriorityQueue = new PriorityQueue({
+    //     comparator: function(a: ProcessedBlock, b: ProcessedBlock) {
+    //         return a.evmBlockNumber - b.evmBlockNumber;
+    //     }
+    // });
+    private blocksQueue: Map<number, ProcessedBlock> = new Map();
     private ordering: boolean = false;
 
     // debug status
@@ -86,7 +86,7 @@ export class TEVMIndexer {
             allow_empty_blocks: true
         });
 
-        setTimeout(this.orderer.bind(this), 1000);
+        setInterval(this.orderer.bind(this), 400);
 
         // debug
         setInterval(this.updateDebugStats.bind(this), 1000);
@@ -108,109 +108,112 @@ export class TEVMIndexer {
         this.pushedLastSecond = 0;
     }
 
-    async orderer() {
+    orderer() {
+        // make sure we have blocks we need to order, no other orderer task
+        // is running
+        if (this.ordering || !this.blocksQueue.has(this.lastOrderedBlock + 1))
+            return;
 
-        while (true) {
+        this.ordering = true;
 
-            if (this.blocksQueue.length > 0) {
-                logger.debug('Running orderer...');
-                let newestBlock: ProcessedBlock = this.blocksQueue.peek();
-                const firstBlockNum = newestBlock.evmBlockNumber;
-                logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
-                logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
+        logger.debug('Running orderer...');
+        let newestBlock: ProcessedBlock = this.blocksQueue.get(this.lastOrderedBlock + 1);
 
-                while(newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
-                    const evmTxs = newestBlock.evmTxs;
+        const firstBlockNum = newestBlock.evmBlockNumber;
+        logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
+        logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
 
-                    const transactionsRoot = generateTxRootHash(evmTxs);
-                    const receiptsRoot = generateReceiptRootHash(evmTxs);
-                    const bloom = generateBloom(evmTxs);
+        while(newestBlock != undefined) {
+            const evmTxs = newestBlock.evmTxs;
 
-                    const blockTimestamp = moment.utc(newestBlock.blockTimestamp);
+            const transactionsRoot = generateTxRootHash(evmTxs);
+            const receiptsRoot = generateReceiptRootHash(evmTxs);
+            const bloom = generateBloom(evmTxs);
 
-                    // generate 'valid' block header
-                    const blockHeader = BlockHeader.fromHeaderData({
-                        'parentHash': Buffer.from(this.prevHash, 'hex'),
-                        'transactionsTrie': transactionsRoot,
-                        'receiptTrie': receiptsRoot,
-                        'bloom': bloom,
-                        'number': new BN(newestBlock.evmBlockNumber),
-                        'gasLimit': new BN(1000000000),
-                        'gasUsed': getBlockGasUsed(evmTxs),
-                        'difficulty': new BN(0),
-                        'timestamp': new BN(blockTimestamp.unix()),
-                        'extraData': Buffer.from(newestBlock.nativeBlockHash, 'hex')
-                    })
+            const blockTimestamp = moment.utc(newestBlock.blockTimestamp);
 
-                    const currentBlockHash = blockHeader.hash().toString('hex');
+            // generate 'valid' block header
+            const blockHeader = BlockHeader.fromHeaderData({
+                'parentHash': Buffer.from(this.prevHash, 'hex'),
+                'transactionsTrie': transactionsRoot,
+                'receiptTrie': receiptsRoot,
+                'bloom': bloom,
+                'number': new BN(newestBlock.evmBlockNumber),
+                'gasLimit': new BN(1000000000),
+                'gasUsed': getBlockGasUsed(evmTxs),
+                'difficulty': new BN(0),
+                'timestamp': new BN(blockTimestamp.unix()),
+                'extraData': Buffer.from(newestBlock.nativeBlockHash, 'hex')
+            })
 
-                    // generate storeable block info
-                    const storableActions: StorageEosioAction[] = [];
-                    const storableBlockInfo: IndexedBlockInfo = {
-                        "transactions": storableActions,
-                        "errors": newestBlock.errors,
-                        "delta": {
-                            "@timestamp": blockTimestamp.format(),
-                            "block_num": newestBlock.nativeBlockNumber,
-                            "code": "eosio",
-                            "table": "global",
-                            "@global": {
-                                "block_num": newestBlock.evmBlockNumber
-                            },
-                            "@evmBlockHash": currentBlockHash 
-                        },
-                        "nativeHash": newestBlock.nativeBlockHash.toLowerCase(),
-                        "parentHash": this.prevHash,
-                        "transactionsRoot": transactionsRoot.toString('hex'),
-                        "receiptsRoot": receiptsRoot.toString('hex'),
-                        "blockBloom": bloom.toString('hex')
-                    };
+            const currentBlockHash = blockHeader.hash().toString('hex');
 
-                    if (evmTxs.length > 0) {
-                        for (const [i, evmTxData] of evmTxs.entries()) {
-                            evmTxData.evmTx.block_hash = currentBlockHash;
-                            delete evmTxData.evmTx['raw'];
-                            storableActions.push({
-                                "@timestamp": newestBlock.blockTimestamp,
-                                "trx_id": evmTxData.trx_id,
-                                "action_ordinal": evmTxData.action_ordinal,
-                                "signatures": evmTxData.signatures,
-                                "@raw": evmTxData.evmTx
-                            });
-                        }
-                    }
+            // generate storeable block info
+            const storableActions: StorageEosioAction[] = [];
+            const storableBlockInfo: IndexedBlockInfo = {
+                "transactions": storableActions,
+                "errors": newestBlock.errors,
+                "delta": {
+                    "@timestamp": blockTimestamp.format(),
+                    "block_num": newestBlock.nativeBlockNumber,
+                    "code": "eosio",
+                    "table": "global",
+                    "@global": {
+                        "block_num": newestBlock.evmBlockNumber
+                    },
+                    "@evmBlockHash": currentBlockHash 
+                },
+                "nativeHash": newestBlock.nativeBlockHash.toLowerCase(),
+                "parentHash": this.prevHash,
+                "transactionsRoot": transactionsRoot.toString('hex'),
+                "receiptsRoot": receiptsRoot.toString('hex'),
+                "blockBloom": bloom.toString('hex')
+            };
 
-                    // push to db
-                    this.connector.pushBlock(storableBlockInfo);
-
-                    this.prevHash = currentBlockHash;
-                    this.lastOrderedBlock = newestBlock.evmBlockNumber;
-                    this.pushedLastSecond++;
-                    this.blocksQueue.dequeue()
-
-                    if (this.blocksQueue.length > 0)
-                        newestBlock = this.blocksQueue.peek()
+            if (evmTxs.length > 0) {
+                for (const [i, evmTxData] of evmTxs.entries()) {
+                    evmTxData.evmTx.block_hash = currentBlockHash;
+                    delete evmTxData.evmTx['raw'];
+                    storableActions.push({
+                        "@timestamp": newestBlock.blockTimestamp,
+                        "trx_id": evmTxData.trx_id,
+                        "action_ordinal": evmTxData.action_ordinal,
+                        "signatures": evmTxData.signatures,
+                        "@raw": evmTxData.evmTx
+                    });
                 }
-
-                const blocksPushed = newestBlock.evmBlockNumber - firstBlockNum;
-                if (blocksPushed > 0)
-                    logger.debug(`pushed  ${blocksPushed} blocks, range: ${firstBlockNum}-${newestBlock.evmBlockNumber - 1}`)
-
             }
 
-            await sleep(200);
+            // push to db
+            this.connector.pushBlock(storableBlockInfo);
+
+            this.prevHash = currentBlockHash;
+            this.blocksQueue.delete(newestBlock.evmBlockNumber);
+            this.lastOrderedBlock = newestBlock.evmBlockNumber;
+            this.pushedLastSecond++;
+
+            newestBlock = this.blocksQueue.get(this.lastOrderedBlock + 1);
         }
+
+        const blocksPushed = this.lastOrderedBlock - firstBlockNum;
+        if (blocksPushed > 0)
+            logger.debug(`pushed  ${blocksPushed} blocks, range: ${firstBlockNum}-${this.lastOrderedBlock}`)
+
+
+        this.ordering = false;
     }
 
     async consumer(block: ProcessedBlock): Promise<void> {
-        this.blocksQueue.queue(block);
+        this.blocksQueue.set(block.evmBlockNumber, block);
         this.queuedUpLastSecond++;
 
+        if (this.state == IndexerState.HEAD)
+            return;
+
         // worker catch up machinery
-        while(this.state == IndexerState.SYNC &&
-            (block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.maxBlocksBehind)) {
+        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.maxBlocksBehind) {
             this.idleWorkers++;
-            await sleep(100);
+            await sleep(200);
             this.idleWorkers--;
         }
     }

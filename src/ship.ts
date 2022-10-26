@@ -266,7 +266,7 @@ export default class StateHistoryBlockReader {
                         return;
                     }
 
-                    this.blocksQueue.add(async () => {
+                    const blockConsumeTask = async () => {
 
                         this.headBlock = response.head.block_num;
                         this.currentBlock = response.this_block.block_num;
@@ -404,7 +404,13 @@ export default class StateHistoryBlockReader {
                             this.send(['get_blocks_ack_request_v0', { num_messages: this.unconfirmed }]);
                             this.unconfirmed = 0;
                         }
-                    }).then();
+                    };
+
+                    if (this.indexer.state == IndexerState.HEAD)
+                        setTimeout(blockConsumeTask, 0);
+                    else
+                        this.blocksQueue.add(blockConsumeTask).then();
+
                 } else {
                     logger.warn('Not supported message received', {type, response});
                 }
@@ -669,9 +675,9 @@ export default class StateHistoryBlockReader {
 
     private handleStateSwitch(resp: ShipBlockResponse) {
         // SYNC & HEAD mode swtich detection
-        const blocksUntilHead = resp.head.block_num - resp.this_block.block_num;
+        const blocksUntilHead = resp.head.block_num - this.indexer.lastOrderedBlock;
 
-        if (blocksUntilHead <= this.indexer.config.perf.elasticDumpSize) {
+        if (blocksUntilHead <= 100) {
             this.indexer.state = IndexerState.HEAD;
             this.indexer.connector.state = IndexerState.HEAD;
 

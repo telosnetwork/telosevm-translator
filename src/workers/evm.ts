@@ -77,10 +77,6 @@ parentPort.on(
                 logger.warn('Failed to parse receiptLog');
             }
 
-            // disable this check due to the posibility of onblock failing
-            // if (receipt.block != arg.blockNum)
-            //    throw new Error("Block number mismach");
-
             const txRaw = Buffer.from(arg.tx.tx, 'hex');
 
             let evmTx = TEVMTransaction.fromSerializedTx(
