@@ -1,4 +1,4 @@
-from node:lts-bullseye
+from node:16-bullseye
 
 run mkdir -p /indexer/build
 
