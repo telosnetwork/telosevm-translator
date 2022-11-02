@@ -153,8 +153,13 @@ export class Connector {
             this.opDrain = [];
             this.blockDrain = [];
             this.writeCounter++;
-            setTimeout(
-                this.writeBlocks.bind(this, ops, blocks), 0);
+
+            if (this.state == IndexerState.HEAD) {
+                this.writeBlocks(ops, blocks).then();
+            } else {
+                setTimeout(
+                    this.writeBlocks.bind(this, ops, blocks), 0);
+            }
         }
     }
 

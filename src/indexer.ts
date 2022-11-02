@@ -95,7 +95,7 @@ export class TEVMIndexer {
     updateDebugStats() {
         logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
         let statsString = `${this.lastOrderedBlock} pushed, at ${this.pushedLastSecond} blocks/sec` +
-            ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle `;
+            ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle`;
         const untilHead = this.reader.headBlock - this.reader.currentBlock;
 
         if (untilHead > 3) {
