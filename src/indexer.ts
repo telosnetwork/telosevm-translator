@@ -51,12 +51,13 @@ export class TEVMIndexer {
 
     private prevHash: string;
     lastOrderedBlock: number;
-    // private blocksQueue: typeof PriorityQueue = new PriorityQueue({
-    //     comparator: function(a: ProcessedBlock, b: ProcessedBlock) {
-    //         return a.evmBlockNumber - b.evmBlockNumber;
-    //     }
-    // });
-    private blocksQueue: Map<number, ProcessedBlock> = new Map();
+    lastNativeOrderedBlock: number;
+    private blocksQueue: typeof PriorityQueue = new PriorityQueue({
+        comparator: function(a: ProcessedBlock, b: ProcessedBlock) {
+            return a.evmBlockNumber - b.evmBlockNumber;
+        }
+    });
+    // private blocksQueue: Map<number, ProcessedBlock> = new Map();
     private ordering: boolean = false;
 
     // debug status
@@ -111,19 +112,22 @@ export class TEVMIndexer {
     orderer() {
         // make sure we have blocks we need to order, no other orderer task
         // is running
-        if (this.ordering || !this.blocksQueue.has(this.lastOrderedBlock + 1))
+        if (this.ordering || this.blocksQueue.length == 0)
             return;
 
         this.ordering = true;
 
         logger.debug('Running orderer...');
-        let newestBlock: ProcessedBlock = this.blocksQueue.get(this.lastOrderedBlock + 1);
+        let newestBlock: ProcessedBlock = this.blocksQueue.peek();
 
         const firstBlockNum = newestBlock.evmBlockNumber;
         logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
         logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
 
-        while(newestBlock != undefined) {
+        this.maybeHandleFork(newestBlock);
+
+        while(newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
+
             const evmTxs = newestBlock.evmTxs;
 
             const transactionsRoot = generateTxRootHash(evmTxs);
@@ -188,11 +192,15 @@ export class TEVMIndexer {
             this.connector.pushBlock(storableBlockInfo);
 
             this.prevHash = currentBlockHash;
-            this.blocksQueue.delete(newestBlock.evmBlockNumber);
+            this.blocksQueue.dequeue();
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
+            this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
             this.pushedLastSecond++;
 
-            newestBlock = this.blocksQueue.get(this.lastOrderedBlock + 1);
+            if (this.blocksQueue.length > 0) {
+                newestBlock = this.blocksQueue.peek();
+                this.maybeHandleFork(newestBlock);
+            }
         }
 
         const blocksPushed = this.lastOrderedBlock - firstBlockNum;
@@ -204,7 +212,8 @@ export class TEVMIndexer {
     }
 
     async consumer(block: ProcessedBlock): Promise<void> {
-        this.blocksQueue.set(block.evmBlockNumber, block);
+
+        this.blocksQueue.queue(block);
         this.queuedUpLastSecond++;
 
         if (this.state == IndexerState.HEAD)
@@ -238,6 +247,7 @@ export class TEVMIndexer {
 
         this.prevHash = prevHash;
         this.lastOrderedBlock = startEvmBlock - 1;
+        this.lastNativeOrderedBlock = this.startBlock - 1;
 
         this.reader.consume(this.consumer.bind(this));
 
@@ -328,5 +338,30 @@ export class TEVMIndexer {
         } else {
             throw new Error('Configuration error, no way to get previous hash.  Must either start from genesis or provide a previous hash via config');
         }
+    }
+
+    private maybeHandleFork(b: ProcessedBlock) {
+        if (b.nativeBlockNumber > this.lastNativeOrderedBlock)
+            return;
+
+        logger.info('chain fork detected. reverse all blocks which were affected');
+
+        // wait until all db connector write tasks finish
+        while (this.connector.writeCounter > 0) {
+            logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
+            sleep(200).then();
+        }
+
+        // clear blocksQueue
+        let iterB = this.blocksQueue.peek();
+        while (iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
+            this.blocksQueue.dequeue();
+            logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
+            iterB = this.blocksQueue.peek();
+        }
+
+        // finally purge db
+        this.connector.purgeBlocksNewerThan(b.nativeBlockNumber).then();
+        logger.debug(`purged db of blocks newer than ${b.nativeBlockNumber}, continue...`);
     }
 };
