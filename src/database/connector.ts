@@ -105,8 +105,8 @@ export class Connector {
         }
     }
 
-    async purgeBlocksNewerThan(blockNum: number) {
-        const result = await this.elastic.deleteByQuery({
+    async purgeNewerThan(blockNum: number, evmBlockNum: number) {
+        const deltaResult = await this.elastic.deleteByQuery({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
             body: {
                 query: {
@@ -118,9 +118,22 @@ export class Connector {
                 }
             },
             refresh: true
-        })
+        });
+        const actionResult = await this.elastic.deleteByQuery({
+            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            body: {
+                query: {
+                    range: {
+                        '@raw.block': {
+                            gte: evmBlockNum
+                        }
+                    }
+                }
+            },
+            refresh: true
+        });
 
-        return result;
+        return { deltaResult, actionResult };
     }
 
     pushBlock(blockInfo: IndexedBlockInfo) {

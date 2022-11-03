@@ -292,7 +292,7 @@ export class TEVMIndexer {
 
         logger.info(`purge blocks newer than ${startBlock}`);
 
-        await this.connector.purgeBlocksNewerThan(startBlock);
+        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
 
         logger.info('done.');
 
@@ -361,7 +361,7 @@ export class TEVMIndexer {
         }
 
         // finally purge db
-        this.connector.purgeBlocksNewerThan(b.nativeBlockNumber).then();
+        this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber).then();
         logger.debug(`purged db of blocks newer than ${b.nativeBlockNumber}, continue...`);
     }
 };
