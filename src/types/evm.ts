@@ -103,6 +103,7 @@ export interface StorageEosioDelta {
         "block_num": number
     },
     "@evmBlockHash": string,
+    "@receiptsRootHash": string,
     "code": string,
     "table": string
 }

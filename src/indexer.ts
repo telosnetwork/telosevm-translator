@@ -86,11 +86,6 @@ export class TEVMIndexer {
             allow_empty_traces: true,
             allow_empty_blocks: true
         });
-
-        setInterval(this.orderer.bind(this), 400);
-
-        // debug
-        setInterval(this.updateDebugStats.bind(this), 1000);
     }
 
     updateDebugStats() {
@@ -165,7 +160,8 @@ export class TEVMIndexer {
                     "@global": {
                         "block_num": newestBlock.evmBlockNumber
                     },
-                    "@evmBlockHash": currentBlockHash 
+                    "@evmBlockHash": currentBlockHash,
+                    "@receiptsRootHash": receiptsRoot.toString('hex')
                 },
                 "nativeHash": newestBlock.nativeBlockHash.toLowerCase(),
                 "parentHash": this.prevHash,
@@ -239,7 +235,12 @@ export class TEVMIndexer {
         let lastBlock = await this.connector.getLastIndexedBlock();
 
         if (lastBlock != null) {
-            ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
+            const gaps = await this.connector.fullGapCheck();
+            if (gaps.length == 0) {
+                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
+            } else {
+                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGaps(gaps));
+            }
         } else {
             prevHash = await this.getPreviousHash();
             logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
@@ -261,6 +262,11 @@ export class TEVMIndexer {
             fetch_traces: true,
             fetch_deltas: true
         }, ['contract_row', 'contract_table']);
+
+        setInterval(this.orderer.bind(this), 400);
+
+        // debug
+        setInterval(this.updateDebugStats.bind(this), 1000);
 
     }
 
@@ -297,6 +303,32 @@ export class TEVMIndexer {
         logger.info('done.');
 
         lastBlock = await this.connector.getLastIndexedBlock();
+
+        let prevHash = lastBlock['@evmBlockHash'];
+
+        logger.info(
+            `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
+
+        return { startBlock, startEvmBlock, prevHash };
+    }
+
+    private async getBlockInfoFromGaps(gaps: Array<any>): Promise<StartBlockInfo> {
+
+        const firstBlock = await this.connector.getIndexedBlock(gaps[0][0]);
+
+        // found blocks on the database
+        logger.info(JSON.stringify(firstBlock, null, 4));
+
+        let startBlock = firstBlock.block_num - 1;
+        let startEvmBlock = firstBlock['@global'].block_num - 1;
+
+        logger.info(`purge blocks newer than ${startBlock}`);
+
+        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
+
+        logger.info('done.');
+
+        const lastBlock = await this.connector.getLastIndexedBlock();
 
         let prevHash = lastBlock['@evmBlockHash'];
 
@@ -354,7 +386,8 @@ export class TEVMIndexer {
 
         // clear blocksQueue
         let iterB = this.blocksQueue.peek();
-        while (iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
+        while (this.blocksQueue.length > 0 &&
+               iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
             this.blocksQueue.dequeue();
             logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
             iterB = this.blocksQueue.peek();

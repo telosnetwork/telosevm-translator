@@ -1375,7 +1375,7 @@ export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
         }
 
         const receipt: TxReceipt = {
-            cumulativeGasUsed: new BN(tx.evmTx.gasusedblock),
+            cumulativeGasUsed: new BN(tx.evmTx.gasused),
             bitvector: bloom,
             logs: logs,
             status: tx.evmTx.status

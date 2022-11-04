@@ -88,6 +88,43 @@ export class Connector {
         this.broadcast.initUWS();
     }
 
+    async getIndexedBlock(blockNum: number) {
+        try {
+            const result = await this.elastic.search({
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                query: {
+                    match: {
+                        block_num: {
+                            query: blockNum
+                        }
+                    }
+                }
+            });
+
+            return result?.hits?.hits[0]?._source;
+
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async getFirstIndexedBlock() {
+        try {
+            const result = await this.elastic.search({
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                size: 1,
+                sort: [
+                    {"block_num": { "order": "asc"} }
+                ]
+            });
+
+            return result?.hits?.hits[0]?._source;
+
+        } catch (error) {
+            return null;
+        }
+    }
+
     async getLastIndexedBlock() {
         try {
             const result = await this.elastic.search({
@@ -103,6 +140,80 @@ export class Connector {
         } catch (error) {
             return null;
         }
+    }
+
+    async recursiveGapCheck(
+        lowerBound: number,
+        upperBound: number,
+        interval: number,
+        gapsResults: Array<any>
+    ) {
+        if (interval <= 1) {
+            gapsResults.push([lowerBound, upperBound]);
+            return;
+        }
+
+        const searchResult = await this.elastic.search({
+            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+            aggs: {
+                "block_histogram": {
+                    "histogram": {
+                        "field": "block_num",
+                        "interval": interval,
+                        "min_doc_count": 1
+                    },
+                    "aggs": {
+                        "min_block": {
+                            "min": {
+                                "field": "block_num"
+                            }
+                        },
+                        "max_block": {
+                            "max": {
+                                "field": "block_num"
+                            }
+                        }
+                    }
+                }
+            },
+            size: 0,
+            query: {
+                "bool": {
+                    "must": [
+                        {
+                            "range": {
+                                "block_num": {
+                                    "gte": lowerBound,
+                                    "lte": upperBound
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        });
+
+        for (const bucket of searchResult['aggregations']['block_histogram']['buckets']) {
+            const lower = bucket['min_block']['value'];;
+            const upper = bucket['max_block']['value'];
+            const actual = bucket['doc_count'];
+            const total_range = upper - lower;
+            if (actual < total_range)
+                await this.recursiveGapCheck(lower, upper, interval / 10, gapsResults);
+        }
+    }
+
+    async fullGapCheck() {
+        const firstBlockNum = (await this.getFirstIndexedBlock()).block_num;
+        const lastBlockNum = (await this.getLastIndexedBlock()).block_num;
+        const gaps: Array<any> = [];
+        logger.debug(`performing gap check from ${firstBlockNum} to ${lastBlockNum}`);
+        await this.recursiveGapCheck(
+            firstBlockNum, lastBlockNum, 10000000, gaps);
+        logger.info('performed full db gap check, results:');
+        logger.info(JSON.stringify(gaps, null, 4));
+
+        return gaps
     }
 
     async purgeNewerThan(blockNum: number, evmBlockNum: number) {
