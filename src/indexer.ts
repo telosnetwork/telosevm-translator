@@ -385,12 +385,14 @@ export class TEVMIndexer {
         }
 
         // clear blocksQueue
-        let iterB = this.blocksQueue.peek();
-        while (this.blocksQueue.length > 0 &&
-               iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
-            this.blocksQueue.dequeue();
-            logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
-            iterB = this.blocksQueue.peek();
+        if (this.blocksQueue.length > 0) {
+            let iterB = this.blocksQueue.peek();
+            while (this.blocksQueue.length > 0 &&
+                iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
+                this.blocksQueue.dequeue();
+                logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
+                iterB = this.blocksQueue.peek();
+            }
         }
 
         // finally purge db
