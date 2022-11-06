@@ -104,13 +104,11 @@ export class TEVMIndexer {
         this.pushedLastSecond = 0;
     }
 
-    orderer() {
+    async orderer() {
         // make sure we have blocks we need to order, no other orderer task
         // is running
         if (this.ordering || this.blocksQueue.length == 0)
             return;
-
-        this.ordering = true;
 
         logger.debug('Running orderer...');
         let newestBlock: ProcessedBlock = this.blocksQueue.peek();
@@ -119,7 +117,7 @@ export class TEVMIndexer {
         logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
         logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
 
-        this.maybeHandleFork(newestBlock);
+        await this.maybeHandleFork(newestBlock);
 
         while(newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
 
@@ -185,7 +183,7 @@ export class TEVMIndexer {
             }
 
             // push to db
-            this.connector.pushBlock(storableBlockInfo);
+            await this.connector.pushBlock(storableBlockInfo);
 
             this.prevHash = currentBlockHash;
             this.blocksQueue.dequeue();
@@ -195,7 +193,7 @@ export class TEVMIndexer {
 
             if (this.blocksQueue.length > 0) {
                 newestBlock = this.blocksQueue.peek();
-                this.maybeHandleFork(newestBlock);
+                await this.maybeHandleFork(newestBlock);
             }
         }
 
@@ -372,7 +370,7 @@ export class TEVMIndexer {
         }
     }
 
-    private maybeHandleFork(b: ProcessedBlock) {
+    private async maybeHandleFork(b: ProcessedBlock) {
         if (b.nativeBlockNumber > this.lastNativeOrderedBlock)
             return;
 
@@ -381,7 +379,7 @@ export class TEVMIndexer {
         // wait until all db connector write tasks finish
         while (this.connector.writeCounter > 0) {
             logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
-            sleep(200).then();
+            await sleep(200);
         }
 
         // clear blocksQueue
@@ -396,7 +394,7 @@ export class TEVMIndexer {
         }
 
         // finally purge db
-        this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber).then();
+        await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
         logger.debug(`purged db of blocks newer than ${b.nativeBlockNumber}, continue...`);
     }
 };

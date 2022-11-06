@@ -247,7 +247,7 @@ export class Connector {
         return { deltaResult, actionResult };
     }
 
-    pushBlock(blockInfo: IndexedBlockInfo) {
+    async pushBlock(blockInfo: IndexedBlockInfo) {
         const suffix = this.getSubfix(blockInfo.delta.block_num);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
@@ -278,12 +278,10 @@ export class Connector {
             this.blockDrain = [];
             this.writeCounter++;
 
-            if (this.state == IndexerState.HEAD) {
-                this.writeBlocks(ops, blocks).then();
-            } else {
-                setTimeout(
-                    this.writeBlocks.bind(this, ops, blocks), 0);
-            }
+            if (this.state == IndexerState.HEAD)
+                await this.writeBlocks(ops, blocks);
+            else
+                setTimeout(this.writeBlocks.bind(this, ops, blocks), 0);
         }
     }
 
