@@ -389,7 +389,8 @@ export class TEVMIndexer {
                 iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
                 this.blocksQueue.dequeue();
                 logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
-                iterB = this.blocksQueue.peek();
+                if (this.blocksQueue.length > 0)
+                    iterB = this.blocksQueue.peek();
             }
         }
 
