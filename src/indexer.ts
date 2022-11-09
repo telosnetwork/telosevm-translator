@@ -297,8 +297,8 @@ export class TEVMIndexer {
         // found blocks on the database
         logger.info(JSON.stringify(lastBlock, null, 4));
 
-        let startBlock = lastBlock.block_num - 3;
-        let startEvmBlock = lastBlock['@global'].block_num - 3;
+        let startBlock = lastBlock.block_num;
+        let startEvmBlock = lastBlock['@global'].block_num;
 
         logger.info(`purge blocks newer than ${startBlock}`);
 
@@ -323,8 +323,8 @@ export class TEVMIndexer {
         // found blocks on the database
         logger.info(JSON.stringify(firstBlock, null, 4));
 
-        let startBlock = firstBlock.block_num - 1;
-        let startEvmBlock = firstBlock['@global'].block_num - 1;
+        let startBlock = firstBlock.block_num;
+        let startEvmBlock = firstBlock['@global'].block_num;
 
         logger.info(`purge blocks newer than ${startBlock}`);
 
