@@ -17,6 +17,7 @@ export interface IBlockReaderOptions {
     allow_empty_traces: boolean;
     allow_empty_deltas: boolean;
     allow_empty_blocks: boolean;
+    delta_whitelist: string[];
 }
 
 export type ShipBlockResponse = {

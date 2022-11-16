@@ -36,6 +36,6 @@
 
     "broadcast": {
         "wsHost": "127.0.0.1",
-        "wsPort": 7300 
+        "wsPort": 7300
     }
 }

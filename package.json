@@ -1,10 +1,10 @@
 {
-  "name": "ship-tests",
-  "version": "0.1a1",
-  "description": "State History Tests",
+  "name": "telosevm-es-indexer",
+  "version": "0.1a2",
+  "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
-  "repository": "https://github.com/guilledk/ship-tests",
+  "repository": "https://github.com/telosnetwork/telosevm-es-indexer",
   "scripts": {},
   "dependencies": {
     "@elastic/elasticsearch": "^8.2.1",
@@ -37,7 +37,7 @@
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.4.0",
     "why-is-node-running": "^2.2.2",
     "winston": "^3.7.2",
-    "ws": "^7.5.7"
+    "ws": "^7.5.9"
   },
   "devDependencies": {
     "@ethereumjs/blockchain": "^5.5.3",

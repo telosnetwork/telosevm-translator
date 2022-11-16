@@ -37,10 +37,11 @@ import {
     handleEvmTx, handleEvmDeposit, handleEvmWithdraw,
     TxDeserializationError, isTxDeserializationError
 } from './handlers';
-import {IndexerConfig, IndexerState} from './types/indexer';
+import {IndexerState} from './types/indexer';
 import {TEVMIndexer} from './indexer';
 
-const WebSocket = require('ws');
+import WebSocket from 'ws';
+
 
 const deltaType = getTableAbiType(eosioSystemAbi.abi, 'eosio', 'global');
 
@@ -50,9 +51,9 @@ interface InprogressBuffers {
     evmBlockNum: number;
 };
 
+
 export default class StateHistoryBlockReader {
     currentArgs: BlockRequestType;
-    deltaWhitelist: string[];
 
     abi: Abi;
     types: Map<string, Serialize.Type>;
@@ -62,45 +63,35 @@ export default class StateHistoryBlockReader {
 
     rpc: JsonRpc;
 
-    private ws: any;
+    // debug info
+    headBlock: number;
+    currentBlock: number;
 
-    private connected: boolean;
-    private connecting: boolean;
-    private stopped: boolean;
-
-    private deserializeWorkers: StaticPool<(x: Array<{type: string, data: Uint8Array, abi?: any}>) => any>;
+    private ws: WebSocket;
+    private deserializeWorkers: StaticPool<
+        (x: Array<{type: string, data: Uint8Array, abi?: any}>) => any>;
 
     private unconfirmed: number;
-    private consumer: BlockConsumer;
 
     private limboBuffs: InprogressBuffers = null;
 
     private contracts: {[key: string]: Serialize.Contract};
     private abis: {[key: string]: RpcInterfaces.Abi};
 
-    private options: IBlockReaderOptions;
-
-    // debug info
-    headBlock: number;
-    currentBlock: number;
-
     constructor(
-        private readonly indexer: TEVMIndexer
+        private readonly indexer: TEVMIndexer,
+        private options: IBlockReaderOptions
     ) {
-        this.connected = false;
-        this.connecting = false;
-        this.stopped = true;
+        this.blocksQueue = new PQueue({
+            concurrency: indexer.config.perf.concurrencyAmount,
+            autoStart: true
+        });
 
-        this.blocksQueue = new PQueue({concurrency: indexer.config.perf.concurrencyAmount, autoStart: true});
         this.deserializeWorkers = undefined;
-
-        this.consumer = null;
 
         this.abi = null;
         this.types = null;
         this.tables = new Map();
-
-        this.deltaWhitelist = [];
 
         this.abis = {
             'eosio.evm': eosioEvmAbi.abi,
@@ -119,51 +110,44 @@ export default class StateHistoryBlockReader {
         setCommon(indexer.config.chainId);
     }
 
-    setOptions(options?: IBlockReaderOptions, deltas?: string[]): void {
-        if (options) {
-            this.options = {...this.options, ...options};
-        }
-
-        if (deltas) {
-            this.deltaWhitelist = deltas;
-        }
-    }
-
     connect(): void {
-        if (!this.connected && !this.connecting && !this.stopped) {
-            logger.info(`Connecting to ship endpoint ${this.indexer.config.wsEndpoint}`);
-            logger.info(`Ship connect options ${JSON.stringify({...this.currentArgs, have_positions: 'removed'})}`);
+        logger.info(`Connecting to ship endpoint ${this.indexer.config.wsEndpoint}`);
+        logger.info(`Ship connect options ${JSON.stringify({...this.currentArgs, have_positions: 'removed'})}`);
 
-            this.connecting = true;
-
-            this.ws = new WebSocket(this.indexer.config.wsEndpoint, { perMessageDeflate: false, maxPayload: 512 * 1024 * 1024 * 1024 });
-
-            this.ws.on('open', () => this.onConnect());
-            this.ws.on('message', (data: any) => this.onMessage(data));
-            this.ws.on('close', () => this.onClose());
-            this.ws.on('error', (e: Error) => { logger.error('Websocket error', e); });
-        }
+        this.ws = new WebSocket(
+            this.indexer.config.wsEndpoint, {
+                perMessageDeflate: false,
+                maxPayload: 512 * 1024 * 1024 * 1024
+        })
+            .on('open', () => logger.info('Websocket connected.'))
+            .on('message', (data: any) => this.onMessage(data))
+            .on('close', async () => {
+                logger.info('Websocket disconnected.');
+                await this.reconnect();
+            })
+            .on('error', (e: Error) => { logger.error('Websocket error', e); });
     }
 
-    reconnect(): void {
-        if (this.stopped) {
-            return;
+    async reconnect(): Promise<void> {
+        if (this.ws) {
+            this.ws.terminate();
+            this.ws = null;
+        }
+        this.abi = null;
+        this.types = null;
+        this.tables = new Map();
+
+        if (this.deserializeWorkers) {
+            await this.deserializeWorkers.destroy();
+            this.deserializeWorkers = null;
         }
 
-        setTimeout(() => {
-            logger.info('Reconnecting to Ship...');
-
-            this.connect();
-        }, 5000);
+        logger.warn('Reconnecting websocket...');
+        this.connect();
     }
 
     send(request: [string, any]): void {
         this.ws.send(serializeEosioType('request', request, this.types));
-    }
-
-    onConnect(): void {
-        this.connected = true;
-        this.connecting = false;
     }
 
     onMessage(data: any): void {
@@ -188,9 +172,8 @@ export default class StateHistoryBlockReader {
                     this.tables.set(table.name, table.type);
                 }
 
-                if (!this.stopped) {
-                    this.requestBlocks();
-                }
+                this.requestBlocks();
+
             } else {
                 const [type, response] = deserializeEosioType('result', data, this.types);
 
@@ -399,11 +382,6 @@ export default class StateHistoryBlockReader {
                         }
 
                         this.unconfirmed += 1;
-
-                        if (this.unconfirmed >= this.options.min_block_confirmation) {
-                            this.send(['get_blocks_ack_request_v0', { num_messages: this.unconfirmed }]);
-                            this.unconfirmed = 0;
-                        }
                     };
 
                     if (this.indexer.state == IndexerState.HEAD)
@@ -424,38 +402,21 @@ export default class StateHistoryBlockReader {
         }
     }
 
-    async onClose(): Promise<void> {
-        logger.error('Ship Websocket disconnected');
-
-        if (this.ws) {
-            await this.ws.terminate();
-            this.ws = null;
+    finishBlock() {
+        if (this.unconfirmed >= this.options.min_block_confirmation) {
+            logger.debug(`Sending ack for ${this.unconfirmed} blocks.`);
+            this.send(['get_blocks_ack_request_v0', { num_messages: this.unconfirmed }]);
+            this.unconfirmed = 0;
         }
-
-        this.abi = null;
-        this.types = null;
-        this.tables = new Map();
-
-        this.connected = false;
-        this.connecting = false;
-
-        this.blocksQueue.clear();
-
-        if (this.deserializeWorkers) {
-            await this.deserializeWorkers.destroy();
-            this.deserializeWorkers = null;
-        }
-
-        this.reconnect();
     }
 
     requestBlocks(): void {
         this.unconfirmed = 0;
-
+        logger.debug(`Request blocks ${this.currentArgs.start_block_num}`);
         this.send(['get_blocks_request_v0', this.currentArgs]);
     }
 
-    startProcessing(request: BlockRequestType = {}, deltas: string[] = []): void {
+    startProcessing(request: BlockRequestType = {}): void {
         this.currentArgs = {
             start_block_num: 0,
             end_block_num: 0xffffffff,
@@ -467,12 +428,6 @@ export default class StateHistoryBlockReader {
             fetch_deltas: false,
             ...request
         };
-        this.deltaWhitelist = deltas;
-        this.stopped = false;
-
-        if (this.connected && this.abi) {
-            this.requestBlocks();
-        }
 
         this.blocksQueue.start();
 
@@ -480,8 +435,6 @@ export default class StateHistoryBlockReader {
     }
 
     stopProcessing(): void {
-        this.stopped = true;
-
         this.ws.close();
 
         this.blocksQueue.clear();
@@ -656,8 +609,8 @@ export default class StateHistoryBlockReader {
             });
         }
 
-        if (this.consumer && globalDelta) {
-            await this.consumer({
+        if (globalDelta) {
+            await this.indexer.consumer({
                 nativeBlockHash: block.block.block_id,
                 nativeBlockNumber: currentBlock,
                 evmBlockNumber: evmBlockNum,
@@ -667,10 +620,6 @@ export default class StateHistoryBlockReader {
             });
         }
 
-    }
-
-    consume(consumer: BlockConsumer): void {
-        this.consumer = consumer;
     }
 
     private handleStateSwitch(resp: ShipBlockResponse) {
@@ -717,7 +666,7 @@ export default class StateHistoryBlockReader {
     private async deserializeDeltas(deltas: any[]): Promise<any> {
         return await Promise.all(deltas.map(async (delta: any) => {
             if (delta[0] === 'table_delta_v0' || delta[0] === 'table_delta_v1') {
-                if (this.deltaWhitelist.indexOf(delta[1].name) >= 0) {
+                if (this.options.delta_whitelist.indexOf(delta[1].name) >= 0) {
                     const deserialized = await this.deserializeArrayParallel(delta[1].rows.map((row: any) => ({
                         type: delta[1].name, data: row.data
                     })));
@@ -739,4 +688,4 @@ export default class StateHistoryBlockReader {
             throw Error('Unsupported table delta type received ' + delta[0]);
         }));
     }
-}
+};

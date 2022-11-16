@@ -84,13 +84,14 @@ export class TEVMIndexer {
 
         this.connector = new Connector(telosConfig);
 
-        this.reader = new StateHistoryBlockReader(this);
-        this.reader.setOptions({
-            min_block_confirmation: 0,
+        this.reader = new StateHistoryBlockReader(
+            this, {
+            min_block_confirmation: 1,
             ds_threads: telosConfig.perf.workerAmount,
             allow_empty_deltas: true,
             allow_empty_traces: true,
-            allow_empty_blocks: true
+            allow_empty_blocks: true,
+            delta_whitelist: ['contract_row', 'contract_table']
         });
     }
 
@@ -196,6 +197,7 @@ export class TEVMIndexer {
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
             this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
             this.pushedLastSecond++;
+            this.reader.finishBlock();
 
             if (this.blocksQueue.length > 0) {
                 newestBlock = this.blocksQueue.peek();
@@ -254,8 +256,6 @@ export class TEVMIndexer {
         this.lastOrderedBlock = startEvmBlock - 1;
         this.lastNativeOrderedBlock = this.startBlock - 1;
 
-        this.reader.consume(this.consumer.bind(this));
-
         this.reader.startProcessing({
             start_block_num: startBlock,
             end_block_num: stopBlock,
@@ -265,7 +265,7 @@ export class TEVMIndexer {
             fetch_block: true,
             fetch_traces: true,
             fetch_deltas: true
-        }, ['contract_row', 'contract_table']);
+        });
 
         setInterval(this.orderer.bind(this), 400);
 
