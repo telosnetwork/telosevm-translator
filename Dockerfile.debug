@@ -9,7 +9,7 @@ copy config.json /indexer
 
 workdir /indexer
 
-run npm i
+run yarn install
 run npx tsc
 
 run npm i why-is-node-running -g

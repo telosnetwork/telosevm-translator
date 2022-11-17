@@ -9,7 +9,7 @@ COPY config.json /indexer
 
 WORKDIR /indexer
 
-RUN npm i
+RUN yarn install
 RUN npx tsc
 
 CMD ["node", "build/main.js"]
