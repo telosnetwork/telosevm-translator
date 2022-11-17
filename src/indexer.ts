@@ -32,10 +32,11 @@ const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
 
 process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-  // application specific logging, throwing an error, or other logic here
-  // @ts-ignore
-  console.log(reason.stack);
+    logger.error('Unhandled Rejection at: Promise', p, 'reason:', reason);
+    // application specific logging, throwing an error, or other logic here
+    // @ts-ignore
+    logger.error(reason.stack);
+    process.exit(1);
 });
 
 export class TEVMIndexer {
@@ -183,6 +184,7 @@ export class TEVMIndexer {
         try {
             return this.blocksQueue.peek();
         } catch(e) {
+            logger.debug(`getNewestBlock called but queue is empty!`);
             return null;
         }
     }
@@ -410,19 +412,28 @@ export class TEVMIndexer {
         }
 
         // clear blocksQueue
-        if (this.blocksQueue.length > 0) {
-            let iterB = this.blocksQueue.peek();
-            while (this.blocksQueue.length > 0 &&
-                iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
-                this.blocksQueue.dequeue();
-                logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
-                if (this.blocksQueue.length > 0)
-                    iterB = this.blocksQueue.peek();
-            }
+        let iterB = this.getNewestBlock();
+        while (iterB != null && iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
+            this.blocksQueue.dequeue();
+            logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
+            iterB = this.getNewestBlock();
         }
 
         // finally purge db
         await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
         logger.debug(`purged db of blocks newer than ${b.nativeBlockNumber}, continue...`);
+
+        const lastBlock = await this.connector.getLastIndexedBlock();
+
+        if (lastBlock == null || lastBlock.nativeBlockNumber != (b.nativeBlockNumber - 1)) {
+            throw new Error(
+                `Error while handling fork, block number mismatch! last block: ${
+                    JSON.stringify(lastBlock, null, 4)}`);
+        }
+
+        // tweak variables used by ordering machinery
+        this.prevHash = lastBlock['@evmBlockHash'];
+        this.lastOrderedBlock = lastBlock['@global'].block_num;
+        this.lastNativeOrderedBlock = lastBlock.block_num;
     }
 };
