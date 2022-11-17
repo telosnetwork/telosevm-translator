@@ -31,11 +31,13 @@ import PriorityQueue from 'js-priority-queue';
 const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
 
-process.on('unhandledRejection', (reason, p) => {
-    logger.error('Unhandled Rejection at: Promise', p, 'reason:', reason);
-    // application specific logging, throwing an error, or other logic here
+process.on('unhandledRejection', error => {
+    logger.error('Unhandled Rejection');
+    logger.error(JSON.stringify(error, null, 4));
     // @ts-ignore
-    logger.error(reason.stack);
+    logger.error(error.message);
+    // @ts-ignore
+    logger.error(error.stack);
     process.exit(1);
 });
 
@@ -113,7 +115,7 @@ export class TEVMIndexer {
         this.pushedLastSecond = 0;
     }
 
-    async hashBlock(block: ProcessedBlock) {
+    hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
         const transactionsRoot = generateTxRootHash(evmTxs);
@@ -211,7 +213,7 @@ export class TEVMIndexer {
 
         while(newestBlock != null && newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
 
-            const storableBlockInfo = await this.hashBlock(newestBlock);
+            const storableBlockInfo = this.hashBlock(newestBlock);
 
             // push to db
             await this.connector.pushBlock(storableBlockInfo);
@@ -290,10 +292,10 @@ export class TEVMIndexer {
             fetch_deltas: true
         });
 
-        setInterval(this.orderer.bind(this), 400);
+        setInterval(() => this.orderer(), 400);
 
         // debug
-        setInterval(this.updateDebugStats.bind(this), 1000);
+        setInterval(() => this.updateDebugStats(), 1000);
 
     }
 
