@@ -23,10 +23,10 @@ import {
     ProcessedBlock
 } from './utils/evm'
 
+import BN from 'bn.js';
 import moment from 'moment';
-const PriorityQueue = require("js-priority-queue");
+import PriorityQueue from 'js-priority-queue';
 
-const BN = require('bn.js');
 
 const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
@@ -35,7 +35,7 @@ process.on('unhandledRejection', (reason, p) => {
   console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
   // application specific logging, throwing an error, or other logic here
   // @ts-ignore
-  console.log(reason.stack)
+  console.log(reason.stack);
 });
 
 export class TEVMIndexer {
@@ -59,13 +59,11 @@ export class TEVMIndexer {
     lastOrderedBlock: number;  // last native block number that was succesfully pushed to db in order
     lastNativeOrderedBlock: number;  // last evm block number that was succesfully pushed to db in order
 
-    private blocksQueue: typeof PriorityQueue = new PriorityQueue({
-        comparator: function(a: ProcessedBlock, b: ProcessedBlock) {
+    private blocksQueue: PriorityQueue<ProcessedBlock> = new PriorityQueue({
+        comparator: function(a, b) {
             return a.evmBlockNumber - b.evmBlockNumber;
         }
     });  // queue of blocks pending for processing
-
-    // private blocksQueue: Map<number, ProcessedBlock> = new Map();
 
     private ordering: boolean = false;  // flag required to limit the amount of ordering tasks to one at all times
 

@@ -594,6 +594,11 @@
   dependencies:
     "@types/bn.js" "*"
 
+"@types/js-priority-queue@^0.0.6":
+  "integrity" "sha512-cw2I5pmK7GwB0NCNnbYhOG0N7imLqxP5XRriJSoFyztG+/xmHHWL6beu+hXlCeph0EQ/Ynp051jXyAqcVEFfvw=="
+  "resolved" "https://registry.npmjs.org/@types/js-priority-queue/-/js-priority-queue-0.0.6.tgz"
+  "version" "0.0.6"
+
 "@types/level-errors@*":
   "integrity" "sha512-/lMtoq/Cf/2DVOm6zE6ORyOM+3ZVm/BvzEZVxUhf6bgh8ZHglXlBqxbxSlJeVp8FCbD3IVvk/VbsaNmDjrQvqQ=="
   "resolved" "https://registry.npmjs.org/@types/level-errors/-/level-errors-3.0.0.tgz"
@@ -1977,7 +1982,7 @@
   "resolved" "https://registry.npmjs.org/uuid/-/uuid-2.0.1.tgz"
   "version" "2.0.1"
 
-"uWebSockets.js@20.4.0":
+"uWebSockets.js@github:uNetworking/uWebSockets.js#v20.4.0":
   "resolved" "git+ssh://git@github.com/uNetworking/uWebSockets.js.git#65f39bdff763be3883e6cf18e433dd4fec155845"
   "version" "20.4.0"
 

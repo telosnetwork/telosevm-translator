@@ -43,6 +43,7 @@
     "@ethereumjs/blockchain": "^5.5.3",
     "@types/debug": "^4.1.7",
     "@types/elliptic": "^6.4.14",
+    "@types/js-priority-queue": "^0.0.6",
     "@types/lru-cache": "^7.10.10",
     "@types/readable-stream": "^2.3.14",
     "@types/text-encoding": "^0.0.36",
