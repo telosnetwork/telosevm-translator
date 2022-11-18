@@ -143,8 +143,8 @@ export class Connector {
     }
 
     async fullGapCheck() : Promise<number> {
-        const lowerBound = (await this.getFirstIndexedBlock()).block_num;
-        const upperBound = (await this.getLastIndexedBlock()).block_num;
+        const lowerBound = (await this.getFirstIndexedBlock())['@global'].block_num;
+        const upperBound = (await this.getLastIndexedBlock())['@global'].block_num;
         const gapCheck = async (
             lowerBound: number,
             upperBound: number,
@@ -155,19 +155,19 @@ export class Connector {
                 aggs: {
                     "block_histogram": {
                         "histogram": {
-                            "field": "block_num",
+                            "field": "@global.block_num",
                             "interval": interval,
                             "min_doc_count": 1
                         },
                         "aggs": {
                             "min_block": {
                                 "min": {
-                                    "field": "block_num"
+                                    "field": "@global.block_num"
                                 }
                             },
                             "max_block": {
                                 "max": {
-                                    "field": "block_num"
+                                    "field": "@global.block_num"
                                 }
                             }
                         }
@@ -179,7 +179,7 @@ export class Connector {
                         "must": [
                             {
                                 "range": {
-                                    "block_num": {
+                                    "@global.block_num": {
                                         "gte": lowerBound,
                                         "lte": upperBound
                                     }
@@ -206,12 +206,20 @@ export class Connector {
         let interval = 10000000;
         let gap: Array<number> = [lowerBound, upperBound];
 
+        // run gap check routine with smaller and smaller intervals each time
         while (interval >= 10 && gap != null) {
             gap = await gapCheck(gap[0], gap[1], interval);
             console.log(`checked ${JSON.stringify(gap)} with interval ${interval}, ${gap}`);
             interval /= 10;
         }
 
+        // if gap is null now there are no gaps
+        if (gap == null)
+            return null;
+
+        // at this point we have the gap located between a range no more than 10
+        // blocks in length, plan is to move lower bound up until we miss the gap
+        // then we know gap starts from previous lower bound
         let lower = gap[0];
         let upper = gap[1];
         gap = await gapCheck(lower, upper, 10);
@@ -222,6 +230,8 @@ export class Connector {
         }
         lower -= 1;
 
+        // now do the same to find the correct upper bound, bring it down one at
+        // a time
         gap = await gapCheck(lower, upper, 10);
         while(gap != null) {
             console.log(gap);

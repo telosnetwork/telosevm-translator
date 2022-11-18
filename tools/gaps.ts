@@ -61,19 +61,19 @@ const gapCheck = async (
         aggs: {
             "block_histogram": {
                 "histogram": {
-                    "field": "block_num",
+                    "field": "@global.block_num",
                     "interval": interval,
                     "min_doc_count": 1
                 },
                 "aggs": {
                     "min_block": {
                         "min": {
-                            "field": "block_num"
+                            "field": "@global.block_num"
                         }
                     },
                     "max_block": {
                         "max": {
-                            "field": "block_num"
+                            "field": "@global.block_num"
                         }
                     }
                 }
@@ -85,7 +85,7 @@ const gapCheck = async (
                 "must": [
                     {
                         "range": {
-                            "block_num": {
+                            "@global.block_num": {
                                 "gte": lowerBound,
                                 "lte": upperBound
                             }
@@ -112,9 +112,9 @@ const gapCheck = async (
 
 const main = async () => {
     // @ts-ignore
-    const lowerBound = (await getFirstIndexedBlock()).block_num;
+    const lowerBound = (await getFirstIndexedBlock())['@global'].block_num;
     // @ts-ignore
-    const upperBound = (await getLastIndexedBlock()).block_num;
+    const upperBound = (await getLastIndexedBlock())['@global'].block_num;
 
     let interval = 10000000;
     let gap: Array<number> = [lowerBound, upperBound];

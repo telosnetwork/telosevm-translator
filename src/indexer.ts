@@ -205,6 +205,8 @@ export class TEVMIndexer {
             return;
         }
 
+        this.ordering = true;
+
         const firstBlockNum = newestBlock.evmBlockNumber;
         logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
         logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
@@ -220,6 +222,7 @@ export class TEVMIndexer {
 
             if (this.blocksQueue.length == 0)
                 logger.error(`About to call dequeue with and empty queue, this shouldnt happen!`);
+
             this.blocksQueue.dequeue();
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
             this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
