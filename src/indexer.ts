@@ -272,7 +272,7 @@ export class TEVMIndexer {
 
         if (lastBlock != null) {
             const gap = await this.connector.fullGapCheck();
-            if (gap != null) {
+            if (gap == null) {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
