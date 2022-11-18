@@ -114,10 +114,8 @@ export class Connector {
                 index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
                 query: {
                     match: {
-                        '@global': {
-                            block_num: {
-                                query: blockNum
-                            }
+                        '@global.block_num': {
+                            query: blockNum
                         }
                     }
                 }
@@ -264,7 +262,7 @@ export class Connector {
 
         console.log(`found gap at ${lower + 1}`);
 
-        return lower + 1;
+        return lower;
     }
 
     async purgeNewerThan(blockNum: number, evmBlockNum: number) {
