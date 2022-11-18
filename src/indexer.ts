@@ -358,7 +358,9 @@ export class TEVMIndexer {
 
         logger.info(`purge blocks newer than ${startBlock}`);
 
-        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
+        const {deltaResult, actionResult} = await this.connector.purgeNewerThan(startBlock, startEvmBlock);
+        logger.info(`${JSON.stringify(deltaResult, null, 4)}`);
+        logger.info(`${JSON.stringify(actionResult, null, 4)}`);
 
         logger.info('done.');
 
