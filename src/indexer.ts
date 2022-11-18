@@ -218,6 +218,8 @@ export class TEVMIndexer {
             // push to db
             await this.connector.pushBlock(storableBlockInfo);
 
+            if (this.blocksQueue.length == 0)
+                logger.error(`About to call dequeue with and empty queue, this shouldnt happen!`);
             this.blocksQueue.dequeue();
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
             this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
@@ -266,11 +268,11 @@ export class TEVMIndexer {
         let lastBlock = await this.connector.getLastIndexedBlock();
 
         if (lastBlock != null) {
-            const gaps = await this.connector.fullGapCheck();
-            if (gaps.length == 0) {
+            const gap = await this.connector.fullGapCheck();
+            if (gap) {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
-                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGaps(gaps));
+                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
             }
         } else {
             prevHash = await this.getPreviousHash();
@@ -341,9 +343,9 @@ export class TEVMIndexer {
         return { startBlock, startEvmBlock, prevHash };
     }
 
-    private async getBlockInfoFromGaps(gaps: Array<any>): Promise<StartBlockInfo> {
+    private async getBlockInfoFromGap(gap: number): Promise<StartBlockInfo> {
 
-        const firstBlock = await this.connector.getIndexedBlock(gaps[0][0]);
+        const firstBlock = await this.connector.getIndexedBlock(gap);
 
         // found blocks on the database
         logger.info(JSON.stringify(firstBlock, null, 4));
@@ -427,7 +429,7 @@ export class TEVMIndexer {
 
         const lastBlock = await this.connector.getLastIndexedBlock();
 
-        if (lastBlock == null || lastBlock.nativeBlockNumber != (b.nativeBlockNumber - 1)) {
+        if (lastBlock == null || lastBlock.block_num != (b.nativeBlockNumber - 1)) {
             throw new Error(
                 `Error while handling fork, block number mismatch! last block: ${
                     JSON.stringify(lastBlock, null, 4)}`);
