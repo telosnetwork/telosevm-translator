@@ -108,6 +108,28 @@ export class Connector {
         }
     }
 
+    async getIndexedBlockEVM(blockNum: number) {
+        try {
+            const result = await this.elastic.search({
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                query: {
+                    match: {
+                        '@global': {
+                            block_num: {
+                                query: blockNum
+                            }
+                        }
+                    }
+                }
+            });
+
+            return result?.hits?.hits[0]?._source;
+
+        } catch (error) {
+            return null;
+        }
+    }
+
     async getFirstIndexedBlock() {
         try {
             const result = await this.elastic.search({
@@ -310,7 +332,7 @@ export class Connector {
             if (this.state == IndexerState.HEAD)
                 await this.writeBlocks(ops, blocks);
             else
-                setTimeout(this.writeBlocks.bind(this, ops, blocks), 0);
+                this.writeBlocks(ops, blocks);
         }
     }
 

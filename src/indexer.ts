@@ -272,7 +272,7 @@ export class TEVMIndexer {
 
         if (lastBlock != null) {
             const gap = await this.connector.fullGapCheck();
-            if (gap) {
+            if (gap != null) {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
@@ -348,7 +348,7 @@ export class TEVMIndexer {
 
     private async getBlockInfoFromGap(gap: number): Promise<StartBlockInfo> {
 
-        const firstBlock = await this.connector.getIndexedBlock(gap);
+        const firstBlock = await this.connector.getIndexedBlockEVM(gap);
 
         // found blocks on the database
         logger.info(JSON.stringify(firstBlock, null, 4));
