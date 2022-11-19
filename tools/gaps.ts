@@ -125,6 +125,9 @@ const main = async () => {
         interval /= 10;
     }
 
+    if (gap == null)
+        return;
+
     let lower = gap[0];
     let upper = gap[1];
     gap = await gapCheck(lower, upper, 10);

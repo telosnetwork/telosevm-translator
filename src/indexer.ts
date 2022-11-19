@@ -71,6 +71,7 @@ export class TEVMIndexer {
     });  // queue of blocks pending for processing
 
     private ordering: boolean = false;  // flag required to limit the amount of ordering tasks to one at all times
+    private forked: boolean = false  // flag required to limit the amount of fork handling tasks to one at all times
 
     // debug status used to print statistics
     private queuedUpLastSecond: number = 0;
@@ -423,8 +424,10 @@ export class TEVMIndexer {
     }
 
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (b.nativeBlockNumber > this.lastNativeOrderedBlock)
+        if (this.forked || b.nativeBlockNumber > this.lastNativeOrderedBlock)
             return;
+
+        this.forked = true;
 
         logger.info('chain fork detected. reverse all blocks which were affected');
 
@@ -458,6 +461,8 @@ export class TEVMIndexer {
         this.prevHash = lastBlock['@evmBlockHash'];
         this.lastOrderedBlock = lastBlock['@global'].block_num;
         this.lastNativeOrderedBlock = lastBlock.block_num;
+
+        this.forked = false;
     }
 
     printIntroText() {
