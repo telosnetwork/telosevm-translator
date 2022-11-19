@@ -1304,13 +1304,17 @@ export function getContract(contractAbi: RpcInterfaces.Abi) {
     return { types, actions }
 }
 
-export interface ProcessedBlock {
-    nativeBlockHash: string,
-    nativeBlockNumber: number,
-    evmBlockNumber: number,
-    blockTimestamp: string,
-    evmTxs: Array<EVMTxWrapper>,
-    errors: Array<TxDeserializationError>
+export class ProcessedBlock {
+    nativeBlockHash: string;
+    nativeBlockNumber: number;
+    evmBlockNumber: number;
+    blockTimestamp: string;
+    evmTxs: Array<EVMTxWrapper>;
+    errors: Array<TxDeserializationError>;
+
+    toString() {
+        return `[${this.nativeBlockNumber}|${this.evmBlockNumber}]`;
+    }
 }
 export type BlockConsumer = (block: ProcessedBlock) => any;
 

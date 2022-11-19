@@ -208,8 +208,8 @@ export class TEVMIndexer {
         this.ordering = true;
 
         const firstBlockNum = newestBlock.evmBlockNumber;
-        logger.debug(`Peek result evm${newestBlock.evmBlockNumber}`);
-        logger.debug(`Looking for evm${this.lastOrderedBlock + 1}...`);
+        logger.debug(`Peek result ${newestBlock.toString()}`);
+        logger.debug(`Looking for [${this.lastNativeOrderedBlock + 1}|${this.lastOrderedBlock + 1}]...`);
 
         await this.maybeHandleFork(newestBlock);
 
@@ -221,7 +221,7 @@ export class TEVMIndexer {
             await this.connector.pushBlock(storableBlockInfo);
 
             if (this.blocksQueue.length == 0)
-                logger.error(`About to call dequeue with and empty queue, this shouldnt happen!`);
+                throw new Error(`About to call dequeue with blocksQueue.length == 0!`);
 
             this.blocksQueue.dequeue();
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
@@ -422,15 +422,15 @@ export class TEVMIndexer {
 
         // clear blocksQueue
         let iterB = this.getNewestBlock();
-        while (iterB != null && iterB.nativeBlockNumber <= this.lastNativeOrderedBlock) {
+        while (iterB != null && iterB.nativeBlockNumber > b.nativeBlockNumber) {
             this.blocksQueue.dequeue();
-            logger.debug(`deleted ${iterB.nativeBlockNumber} from blocksQueue`);
+            logger.debug(`deleted ${iterB.toString()} from blocksQueue`);
             iterB = this.getNewestBlock();
         }
 
         // finally purge db
         await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
-        logger.debug(`purged db of blocks newer than ${b.nativeBlockNumber}, continue...`);
+        logger.debug(`purged db of blocks newer than ${b.toString()}, continue...`);
 
         const lastBlock = await this.connector.getLastIndexedBlock();
 
