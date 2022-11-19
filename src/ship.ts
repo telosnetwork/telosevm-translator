@@ -26,7 +26,7 @@ import {
 
 import { getTypesFromAbi } from './utils/serialize';
 
-import { BlockConsumer, DS_TYPES, EVMTxWrapper, getContract, getErrorMessage, hashTxAction } from './utils/evm';
+import { BlockConsumer, DS_TYPES, EVMTxWrapper, getContract, getErrorMessage, hashTxAction, ProcessedBlock } from './utils/evm';
 
 import {StorageEvmTransaction} from './types/evm';
 
@@ -610,14 +610,14 @@ export default class StateHistoryBlockReader {
         }
 
         if (globalDelta) {
-            await this.indexer.consumer({
+            await this.indexer.consumer(new ProcessedBlock({
                 nativeBlockHash: block.block.block_id,
                 nativeBlockNumber: currentBlock,
                 evmBlockNumber: evmBlockNum,
                 blockTimestamp: block.block.timestamp,
                 evmTxs: evmTransactions,
                 errors: errors
-            });
+            }));
         }
 
     }

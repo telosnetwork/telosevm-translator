@@ -1304,6 +1304,31 @@ export function getContract(contractAbi: RpcInterfaces.Abi) {
     return { types, actions }
 }
 
+const nfObject = new Intl.NumberFormat('en-US');
+export function formatBlockNumbers(blockNum: number, evmBlockNum: number) {
+    return `[${nfObject.format(blockNum)}|${nfObject.format(evmBlockNum)}]`;
+}
+
+export class StorageEosioDelta {
+    "@timestamp": string;
+    block_num: number;
+    "@global": {
+        block_num: number
+    };
+    "@evmBlockHash": string;
+    "@receiptsRootHash": string;
+    code: string;
+    table: string;
+
+    constructor(obj: Partial<StorageEosioDelta>) {
+        Object.assign(this, obj);
+    }
+
+    blockNumsToString() {
+        return formatBlockNumbers(this.block_num, this['@global'].block_num);
+    }
+}
+
 export class ProcessedBlock {
     nativeBlockHash: string;
     nativeBlockNumber: number;
@@ -1312,8 +1337,12 @@ export class ProcessedBlock {
     evmTxs: Array<EVMTxWrapper>;
     errors: Array<TxDeserializationError>;
 
+    constructor(obj: Partial<ProcessedBlock>) {
+        Object.assign(this, obj);
+    }
+
     toString() {
-        return `[${this.nativeBlockNumber}|${this.evmBlockNumber}]`;
+        return formatBlockNumbers(this.nativeBlockNumber, this.evmBlockNumber);
     }
 }
 export type BlockConsumer = (block: ProcessedBlock) => any;

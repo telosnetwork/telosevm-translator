@@ -1,5 +1,6 @@
 import {TxDeserializationError} from '../handlers';
-import {StorageEosioAction, StorageEosioDelta} from '../types/evm';
+import {StorageEosioAction} from '../types/evm';
+import {StorageEosioDelta} from '../utils/evm';
 
 export type ConnectorConfig = {
     node: string;

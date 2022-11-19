@@ -6,6 +6,7 @@ import { getTemplatesForChain } from './templates';
 
 import logger from '../utils/winston';
 import {BulkResponseItem} from '@elastic/elasticsearch/lib/api/types';
+import {StorageEosioDelta} from '../utils/evm';
 
 interface ConfigInterface {
     [key: string]: any;
@@ -101,7 +102,7 @@ export class Connector {
                 }
             });
 
-            return result?.hits?.hits[0]?._source;
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
             return null;
@@ -121,7 +122,7 @@ export class Connector {
                 }
             });
 
-            return result?.hits?.hits[0]?._source;
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
             return null;
@@ -138,7 +139,7 @@ export class Connector {
                 ]
             });
 
-            return result?.hits?.hits[0]?._source;
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
             return null;
@@ -155,7 +156,7 @@ export class Connector {
                 ]
             });
 
-            return result?.hits?.hits[0]?._source;
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
             return null;
@@ -210,7 +211,6 @@ export class Connector {
                 }
             });
 
-            // FIRST GAP CHECK
             for (const bucket of results.aggregations.block_histogram.buckets) {
                 const lower = bucket.min_block.value;
                 const upper = bucket.max_block.value;
@@ -277,7 +277,8 @@ export class Connector {
                     }
                 }
             },
-            refresh: true
+            refresh: true,
+            error_trace: true
         });
         const actionResult = await this.elastic.deleteByQuery({
             index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
@@ -290,8 +291,15 @@ export class Connector {
                     }
                 }
             },
-            refresh: true
+            refresh: true,
+            error_trace: true
         });
+
+        if (deltaResult.errors)
+            throw new Error(JSON.stringify(deltaResult, null, 4));
+
+        if (actionResult.errors)
+            throw new Error(JSON.stringify(actionResult, null, 4));
 
         return { deltaResult, actionResult };
     }

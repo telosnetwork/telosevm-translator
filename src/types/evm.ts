@@ -95,15 +95,3 @@ export interface StorageEosioAction {
     "signatures": string[],
     "@raw": StorageEvmTransaction
 }
-
-export interface StorageEosioDelta {
-    "@timestamp": string,
-    "block_num": number,
-    "@global": {
-        "block_num": number
-    },
-    "@evmBlockHash": string,
-    "@receiptsRootHash": string,
-    "code": string,
-    "table": string
-}

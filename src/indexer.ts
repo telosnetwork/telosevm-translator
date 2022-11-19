@@ -10,17 +10,19 @@ import {
 
 import logger from './utils/winston';
 
-import {StorageEosioAction, StorageEosioDelta} from './types/evm';
+import {StorageEosioAction} from './types/evm';
 
 import {Connector} from './database/connector';
 
 import {
     BlockHeader,
+    formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
     getBlockGasUsed,
-    ProcessedBlock
+    ProcessedBlock,
+    StorageEosioDelta
 } from './utils/evm'
 
 import BN from 'bn.js';
@@ -101,7 +103,7 @@ export class TEVMIndexer {
 
     updateDebugStats() {
         logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
-        let statsString = `${this.lastOrderedBlock} pushed, at ${this.pushedLastSecond} blocks/sec` +
+        let statsString = `${formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)} pushed, at ${this.pushedLastSecond} blocks/sec` +
             ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle`;
         const untilHead = this.reader.headBlock - this.reader.currentBlock;
 
@@ -145,7 +147,7 @@ export class TEVMIndexer {
         const storableBlockInfo: IndexedBlockInfo = {
             "transactions": storableActions,
             "errors": block.errors,
-            "delta": {
+            "delta": new StorageEosioDelta({
                 "@timestamp": blockTimestamp.format(),
                 "block_num": block.nativeBlockNumber,
                 "code": "eosio",
@@ -155,7 +157,7 @@ export class TEVMIndexer {
                 },
                 "@evmBlockHash": currentBlockHash,
                 "@receiptsRootHash": receiptsRoot.toString('hex')
-            },
+            }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
             "transactionsRoot": transactionsRoot.toString('hex'),
@@ -208,8 +210,9 @@ export class TEVMIndexer {
         this.ordering = true;
 
         const firstBlockNum = newestBlock.evmBlockNumber;
+        const firstNativeBlockNum = newestBlock.nativeBlockNumber;
         logger.debug(`Peek result ${newestBlock.toString()}`);
-        logger.debug(`Looking for [${this.lastNativeOrderedBlock + 1}|${this.lastOrderedBlock + 1}]...`);
+        logger.debug(`Looking for ${formatBlockNumbers(this.lastNativeOrderedBlock + 1, this.lastOrderedBlock + 1)}...`);
 
         await this.maybeHandleFork(newestBlock);
 
@@ -236,9 +239,11 @@ export class TEVMIndexer {
         }
 
         const blocksPushed = this.lastOrderedBlock - firstBlockNum;
-        if (blocksPushed > 0)
-            logger.debug(`pushed  ${blocksPushed} blocks, range: ${firstBlockNum}-${this.lastOrderedBlock}`)
-
+        if (blocksPushed > 0) {
+            logger.debug(`pushed  ${blocksPushed} blocks, range: ${
+                formatBlockNumbers(firstNativeBlockNum, firstBlockNum)}-${
+                    formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)}`);
+        }
 
         this.ordering = false;
     }
@@ -260,6 +265,9 @@ export class TEVMIndexer {
     }
 
     async launch() {
+
+        this.printIntroText();
+
         let startBlock = this.startBlock;
         let startEvmBlock = this.startBlock - this.config.evmDelta;
         let stopBlock = this.stopBlock;
@@ -325,12 +333,13 @@ export class TEVMIndexer {
     private async getBlockInfoFromLastBlock(lastBlock: StorageEosioDelta): Promise<StartBlockInfo> {
 
         // found blocks on the database
-        logger.info(JSON.stringify(lastBlock, null, 4));
+        logger.info(`Last block found: ${JSON.stringify(lastBlock, null, 4)}`);
 
         let startBlock = lastBlock.block_num;
         let startEvmBlock = lastBlock['@global'].block_num;
 
-        logger.info(`purge blocks newer than ${startBlock}`);
+        const startStr = formatBlockNumbers(startBlock, startEvmBlock);
+        logger.info(`purge blocks newer than ${startStr}`);
 
         await this.connector.purgeNewerThan(startBlock, startEvmBlock);
 
@@ -340,8 +349,11 @@ export class TEVMIndexer {
 
         let prevHash = lastBlock['@evmBlockHash'];
 
+        if (lastBlock.block_num != (startBlock - 1))
+            throw new Error(`Last block: ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
+
         logger.info(
-            `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
+            `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
         return { startBlock, startEvmBlock, prevHash };
     }
@@ -351,16 +363,15 @@ export class TEVMIndexer {
         const firstBlock = await this.connector.getIndexedBlockEVM(gap);
 
         // found blocks on the database
-        logger.info(JSON.stringify(firstBlock, null, 4));
+        logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
 
         let startBlock = firstBlock.block_num;
         let startEvmBlock = firstBlock['@global'].block_num;
 
-        logger.info(`purge blocks newer than ${startBlock}`);
+        const startStr = formatBlockNumbers(startBlock, startEvmBlock);
+        logger.info(`purge blocks newer than ${startStr}`);
 
-        const {deltaResult, actionResult} = await this.connector.purgeNewerThan(startBlock, startEvmBlock);
-        logger.info(`${JSON.stringify(deltaResult, null, 4)}`);
-        logger.info(`${JSON.stringify(actionResult, null, 4)}`);
+        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
 
         logger.info('done.');
 
@@ -368,8 +379,11 @@ export class TEVMIndexer {
 
         let prevHash = lastBlock['@evmBlockHash'];
 
+        if (lastBlock.block_num != (startBlock - 1))
+            throw new Error(`Last block: ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
+
         logger.info(
-            `found! ${startBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
+            `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
         return { startBlock, startEvmBlock, prevHash };
     }
@@ -444,5 +458,12 @@ export class TEVMIndexer {
         this.prevHash = lastBlock['@evmBlockHash'];
         this.lastOrderedBlock = lastBlock['@global'].block_num;
         this.lastNativeOrderedBlock = lastBlock.block_num;
+    }
+
+    printIntroText() {
+        logger.info('Telos EVM Indexer 1.5');
+        logger.info(
+            'Blocks will be shown in the following format: [native block num|evm block num]');
+        logger.info('Happy indexing!');
     }
 };
