@@ -102,6 +102,9 @@ export class TEVMIndexer {
         });
     }
 
+    /*
+     * Debug routine that prints indexing stats, periodically called every second
+     */
     updateDebugStats() {
         logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
         let statsString = `${formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)} pushed, at ${this.pushedLastSecond} blocks/sec` +
@@ -118,9 +121,14 @@ export class TEVMIndexer {
         this.pushedLastSecond = 0;
     }
 
+    /*
+     * Generate valid ethereum has, requires blocks to be passed in order, updates state
+     * handling class attributes.
+     */
     hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
+        // generate valid ethereum hashes
         const transactionsRoot = generateTxRootHash(evmTxs);
         const receiptsRoot = generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
@@ -185,7 +193,10 @@ export class TEVMIndexer {
         return storableBlockInfo;
     }
 
-    getNewestBlock() {
+    /*
+     * Return newest block from priority queue or null in case queue is empty
+     */
+    maybeGetNewestBlock() {
         try {
             return this.blocksQueue.peek();
         } catch(e) {
@@ -194,6 +205,11 @@ export class TEVMIndexer {
         }
     }
 
+    /*
+     * Orderer routine, gets periodically called to drain blocks priority queue,
+     * manages internal state class attributes to guarantee only one task consumes
+     * from queue at a time.
+     */
     async orderer() {
         // make sure we have blocks we need to order, no other orderer task
         // is running
@@ -201,7 +217,7 @@ export class TEVMIndexer {
             return;
 
         logger.debug('Running orderer...');
-        let newestBlock: ProcessedBlock = this.getNewestBlock();
+        let newestBlock: ProcessedBlock = this.maybeGetNewestBlock();
 
         if (newestBlock == null) {
             this.ordering = false;
@@ -217,28 +233,37 @@ export class TEVMIndexer {
 
         await this.maybeHandleFork(newestBlock);
 
+        // While blocks queue is not empty, and contains next block we are looking for loop
         while(newestBlock != null && newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
 
             const storableBlockInfo = this.hashBlock(newestBlock);
 
-            // push to db
+            // Push to db
             await this.connector.pushBlock(storableBlockInfo);
 
-            if (this.blocksQueue.length == 0)
+            if (this.blocksQueue.length == 0)  // Sanity check
                 throw new Error(`About to call dequeue with blocksQueue.length == 0!`);
 
+            // Remove newest block of queue
             this.blocksQueue.dequeue();
+
+            // Update block num state tracking attributes
             this.lastOrderedBlock = newestBlock.evmBlockNumber;
             this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
+
+            // For debug stats
             this.pushedLastSecond++;
+
+            // Awknowledge block
             this.reader.finishBlock();
 
-            newestBlock = this.getNewestBlock();
-
+            // Step machinery
+            newestBlock = this.maybeGetNewestBlock();
             if (newestBlock != null)
                 await this.maybeHandleFork(newestBlock);
         }
 
+        // Debug push statistics
         const blocksPushed = this.lastOrderedBlock - firstBlockNum;
         if (blocksPushed > 0) {
             logger.debug(`pushed  ${blocksPushed} blocks, range: ${
@@ -246,9 +271,14 @@ export class TEVMIndexer {
                     formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)}`);
         }
 
+        // Clear ordering flag allowing new ordering tasks to start
         this.ordering = false;
     }
 
+    /*
+     * State history on-block-deserialized call back, pushes blocks out of order
+     * will sleep if block received is too far from last stored block.
+     */
     async consumer(block: ProcessedBlock): Promise<void> {
 
         this.blocksQueue.queue(block);
@@ -265,6 +295,9 @@ export class TEVMIndexer {
         }
     }
 
+    /*
+     * Entry point
+     */
     async launch() {
 
         this.printIntroText();
@@ -279,9 +312,10 @@ export class TEVMIndexer {
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
 
-        if (lastBlock != null) {
+        if (lastBlock != null) {  // if we find blocks on the db check for gaps...
             const gap = await this.connector.fullGapCheck();
             if (gap == null) {
+                // no gaps found
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
@@ -291,10 +325,12 @@ export class TEVMIndexer {
             logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
         }
 
+        // Init state tracking attributes
         this.prevHash = prevHash;
         this.lastOrderedBlock = startEvmBlock - 1;
         this.lastNativeOrderedBlock = this.startBlock - 1;
 
+        // Begin websocket consumtion
         this.reader.startProcessing({
             start_block_num: startBlock,
             end_block_num: stopBlock,
@@ -306,13 +342,15 @@ export class TEVMIndexer {
             fetch_deltas: true
         });
 
+        // Launch bg routines
         setInterval(() => this.orderer(), 400);
-
-        // debug
         setInterval(() => this.updateDebugStats(), 1000);
 
     }
 
+    /*
+     * Poll remote rpc for genesis block, which is block previous to evm deployment
+     */
     private async getGenesisBlock() {
         let genesisBlock = null;
         while(genesisBlock == null) {
@@ -331,6 +369,9 @@ export class TEVMIndexer {
         return genesisBlock;
     }
 
+    /*
+     * Get start parameters from last block indexed on db
+     */
     private async getBlockInfoFromLastBlock(lastBlock: StorageEosioDelta): Promise<StartBlockInfo> {
 
         // found blocks on the database
@@ -359,6 +400,9 @@ export class TEVMIndexer {
         return { startBlock, startEvmBlock, prevHash };
     }
 
+    /*
+     * Get start parameters from first gap on database
+     */
     private async getBlockInfoFromGap(gap: number): Promise<StartBlockInfo> {
 
         const firstBlock = await this.connector.getIndexedBlockEVM(gap);
@@ -389,6 +433,9 @@ export class TEVMIndexer {
         return { startBlock, startEvmBlock, prevHash };
     }
 
+    /*
+     * Get previous hash either from genesis or env/config
+     */
     private async getPreviousHash(): Promise<string> {
         // prev blocks not found, start from genesis or EVM_PREV_HASH
         if (this.config.startBlock == this.config.evmDeployBlock) {
@@ -423,6 +470,9 @@ export class TEVMIndexer {
         }
     }
 
+    /*
+     * Detect forks and handle them, leave every state tracking attribute in a healthy state
+     */
     private async maybeHandleFork(b: ProcessedBlock) {
         if (this.forked || b.nativeBlockNumber > this.lastNativeOrderedBlock)
             return;
@@ -438,11 +488,11 @@ export class TEVMIndexer {
         }
 
         // clear blocksQueue
-        let iterB = this.getNewestBlock();
+        let iterB = this.maybeGetNewestBlock();
         while (iterB != null && iterB.nativeBlockNumber > b.nativeBlockNumber) {
             this.blocksQueue.dequeue();
             logger.debug(`deleted ${iterB.toString()} from blocksQueue`);
-            iterB = this.getNewestBlock();
+            iterB = this.maybeGetNewestBlock();
         }
 
         // finally purge db
