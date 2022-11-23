@@ -7,6 +7,8 @@ import {
 
 import {TEVMTransaction} from './utils/evm-tx';
 
+import { removeHexPrefix } from './utils/evm';
+
 import {nameToUint64, parseAsset} from './utils/eosio';
 
 import logger from './utils/winston';
@@ -217,13 +219,13 @@ export async function handleEvmDeposit(
             value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
-            gas_limit: evmTx.gasLimit?.toString(),
+            gas_limit: evmTx.gasLimit.toString(),
             status: 1,
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(stdGasLimit),
-            gasusedblock: gasUsedBlock,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16),
+            gasusedblock: new BN(gasUsedBlock),
             charged_gas_price: 0,
             output: "",
             raw: evmTx.serialize(),
@@ -293,8 +295,8 @@ export async function handleEvmWithdraw(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(stdGasLimit),
-            gasusedblock: gasUsedBlock,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16),
+            gasusedblock: new BN(gasUsedBlock),
             charged_gas_price: 0,
             output: "",
             raw: evmTx.serialize(),

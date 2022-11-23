@@ -320,8 +320,8 @@ export function getTemplatesForChain(chain: string) {
                 "@receiptsRootHash": {"type": "keyword"},
                 "@transactionsRoot": {"type": "keyword"},
 
-                "gasUsed": {"type": "text"},
-                "gasLimit": {"type": "text"}
+                "gasUsed": {"type": "long"},
+                "gasLimit": {"type": "long"}
             }
         }
     };

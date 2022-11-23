@@ -25,6 +25,10 @@ import {
     StorageEosioDelta
 } from './utils/evm'
 
+import {
+    addHexPrefix
+} from '@ethereumjs/util';
+
 import BN from 'bn.js';
 import moment from 'moment';
 import PriorityQueue from 'js-priority-queue';
@@ -169,8 +173,8 @@ export class TEVMIndexer {
                 "@evmBlockHash": currentBlockHash,
                 "@receiptsRootHash": receiptsRoot.toString('hex'),
                 "@transactionsRoot": transactionsRoot.toString('hex'),
-                "gasUsed": gasUsed.toString('hex'),
-                "gasLimit": gasLimit.toString('hex')
+                "gasUsed": gasUsed.toString(),
+                "gasLimit": gasLimit.toString()
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
