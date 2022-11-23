@@ -139,6 +139,9 @@ export class Connector {
                 ]
             });
 
+            if (result?.hits?.hits?.length == 0)
+                return null;
+
             return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
@@ -156,6 +159,9 @@ export class Connector {
                 ]
             });
 
+            if (result?.hits?.hits?.length == 0)
+                return null;
+
             return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
@@ -164,8 +170,20 @@ export class Connector {
     }
 
     async fullGapCheck() : Promise<number> {
-        const lowerBound = (await this.getFirstIndexedBlock())['@global'].block_num;
-        const upperBound = (await this.getLastIndexedBlock())['@global'].block_num;
+        const lowerBoundDoc = await this.getFirstIndexedBlock();
+        logger.warn(JSON.stringify(lowerBoundDoc, null, 4));
+
+        if (lowerBoundDoc == null)
+            return null;
+
+        const lowerBound = lowerBoundDoc['@global'].block_num;
+
+        const upperBoundDoc = await this.getLastIndexedBlock();
+        if (upperBoundDoc == null)
+            return null;
+
+        const upperBound = upperBoundDoc['@global'].block_num;
+
         const gapCheck = async (
             lowerBound: number,
             upperBound: number,
