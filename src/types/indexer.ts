@@ -49,7 +49,6 @@ export type IndexedBlockInfo = {
     delta: StorageEosioDelta;
     nativeHash: string;
     parentHash: string;
-    transactionsRoot: string;
     receiptsRoot: string;
     blockBloom: string;
 };

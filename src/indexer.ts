@@ -20,7 +20,7 @@ import {
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
-    getBlockGasUsed,
+    getBlockGas,
     ProcessedBlock,
     StorageEosioDelta
 } from './utils/evm'
@@ -133,6 +133,8 @@ export class TEVMIndexer {
         const receiptsRoot = generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
+        const {gasUsed, gasLimit} = getBlockGas(evmTxs);
+
         const blockTimestamp = moment.utc(block.blockTimestamp);
 
         // generate 'valid' block header
@@ -142,8 +144,8 @@ export class TEVMIndexer {
             'receiptTrie': receiptsRoot,
             'bloom': bloom,
             'number': new BN(block.evmBlockNumber),
-            'gasLimit': new BN(1000000000),
-            'gasUsed': getBlockGasUsed(evmTxs),
+            'gasLimit': gasLimit,
+            'gasUsed': gasUsed,
             'difficulty': new BN(0),
             'timestamp': new BN(blockTimestamp.unix()),
             'extraData': Buffer.from(block.nativeBlockHash, 'hex')
@@ -165,11 +167,13 @@ export class TEVMIndexer {
                     "block_num": block.evmBlockNumber
                 },
                 "@evmBlockHash": currentBlockHash,
-                "@receiptsRootHash": receiptsRoot.toString('hex')
+                "@receiptsRootHash": receiptsRoot.toString('hex'),
+                "@transactionsRoot": transactionsRoot.toString('hex'),
+                "gasUsed": gasUsed.toString('hex'),
+                "gasLimit": gasLimit.toString('hex')
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
-            "transactionsRoot": transactionsRoot.toString('hex'),
             "receiptsRoot": receiptsRoot.toString('hex'),
             "blockBloom": bloom.toString('hex')
         };

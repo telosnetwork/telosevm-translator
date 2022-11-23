@@ -1317,6 +1317,10 @@ export class StorageEosioDelta {
     };
     "@evmBlockHash": string;
     "@receiptsRootHash": string;
+    "@transactionsRoot": string;
+    gasUsed: string;
+    gasLimit: string;
+
     code: string;
     table: string;
 
@@ -1419,14 +1423,17 @@ export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
     return receiptTrie.root()
 }
 
-export function getBlockGasUsed(evmTxs: Array<EVMTxWrapper>): typeof BN {
+export function getBlockGas(evmTxs: Array<EVMTxWrapper>): typeof BN {
 
-    let totalGasUsed = 0;
+    let totalGasUsed = new BN(0);
+    let totalGasLimit = new BN(0);
 
-    for (const evmTx of evmTxs)
-        totalGasUsed += evmTx.evmTx.gasused;
+    for (const evmTx of evmTxs) {
+        totalGasUsed += new BN(evmTx.evmTx.gasused);
+        totalGasLimit += new BN(evmTx.evmTx.gas_limit);
+    }
 
-    return new BN(totalGasUsed);
+    return {totalGasUsed, totalGasLimit};
 }
 
 export function generateBloom(evmTxs: Array<EVMTxWrapper>): Buffer {

@@ -97,7 +97,7 @@ export async function handleEvmTx(
         );
 }
 
-const stdGasPrice = "0x7a307efa80";
+const stdGasPrice = "0x0";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
 async function queryAddress(accountName: string, rpc: JsonRpc) {
@@ -222,7 +222,7 @@ export async function handleEvmDeposit(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: 0,
+            gasused: new BN(stdGasLimit),
             gasusedblock: gasUsedBlock,
             charged_gas_price: 0,
             output: "",
@@ -293,7 +293,7 @@ export async function handleEvmWithdraw(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: 0,
+            gasused: new BN(stdGasLimit),
             gasusedblock: gasUsedBlock,
             charged_gas_price: 0,
             output: "",

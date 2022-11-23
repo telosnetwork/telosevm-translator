@@ -55,7 +55,7 @@ export default class RPCBroadcaster {
             parentHash: `0x${blockInfo.parentHash}`,
             extraData: `0x${blockInfo.nativeHash}`,
             receiptsRoot: `0x${blockInfo.receiptsRoot}`,
-            transactionsRoot: `0x${blockInfo.transactionsRoot}`,
+            transactionsRoot: `0x${blockInfo.delta['@transactionsRoot']}`,
 
             gasUsed: gasUsed,
             logsBloom: `0x${blockInfo.blockBloom}`,

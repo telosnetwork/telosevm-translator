@@ -317,7 +317,11 @@ export function getTemplatesForChain(chain: string) {
 
                 // hashes
                 "@evmBlockHash": {"type": "keyword"},
-                "@receiptsRootHash": {"type": "keyword"}
+                "@receiptsRootHash": {"type": "keyword"},
+                "@transactionsRoot": {"type": "keyword"},
+
+                "gasUsed": {"type": "text"},
+                "gasLimit": {"type": "text"}
             }
         }
     };
