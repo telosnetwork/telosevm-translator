@@ -1431,9 +1431,8 @@ export function getBlockGas(evmTxs: Array<EVMTxWrapper>) {
     let gasLimit = new BN(0);
 
     for (const evmTx of evmTxs) {
-        // logger.warn(evmTx.evmTx.gasused);
-        gasUsed.add(evmTx.evmTx.gasused);
-        gasLimit.add(new BN(evmTx.evmTx.gas_limit));
+        gasUsed.iadd(new BN(evmTx.evmTx.gasused));
+        gasLimit.iadd(new BN(evmTx.evmTx.gas_limit));
     }
 
     return {gasUsed, gasLimit};

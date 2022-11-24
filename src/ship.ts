@@ -508,7 +508,7 @@ export default class StateHistoryBlockReader {
 
         // traces
         const transactions = extractShipTraces(block.traces);
-        let gasUsedBlock = 0;
+        let gasUsedBlock: string;
         const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
         const contractWhitelist = [
             "eosio.evm", "eosio.token",  // evm

@@ -9,7 +9,9 @@ import {TEVMTransaction} from '../utils/evm-tx';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
-const BN = require('bn.js');
+// const BN = require('bn.js');
+
+import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';
 
@@ -138,7 +140,7 @@ parentPort.on(
                 input_data: '0x' + evmTx.data?.toString('hex'),
                 input_trimmed: '0x' + evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
                 value: evmTx.value?.toString('hex'),
-                value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+                value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
                 nonce: evmTx.nonce?.toString(),
                 gas_price: evmTx.gasPrice?.toString(),
                 gas_limit: evmTx.gasLimit?.toString(),
@@ -146,9 +148,9 @@ parentPort.on(
                 itxs: receipt.itxs,
                 epoch: receipt.epoch,
                 createdaddr: receipt.createdaddr.toLowerCase(),
-                gasused: new BN(receipt.gasused, 16),
-                gasusedblock: new BN(receipt.gasusedblock, 16),
-                charged_gas_price: parseInt('0x' + receipt.charged_gas),
+                gasused: new BN(receipt.gasused, 16).toString(),
+                gasusedblock: new BN(receipt.gasusedblock, 16).toString(),
+                charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
                 raw: txRaw,
                 v: v,

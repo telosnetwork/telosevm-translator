@@ -146,7 +146,7 @@ export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
     rpc: JsonRpc,
-    gasUsedBlock: number
+    gasUsedBlock: string 
 ) : Promise<StorageEvmTransaction | TxDeserializationError> {
     const quantity = parseAsset(tx.quantity);
 
@@ -216,7 +216,7 @@ export async function handleEvmDeposit(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit.toString(),
@@ -224,9 +224,9 @@ export async function handleEvmDeposit(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(removeHexPrefix(stdGasLimit), 16),
-            gasusedblock: new BN(gasUsedBlock),
-            charged_gas_price: 0,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
+            gasusedblock: gasUsedBlock,
+            charged_gas_price: '0',
             output: "",
             raw: evmTx.serialize(),
             v: v,
@@ -253,7 +253,7 @@ export async function handleEvmWithdraw(
     blockNum: number,
     tx: EosioEvmWithdraw,
     rpc: JsonRpc,
-    gasUsedBlock: number
+    gasUsedBlock: string
 ) : Promise<StorageEvmTransaction | TxDeserializationError> {
     const address = await queryAddress(tx.to, rpc);
 
@@ -287,7 +287,7 @@ export async function handleEvmWithdraw(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit?.toString(),
@@ -295,9 +295,9 @@ export async function handleEvmWithdraw(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(removeHexPrefix(stdGasLimit), 16),
-            gasusedblock: new BN(gasUsedBlock),
-            charged_gas_price: 0,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
+            gasusedblock: gasUsedBlock,
+            charged_gas_price: '0',
             output: "",
             raw: evmTx.serialize(),
             v: v,
