@@ -63,7 +63,7 @@ const gapCheck = async (
                 "histogram": {
                     "field": "@global.block_num",
                     "interval": interval,
-                    "min_doc_count": 1
+                    "min_doc_count": 0
                 },
                 "aggs": {
                     "min_block": {
@@ -96,13 +96,21 @@ const gapCheck = async (
         }
     });
 
-    // FIRST GAP CHECK
-    for (const bucket of results.aggregations.block_histogram.buckets) {
+    const len = results.aggregations.block_histogram.buckets.length;
+    for (let i = 0; i < len; i++) {
+
+        const bucket = results.aggregations.block_histogram.buckets[i];
         const lower = bucket.min_block.value;
         const upper = bucket.max_block.value;
         const total = bucket.doc_count;
         const totalRange = (upper - lower) + 1;
-        const hasGap = totalRange != total;
+        let hasGap = totalRange != total;
+
+        if (len > 1 && i < (len - 1)) {
+            const nextBucket = results.aggregations.block_histogram.buckets[i+1];
+            console.log(`nextBucket: ${JSON.stringify(nextBucket, null, 4)}`);
+            hasGap = hasGap || (nextBucket.key - upper) != 1;
+        }
 
         if (hasGap)
             return [lower, upper];

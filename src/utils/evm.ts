@@ -1423,8 +1423,6 @@ export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
     return receiptTrie.root()
 }
 
-import logger from './winston';
-
 export function getBlockGas(evmTxs: Array<EVMTxWrapper>) {
 
     let gasUsed = new BN(0);

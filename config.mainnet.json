@@ -14,11 +14,11 @@
     "startBlock": 180698860,
     "stopBlock": 4294967295,
     "perf": {
-        "workerAmount": 8,
-        "concurrencyAmount": 16,
+        "workerAmount": 4,
+        "concurrencyAmount": 8,
         "maxBlocksBehind": 1000,
-        "elasticDumpSize": 4096,
-        "maxMsgsInFlight": 10000
+        "elasticDumpSize": 2048,
+        "maxMsgsInFlight": 8000
     },
 
     "elastic": {

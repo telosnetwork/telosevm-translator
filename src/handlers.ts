@@ -146,7 +146,7 @@ export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
     rpc: JsonRpc,
-    gasUsedBlock: string 
+    gasUsedBlock: string
 ) : Promise<StorageEvmTransaction | TxDeserializationError> {
     const quantity = parseAsset(tx.quantity);
 

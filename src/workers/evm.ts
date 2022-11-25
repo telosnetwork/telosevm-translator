@@ -9,8 +9,6 @@ import {TEVMTransaction} from '../utils/evm-tx';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
-// const BN = require('bn.js');
-
 import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';

@@ -190,13 +190,13 @@ export class Connector {
             interval: number
         ) => {
             const results = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
                 aggs: {
                     "block_histogram": {
                         "histogram": {
                             "field": "@global.block_num",
                             "interval": interval,
-                            "min_doc_count": 1
+                            "min_doc_count": 0
                         },
                         "aggs": {
                             "min_block": {
@@ -229,12 +229,20 @@ export class Connector {
                 }
             });
 
-            for (const bucket of results.aggregations.block_histogram.buckets) {
+            const len = results.aggregations.block_histogram.buckets.length;
+            for (let i = 0; i < len; i++) {
+
+                const bucket = results.aggregations.block_histogram.buckets[i];
                 const lower = bucket.min_block.value;
                 const upper = bucket.max_block.value;
                 const total = bucket.doc_count;
                 const totalRange = (upper - lower) + 1;
-                const hasGap = totalRange != total;
+                let hasGap = totalRange != total;
+
+                if (len > 1 && i < (len - 1)) {
+                    const nextBucket = results.aggregations.block_histogram.buckets[i+1];
+                    hasGap = hasGap || (nextBucket.key - upper) != 1;
+                }
 
                 if (hasGap)
                     return [lower, upper];
@@ -283,7 +291,14 @@ export class Connector {
         return lower;
     }
 
-    async purgeNewerThan(blockNum: number, evmBlockNum: number) {
+    async _purgeNewerThan(blockNum: number, evmBlockNum: number) {
+        const refResult = await this.elastic.indices.refresh({
+            index: [
+                `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                `${this.chainName}-${this.config.elastic.subfix.transaction}-*`
+            ]
+        });
+        logger.debug(JSON.stringify(refResult, null, 4));
         const deltaResult = await this.elastic.deleteByQuery({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
             body: {
@@ -295,6 +310,7 @@ export class Connector {
                     }
                 }
             },
+            conflicts: 'proceed',
             refresh: true,
             error_trace: true
         });
@@ -309,17 +325,33 @@ export class Connector {
                     }
                 }
             },
+            conflicts: 'proceed',
             refresh: true,
             error_trace: true
         });
 
-        if (deltaResult.errors)
-            throw new Error(JSON.stringify(deltaResult, null, 4));
-
-        if (actionResult.errors)
-            throw new Error(JSON.stringify(actionResult, null, 4));
+        if (deltaResult.errors || actionResult.errors) {
+            logger.error(deltaResult.errors[0]);
+            logger.error(actionResult.errors[0]);
+            process.exit(1);
+        }
 
         return { deltaResult, actionResult };
+    }
+
+    async purgeNewerThan(blockNum: number, evmBlockNum: number) {
+        const increment = 10000000;
+        let lastBlock = await this.getLastIndexedBlock();
+        let deleteCursor = lastBlock.block_num - increment;
+        let deleteCursorEvm = lastBlock['@global'].block_num - increment;
+        while (deleteCursor > blockNum) {
+            await this._purgeNewerThan(deleteCursor, deleteCursorEvm);
+            lastBlock = await this.getLastIndexedBlock();
+            deleteCursor = lastBlock.block_num - increment;
+            deleteCursorEvm = lastBlock['@global'].block_num - increment;
+        }
+
+        await this._purgeNewerThan(blockNum, evmBlockNum);
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
