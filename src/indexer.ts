@@ -25,14 +25,11 @@ import {
     StorageEosioDelta
 } from './utils/evm'
 
-import {
-    addHexPrefix
-} from '@ethereumjs/util';
-
 import BN from 'bn.js';
 import moment from 'moment';
 import PriorityQueue from 'js-priority-queue';
 
+const logWhyIsNodeRunning = require('why-is-node-running');
 
 const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
@@ -82,6 +79,9 @@ export class TEVMIndexer {
     private pushedLastSecond: number = 0;
     private idleWorkers: number = 0;
 
+    private ordererTaskId: NodeJS.Timer;
+    private statsTaskId: NodeJS.Timer;
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -104,6 +104,13 @@ export class TEVMIndexer {
             allow_empty_blocks: true,
             delta_whitelist: ['contract_row', 'contract_table']
         });
+
+        process.on('SIGINT', async () => await this.stop());
+        process.on('SIGQUIT', async () => await this.stop());
+        process.on('SIGTERM', async () => await this.stop());
+
+        if (process.env.LOG_LEVEL == 'debug')
+            process.on('SIGUSR1', async () => logWhyIsNodeRunning());
     }
 
     /*
@@ -326,7 +333,12 @@ export class TEVMIndexer {
                 // no gaps found
                 ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
-                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
+                if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
+                    ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
+                else {
+                    logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                    process.exit(1);
+                }
             }
         } else {
             prevHash = await this.getPreviousHash();
@@ -351,9 +363,36 @@ export class TEVMIndexer {
         });
 
         // Launch bg routines
-        setInterval(() => this.orderer(), 400);
-        setInterval(() => this.updateDebugStats(), 1000);
+        this.ordererTaskId = setInterval(() => this.orderer(), 400);
+        this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
 
+    }
+
+    /*
+     * Wait until all db connector write tasks finish
+     */
+    async _waitWriteTasks() {
+        while (this.connector.writeCounter > 0) {
+            logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
+            await sleep(200);
+        }
+    }
+
+    /*
+     * Stop indexer gracefully
+     */
+    async stop() {
+        if (process.env.LOG_LEVEL == 'debug')
+            logWhyIsNodeRunning();
+
+        clearInterval(this.ordererTaskId);
+        clearInterval(this.statsTaskId);
+
+        this.reader.stopProcessing();
+
+        await this._waitWriteTasks();
+
+        process.exit(0);
     }
 
     /*
@@ -489,11 +528,7 @@ export class TEVMIndexer {
 
         logger.info('chain fork detected. reverse all blocks which were affected');
 
-        // wait until all db connector write tasks finish
-        while (this.connector.writeCounter > 0) {
-            logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
-            await sleep(200);
-        }
+        await this._waitWriteTasks();
 
         // clear blocksQueue
         let iterB = this.maybeGetNewestBlock();

@@ -5,7 +5,7 @@
     "chainId": 40,
 
     "endpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
+    "wsEndpoint": "ws://139.5.126.194:8080",
 
     "evmDeployBlock": 180698860,
     "evmPrevHash": "",
@@ -27,6 +27,7 @@
             "username": "elastic",
             "password": "password"
         },
+        "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

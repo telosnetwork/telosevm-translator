@@ -1,7 +1,7 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
 import RPCBroadcaster from '../publisher';
-import { IndexerConfig, IndexedBlockInfo, IndexerState } from '../types/indexer';
+import { IndexerConfig, IndexedBlockInfo, IndexerState, ElasticIndex } from '../types/indexer';
 import { getTemplatesForChain } from './templates';
 
 import logger from '../utils/winston';
@@ -12,6 +12,15 @@ interface ConfigInterface {
     [key: string]: any;
 };
 
+function getSuffix(blockNum: number, docsPerIndex: number) {
+    return String(Math.floor(blockNum / docsPerIndex)).padStart(8, '0');
+}
+
+function indexToSuffixNum(index: string) {
+    const spltIndex = index.split('-');
+    const suffix = spltIndex[spltIndex.length - 1];
+    return parseInt(suffix);
+}
 
 export class Connector {
     config: IndexerConfig;
@@ -37,10 +46,6 @@ export class Connector {
         this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
-    }
-
-    getSubfix(blockNum: number) {
-        return String(Math.floor(blockNum / 10000000)).padStart(8, '0');
     }
 
     setState(state: IndexerState) {
@@ -89,10 +94,28 @@ export class Connector {
         this.broadcast.initUWS();
     }
 
+    async getOrderedDeltaIndices() {
+        const deltaIndices: Array<ElasticIndex> = await this.elastic.cat.indices({
+            index:  `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+            format: 'json'
+        });
+        deltaIndices.sort((a, b) => {
+            const aNum = indexToSuffixNum(a.index);
+            const bNum = indexToSuffixNum(b.index);
+            if (aNum < bNum)
+                return -1;
+            if (aNum > bNum)
+                return 1;
+            return 0;
+        });
+        return deltaIndices;
+    }
+
     async getIndexedBlock(blockNum: number) {
+        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
         try {
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`,
                 query: {
                     match: {
                         block_num: {
@@ -110,9 +133,16 @@ export class Connector {
     }
 
     async getIndexedBlockEVM(blockNum: number) {
+        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const sufNum = indexToSuffixNum(suffix);
+        const indices: Array<string> = (await this.getOrderedDeltaIndices())
+            .filter((val) =>
+                Math.abs(indexToSuffixNum(val.index) - sufNum) <= 1)
+            .map((val) => val.index);
+
         try {
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: indices,
                 query: {
                     match: {
                         '@global.block_num': {
@@ -130,9 +160,10 @@ export class Connector {
     }
 
     async getFirstIndexedBlock() {
+        const firstIndex = (await this.getOrderedDeltaIndices()).shift().index;
         try {
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: firstIndex,
                 size: 1,
                 sort: [
                     {"block_num": { "order": "asc"} }
@@ -150,9 +181,10 @@ export class Connector {
     }
 
     async getLastIndexedBlock() {
+        const lastIndex = (await this.getOrderedDeltaIndices()).pop().index;
         try {
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: lastIndex,
                 size: 1,
                 sort: [
                     {"block_num": { "order": "desc"} }
@@ -291,71 +323,98 @@ export class Connector {
         return lower;
     }
 
-    async _purgeNewerThan(blockNum: number, evmBlockNum: number) {
-        const refResult = await this.elastic.indices.refresh({
-            index: [
-                `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-                `${this.chainName}-${this.config.elastic.subfix.transaction}-*`
-            ]
-        });
-        logger.debug(JSON.stringify(refResult, null, 4));
-        const deltaResult = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-            body: {
-                query: {
-                    range: {
-                        block_num: {
-                            gte: blockNum
+    async _purgeBlocksNewerThan(blockNum: number, evmBlockNum: number) {
+        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
+        const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
+        try {
+            const deltaResult = await this.elastic.deleteByQuery({
+                index: deltaIndex,
+                body: {
+                    query: {
+                        range: {
+                            block_num: {
+                                gte: blockNum
+                            }
                         }
                     }
-                }
-            },
-            conflicts: 'proceed',
-            refresh: true,
-            error_trace: true
-        });
-        const actionResult = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
-            body: {
-                query: {
-                    range: {
-                        '@raw.block': {
-                            gte: evmBlockNum
+                },
+                conflicts: 'proceed',
+                refresh: true,
+                error_trace: true
+            });
+            logger.debug(`delta delete result: ${JSON.stringify(deltaResult, null, 4)}`);
+        } catch (e) {
+            if (e.name != 'ResponseError' ||
+                e.meta.body.error.type != 'index_not_found_exception')
+                throw e;
+        }
+        try {
+            const actionResult = await this.elastic.deleteByQuery({
+                index: actionIndex,
+                body: {
+                    query: {
+                        range: {
+                            '@raw.block': {
+                                gte: evmBlockNum
+                            }
                         }
                     }
-                }
-            },
-            conflicts: 'proceed',
-            refresh: true,
-            error_trace: true
+                },
+                conflicts: 'proceed',
+                refresh: true,
+                error_trace: true
+            });
+            logger.debug(`action delete result: ${JSON.stringify(actionResult, null, 4)}`);
+        } catch (e) {
+            if (e.name != 'ResponseError' ||
+                e.meta.body.error.type != 'index_not_found_exception')
+                throw e;
+        }
+    }
+
+    async _purgeIndicesNewerThan(blockNum: number) {
+        logger.info(`purging indices in db from block ${blockNum}...`);
+        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const targetNum = parseInt(targetSuffix);
+
+        const deleteList = [];
+
+        const deltaIndices = await this.elastic.cat.indices({
+            index:  `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            format: 'json'
         });
 
-        if (deltaResult.errors || actionResult.errors) {
-            logger.error(deltaResult.errors[0]);
-            logger.error(actionResult.errors[0]);
-            process.exit(1);
+        for (const deltaIndex of deltaIndices)
+            if (indexToSuffixNum(deltaIndex.index) > targetNum)
+                deleteList.push(deltaIndex.index);
+
+        const actionIndices = await this.elastic.cat.indices({
+            index:  `${this.config.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            format: 'json'
+        });
+
+        for (const actionIndex of actionIndices)
+            if (indexToSuffixNum(actionIndex.index) > targetNum)
+                deleteList.push(actionIndex.index);
+
+        if (deleteList.length > 0) {
+            const deleteResult = await this.elastic.indices.delete({
+                index: deleteList
+            });
+            logger.info(`deleted indices result: ${JSON.stringify(deleteResult, null, 4)}`);
         }
 
-        return { deltaResult, actionResult };
+        return deleteList;
     }
 
     async purgeNewerThan(blockNum: number, evmBlockNum: number) {
-        const increment = 10000000;
-        let lastBlock = await this.getLastIndexedBlock();
-        let deleteCursor = lastBlock.block_num - increment;
-        let deleteCursorEvm = lastBlock['@global'].block_num - increment;
-        while (deleteCursor > blockNum) {
-            await this._purgeNewerThan(deleteCursor, deleteCursorEvm);
-            lastBlock = await this.getLastIndexedBlock();
-            deleteCursor = lastBlock.block_num - increment;
-            deleteCursorEvm = lastBlock['@global'].block_num - increment;
-        }
-
-        await this._purgeNewerThan(blockNum, evmBlockNum);
+        await this._purgeIndicesNewerThan(blockNum);
+        await this._purgeBlocksNewerThan(blockNum, evmBlockNum);
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
-        const suffix = this.getSubfix(blockInfo.delta.block_num);
+        const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;

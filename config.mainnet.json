@@ -27,6 +27,7 @@
             "username": "elastic",
             "password": "password"
         },
+        "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

@@ -78,6 +78,8 @@ export default class StateHistoryBlockReader {
     private contracts: {[key: string]: Serialize.Contract};
     private abis: {[key: string]: RpcInterfaces.Abi};
 
+    private mustReconnect: boolean = true;
+
     constructor(
         private readonly indexer: TEVMIndexer,
         private options: IBlockReaderOptions
@@ -123,7 +125,8 @@ export default class StateHistoryBlockReader {
             .on('message', (data: any) => this.onMessage(data))
             .on('close', async () => {
                 logger.info('Websocket disconnected.');
-                await this.reconnect();
+                if (this.mustReconnect)
+                    await this.reconnect();
             })
             .on('error', (e: Error) => { logger.error('Websocket error', e); });
     }
@@ -417,6 +420,7 @@ export default class StateHistoryBlockReader {
     }
 
     startProcessing(request: BlockRequestType = {}): void {
+        this.mustReconnect = true;
         this.currentArgs = {
             start_block_num: 0,
             end_block_num: 0xffffffff,
@@ -435,6 +439,7 @@ export default class StateHistoryBlockReader {
     }
 
     stopProcessing(): void {
+        this.mustReconnect = false;
         this.ws.close();
 
         this.blocksQueue.clear();

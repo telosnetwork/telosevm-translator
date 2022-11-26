@@ -1,6 +1,6 @@
-const { Client, ApiResponse } = require('@elastic/elasticsearch');
+const { Client } = require('@elastic/elasticsearch');
 
-const url = 'http://test1.us.telos.net:9200';
+const url = 'http://localhost:9200';
 const chainName = 'telos-mainnet'
 const elasticConf = {
     "node": url,
@@ -8,6 +8,7 @@ const elasticConf = {
         "username": "elastic",
         "password": "password"
     },
+    "docsPerIndex": 1000000,
     "subfix": {
         "delta": "delta-v1.5",
         "transaction": "action-v1.5",
@@ -17,10 +18,28 @@ const elasticConf = {
 
 const es = new Client(elasticConf);
 
+async function getOrderedIndices() {
+    const deltaIndices: Array<ElasticIndex> = await es.cat.indices({
+        index:  `${chainName}-${elasticConf.subfix.delta}-*`,
+        format: 'json'
+    });
+    deltaIndices.sort((a, b) => {
+        const aNum = indexToSuffixNum(a.index);
+        const bNum = indexToSuffixNum(b.index);
+        if (aNum < bNum)
+            return -1;
+        if (aNum > bNum)
+            return 1;
+        return 0;
+    });
+    return deltaIndices;
+}
+
 async function getFirstIndexedBlock() {
+    const firstIndex = (await getOrderedIndices()).shift().index;
     try {
         const result = await es.search({
-            index: `${chainName}-${elasticConf.subfix.delta}-*`,
+            index: firstIndex,
             size: 1,
             sort: [
                 {"block_num": { "order": "asc"} }
@@ -35,9 +54,10 @@ async function getFirstIndexedBlock() {
 }
 
 async function getLastIndexedBlock() {
+    const lastIndex = (await getOrderedIndices()).pop().index;
     try {
         const result = await es.search({
-            index: `${chainName}-${elasticConf.subfix.delta}-*`,
+            index: lastIndex,
             size: 1,
             sort: [
                 {"block_num": { "order": "desc"} }
@@ -69,7 +89,7 @@ const gapCheck = async (
                     "min_block": {
                         "min": {
                             "field": "@global.block_num"
-                        }
+                        },
                     },
                     "max_block": {
                         "max": {
@@ -108,7 +128,6 @@ const gapCheck = async (
 
         if (len > 1 && i < (len - 1)) {
             const nextBucket = results.aggregations.block_histogram.buckets[i+1];
-            console.log(`nextBucket: ${JSON.stringify(nextBucket, null, 4)}`);
             hasGap = hasGap || (nextBucket.key - upper) != 1;
         }
 
@@ -118,11 +137,13 @@ const gapCheck = async (
     return null;
 }
 
-const main = async () => {
+export async function fullGapCheck() {
     // @ts-ignore
     const lowerBound = (await getFirstIndexedBlock())['@global'].block_num;
     // @ts-ignore
     const upperBound = (await getLastIndexedBlock())['@global'].block_num;
+
+    console.log(`performing gap check from ${lowerBound} to ${upperBound}`);
 
     let interval = 10000000;
     let gap: Array<number> = [lowerBound, upperBound];
@@ -134,7 +155,7 @@ const main = async () => {
     }
 
     if (gap == null)
-        return;
+        return null;
 
     let lower = gap[0];
     let upper = gap[1];
@@ -154,7 +175,77 @@ const main = async () => {
     }
     upper += 1;
 
-    console.log(`found gap at ${lower + 1}`);
+    return lower + 1;
+}
+
+function getSubfix(blockNum: number) {
+    return String(Math.floor(blockNum / elasticConf.docsPerIndex)).padStart(8, '0');
+}
+
+function indexToSuffixNum(index: string) {
+    const spltIndex = index.split('-');
+    const suffix = spltIndex[spltIndex.length - 1];
+    return parseInt(suffix);
+}
+
+async function purgeIndicesNewerThan(blockNum: number) {
+    const targetSuffix = getSubfix(blockNum);
+    const targetNum = parseInt(targetSuffix);
+
+    const deleteList = [];
+
+    const deltaIndices = await es.cat.indices({
+        index:  `${chainName}-${elasticConf.subfix.delta}-*`,
+        format: 'json'
+    });
+
+    console.log(JSON.stringify(deltaIndices, null, 4));
+
+    for (const deltaIndex of deltaIndices)
+        if (indexToSuffixNum(deltaIndex.index) > targetNum)
+            deleteList.push(deltaIndex.index);
+
+    const actionIndices = await es.cat.indices({
+        index:  `${chainName}-${elasticConf.subfix.transaction}-*`,
+        format: 'json'
+    });
+
+    for (const actionIndex of actionIndices)
+        if (indexToSuffixNum(actionIndex.index) > targetNum)
+            deleteList.push(actionIndex.index);
+
+    console.log('indices to delete: ');
+    console.log(JSON.stringify(deleteList, null, 4));
+
+    // const resp = await es.indices.delete({
+    //     index: deleteList
+    // });
+    // console.log(JSON.stringify(resp, null, 4));
+
+    return deleteList;
+}
+
+interface ElasticIndex {
+    "health": string;
+    "status": string;
+    "index": string;
+    "uuid": string;
+    "pri": string;
+    "rep": string;
+    "docs.count": string;
+    "docs.deleted": string;
+    "store.size": string;
+    "pri.store.size": string;
+}
+
+const main = async () => {
+    const gap = await fullGapCheck();
+    console.log(`found gap at ${gap}`);
+
+    if (gap == null)
+        return;
+
+    await purgeIndicesNewerThan(gap);
 }
 
 main();

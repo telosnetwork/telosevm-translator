@@ -12,8 +12,6 @@ workdir /indexer
 run yarn install
 run npx tsc
 
-run npm i why-is-node-running -g
-
 env LOG_LEVEL debug
 
-cmd ["why-is-node-running", "build/main.js"]
+cmd ["node", "--max-old-space-size=4096", "build/main.js"]

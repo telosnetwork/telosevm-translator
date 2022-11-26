@@ -8,6 +8,7 @@ export type ConnectorConfig = {
         username: string;
         password: string;
     },
+    docsPerIndex: number,
     subfix: {
         delta: string;
         error: string;
@@ -62,4 +63,17 @@ export type StartBlockInfo = {
     startBlock: number;
     startEvmBlock?: number;
     prevHash: string;
+}
+
+export interface ElasticIndex {
+    "health": string;
+    "status": string;
+    "index": string;
+    "uuid": string;
+    "pri": string;
+    "rep": string;
+    "docs.count": string;
+    "docs.deleted": string;
+    "store.size": string;
+    "pri.store.size": string;
 }
