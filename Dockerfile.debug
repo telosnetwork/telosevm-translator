@@ -14,4 +14,4 @@ run npx tsc
 
 env LOG_LEVEL debug
 
-cmd ["node", "--max-old-space-size=4096", "build/main.js"]
+cmd ["node", "--inspect=9229", "--max-old-space-size=8192", "build/main.js"]

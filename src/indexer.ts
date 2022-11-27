@@ -1,5 +1,6 @@
 import StateHistoryBlockReader from './ship';
 
+import path from 'path';
 
 import {
     IndexedBlockInfo,
@@ -29,9 +30,15 @@ import BN from 'bn.js';
 import moment from 'moment';
 import PriorityQueue from 'js-priority-queue';
 
+// debug packages
 const logWhyIsNodeRunning = require('why-is-node-running');
 
-const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
+if (process.env.LOG_LEVEL == 'debug') {
+    const nodeOOMHeapdump = require('node-oom-heapdump');
+
+    nodeOOMHeapdump({
+        path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`) });
+}
 
 
 process.on('unhandledRejection', error => {
@@ -43,6 +50,10 @@ process.on('unhandledRejection', error => {
     logger.error(error.stack);
     process.exit(1);
 });
+
+
+const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
+
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint

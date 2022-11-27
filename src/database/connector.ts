@@ -160,7 +160,11 @@ export class Connector {
     }
 
     async getFirstIndexedBlock() {
-        const firstIndex = (await this.getOrderedDeltaIndices()).shift().index;
+        const indices = await this.getOrderedDeltaIndices();
+        if (indices.length == 0)
+            return null;
+
+        const firstIndex = indices.shift().index;
         try {
             const result = await this.elastic.search({
                 index: firstIndex,
@@ -181,7 +185,11 @@ export class Connector {
     }
 
     async getLastIndexedBlock() {
-        const lastIndex = (await this.getOrderedDeltaIndices()).pop().index;
+        const indices = await this.getOrderedDeltaIndices();
+        if (indices.length == 0)
+            return null;
+
+        const lastIndex = indices.pop().index;
         try {
             const result = await this.elastic.search({
                 index: lastIndex,
