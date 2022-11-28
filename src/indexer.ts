@@ -457,8 +457,16 @@ export class TEVMIndexer {
      */
     private async getBlockInfoFromLastBlock(lastBlock: StorageEosioDelta): Promise<StartBlockInfo> {
 
-        // found blocks on the database
-        logger.info(`Last block found: ${JSON.stringify(lastBlock, null, 4)}`);
+        // sleep, then get last block again, if block_num changes it means
+        // another indexer is running
+        await sleep(3000);
+        const newlastBlock = await this.connector.getLastIndexedBlock();
+        if (lastBlock.block_num != newlastBlock.block_num) {
+            logger.error(
+                'New last block check failed probably another indexer is running, abort...');
+
+            process.exit(2);
+        }
 
         let startBlock = lastBlock.block_num;
         let startEvmBlock = lastBlock['@global'].block_num;
@@ -474,8 +482,10 @@ export class TEVMIndexer {
 
         let prevHash = lastBlock['@evmBlockHash'];
 
-        if (lastBlock.block_num != (startBlock - 1))
-            throw new Error(`Last block: ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
+        if (lastBlock.block_num != (startBlock - 1)) {
+            throw new Error(
+                `Last block ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
+        }
 
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
