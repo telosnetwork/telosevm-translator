@@ -29,6 +29,7 @@ import {
 import BN from 'bn.js';
 import moment from 'moment';
 import PriorityQueue from 'js-priority-queue';
+import {GetBlockResult} from 'eosjs/dist/eosjs-rpc-interfaces';
 
 // debug packages
 const logWhyIsNodeRunning = require('why-is-node-running');
@@ -63,6 +64,8 @@ export class TEVMIndexer {
     startBlock: number;  // native block number to start indexer from as defined by env vars or config
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
+
+    genesisBlock: GetBlockResult = null;
 
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
     switchingState: boolean = false;  // flag required to do state switching cleanly
@@ -354,6 +357,28 @@ export class TEVMIndexer {
         } else {
             prevHash = await this.getPreviousHash();
             logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
+
+            // if we are starting from genesis store block skeleton doc
+            // for rpc to be able to find parent hash for fist block
+            if (this.ethGenesisHash == prevHash) {
+                await this.connector.pushBlock({
+                    transactions: [],
+                    errors: [],
+                    delta: new StorageEosioDelta({
+                        '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
+                        block_num: this.genesisBlock.block_num,
+                        '@global': {
+                            block_num: this.evmDeployBlock - this.config.evmDelta - 1
+                        },
+                        '@blockHash': this.genesisBlock.id.toLowerCase(),
+                        '@evmBlockHash': this.ethGenesisHash,
+                    }),
+                    nativeHash: this.genesisBlock.id.toLowerCase(),
+                    parentHash: '',
+                    receiptsRoot: '',
+                    blockBloom: ''
+                })
+            }
         }
 
         // Init state tracking attributes
@@ -497,20 +522,20 @@ export class TEVMIndexer {
     private async getPreviousHash(): Promise<string> {
         // prev blocks not found, start from genesis or EVM_PREV_HASH
         if (this.config.startBlock == this.config.evmDeployBlock) {
-            let genesisBlock = await this.getGenesisBlock();
+            this.genesisBlock = await this.getGenesisBlock();
 
             logger.info('evm deployment native genesis block: ');
-            logger.info(JSON.stringify(genesisBlock, null, 4));
+            logger.info(JSON.stringify(this.genesisBlock, null, 4));
 
             // number of seconds since epoch
-            const genesisTimestamp = moment.utc(genesisBlock.timestamp).unix();
+            const genesisTimestamp = moment.utc(this.genesisBlock.timestamp).unix();
 
             const header = BlockHeader.fromHeaderData({
                 'gasLimit': new BN(0),
                 'number': new BN(this.evmDeployBlock - this.config.evmDelta - 1),
                 'difficulty': new BN(0),
                 'timestamp': new BN(genesisTimestamp),
-                'extraData': Buffer.from(genesisBlock.id, 'hex'),
+                'extraData': Buffer.from(this.genesisBlock.id, 'hex'),
                 'stateRoot': Buffer.from('56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421', 'hex')
             })
 
