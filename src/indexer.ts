@@ -17,6 +17,7 @@ import {Connector} from './database/connector';
 
 import {
     BlockHeader,
+    EMPTY_TRIE_BUF,
     formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
@@ -167,6 +168,7 @@ export class TEVMIndexer {
             'parentHash': Buffer.from(this.prevHash, 'hex'),
             'transactionsTrie': transactionsRoot,
             'receiptTrie': receiptsRoot,
+            'stateRoot': EMPTY_TRIE_BUF,
             'bloom': bloom,
             'number': new BN(block.evmBlockNumber),
             'gasLimit': gasLimit,
@@ -177,6 +179,19 @@ export class TEVMIndexer {
         })
 
         const currentBlockHash = blockHeader.hash().toString('hex');
+
+        // debug stuff for hash match with 2.0
+        //  const buffs = blockHeader.raw();
+        //  let blockHeaderSize = 0;
+        //  console.log(`raw buffs for block header with hash: \"${currentBlockHash}\"`);
+        //  for (const [i, buf] of buffs.entries()) {
+        //      console.log(`[${i}]: size ${buf.length}, \"${buf.toString('hex')}\"`);
+        //      blockHeaderSize += buf.length;
+        //  }
+        //  console.log(`total header size: ${blockHeaderSize}`);
+
+        //  if (block.evmBlockNumber == 180698860)
+        //      process.exit(0);
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -546,7 +561,9 @@ export class TEVMIndexer {
                 'difficulty': new BN(0),
                 'timestamp': new BN(genesisTimestamp),
                 'extraData': Buffer.from(this.genesisBlock.id, 'hex'),
-                'stateRoot': Buffer.from('56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421', 'hex')
+                'stateRoot': EMPTY_TRIE_BUF,
+                'transactionsTrie': EMPTY_TRIE_BUF,
+                'receiptTrie': EMPTY_TRIE_BUF
             })
 
             this.ethGenesisHash = header.hash().toString('hex');
