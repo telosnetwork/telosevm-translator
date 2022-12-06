@@ -51,6 +51,10 @@ responses.
 
     npx tsc && node build/main.js
 
+#### to run via PM2, give it a unique name that makes sense (first install PM2 if not already installed):
+
+    npx tsc && pm2 start build/main.js --name telostest-evm15-indexer
+
 ### launch indexer (through docker):
 
 #### build telosevm-es-indexer docker:
