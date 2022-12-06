@@ -1,6 +1,6 @@
 const { Client } = require('@elastic/elasticsearch');
 
-const url = 'http://localhost:9200';
+const url = 'http://test1.us.telos.net:9200';
 const chainName = 'telos-mainnet'
 const elasticConf = {
     "node": url,
@@ -124,7 +124,9 @@ const gapCheck = async (
         const upper = bucket.max_block.value;
         const total = bucket.doc_count;
         const totalRange = (upper - lower) + 1;
-        let hasGap = totalRange != total;
+        let hasGap = total < totalRange;
+
+        console.log(bucket);
 
         if (len > 1 && i < (len - 1)) {
             const nextBucket = results.aggregations.block_histogram.buckets[i+1];

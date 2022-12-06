@@ -1317,6 +1317,7 @@ export class StorageEosioDelta {
     "@global": {
         block_num: number
     };
+    "@blockHash": string;
     "@evmBlockHash": string;
     "@receiptsRootHash": string;
     "@transactionsRoot": string;

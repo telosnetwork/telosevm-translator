@@ -277,7 +277,7 @@ export class Connector {
                 const upper = bucket.max_block.value;
                 const total = bucket.doc_count;
                 const totalRange = (upper - lower) + 1;
-                let hasGap = totalRange != total;
+                let hasGap = total < totalRange;
 
                 if (len > 1 && i < (len - 1)) {
                     const nextBucket = results.aggregations.block_histogram.buckets[i+1];

@@ -489,18 +489,13 @@ export class TEVMIndexer {
         const startStr = formatBlockNumbers(startBlock, startEvmBlock);
         logger.info(`purge blocks newer than ${startStr}`);
 
-        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
+        await this.connector._purgeBlocksNewerThan(startBlock, startEvmBlock);
 
         logger.info('done.');
 
         lastBlock = await this.connector.getLastIndexedBlock();
 
         let prevHash = lastBlock['@evmBlockHash'];
-
-        if (lastBlock.block_num != (startBlock - 1)) {
-            throw new Error(
-                `Last block ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
-        }
 
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
