@@ -1,5 +1,6 @@
 import {TxDeserializationError} from '../handlers';
-import {StorageEosioAction, StorageEosioDelta} from '../types/evm';
+import {StorageEosioAction} from '../types/evm';
+import {StorageEosioDelta} from '../utils/evm';
 
 export type ConnectorConfig = {
     node: string;
@@ -7,6 +8,7 @@ export type ConnectorConfig = {
         username: string;
         password: string;
     },
+    docsPerIndex: number,
     subfix: {
         delta: string;
         error: string;
@@ -32,6 +34,8 @@ export type IndexerConfig = {
     stopBlock: number;
     perf: {
         workerAmount: number;
+        concurrencyAmount: number;
+        maxBlocksBehind: number;
         elasticDumpSize: number;
         maxMsgsInFlight: number;
     },
@@ -46,7 +50,6 @@ export type IndexedBlockInfo = {
     delta: StorageEosioDelta;
     nativeHash: string;
     parentHash: string;
-    transactionsRoot: string;
     receiptsRoot: string;
     blockBloom: string;
 };
@@ -55,3 +58,22 @@ export enum IndexerState {
     SYNC = 0,
     HEAD = 1
 };
+
+export type StartBlockInfo = {
+    startBlock: number;
+    startEvmBlock?: number;
+    prevHash: string;
+}
+
+export interface ElasticIndex {
+    "health": string;
+    "status": string;
+    "index": string;
+    "uuid": string;
+    "pri": string;
+    "rep": string;
+    "docs.count": string;
+    "docs.deleted": string;
+    "store.size": string;
+    "pri.store.size": string;
+}

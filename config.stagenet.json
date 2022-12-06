@@ -1,5 +1,6 @@
 {
     "debug": true,
+
     "chainName": "telos-stagenet",
     "chainId": 41,
 
@@ -14,8 +15,10 @@
     "stopBlock": 4294967295,
     "perf": {
         "workerAmount": 4,
+        "concurrencyAmount": 8,
+        "maxBlocksBehind": 200,
         "elasticDumpSize": 200,
-        "maxMsgsInFlight": 2000
+        "maxMsgsInFlight": 1000
     },
 
     "elastic": {
@@ -24,6 +27,7 @@
             "username": "elastic",
             "password": "password"
         },
+        "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

@@ -70,9 +70,9 @@ export interface StorageEvmTransaction {
     itxs: InteralEvmTransaction[],
     epoch: number,
     createdaddr: string,
-    gasused: number,
-    gasusedblock: number,
-    charged_gas_price: number,
+    gasused: string,
+    gasusedblock: string,
+    charged_gas_price: string,
     output: string,
     logs?: {
         address: string,
@@ -81,8 +81,11 @@ export interface StorageEvmTransaction {
     }[],
     logsBloom?: string,
     errors?: string[],
-    value_d?: number,
-    raw?: Buffer
+    value_d?: string,
+    raw?: Buffer,
+    v: number,
+    r: string,
+    s: string
 }
 
 export interface StorageEosioAction {
@@ -91,13 +94,4 @@ export interface StorageEosioAction {
     "action_ordinal": number,
     "signatures": string[],
     "@raw": StorageEvmTransaction
-}
-
-export interface StorageEosioDelta {
-    "@timestamp": string,
-    "block_num": number,
-    "@global": {
-        "block_num": number
-    },
-    "@evmBlockHash": string
 }

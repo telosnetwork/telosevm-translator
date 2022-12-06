@@ -1,16 +1,26 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
 import RPCBroadcaster from '../publisher';
-import { IndexerConfig, IndexedBlockInfo, IndexerState } from '../types/indexer';
+import { IndexerConfig, IndexedBlockInfo, IndexerState, ElasticIndex } from '../types/indexer';
 import { getTemplatesForChain } from './templates';
 
 import logger from '../utils/winston';
 import {BulkResponseItem} from '@elastic/elasticsearch/lib/api/types';
+import {StorageEosioDelta} from '../utils/evm';
 
 interface ConfigInterface {
     [key: string]: any;
 };
 
+function getSuffix(blockNum: number, docsPerIndex: number) {
+    return String(Math.floor(blockNum / docsPerIndex)).padStart(8, '0');
+}
+
+function indexToSuffixNum(index: string) {
+    const spltIndex = index.split('-');
+    const suffix = spltIndex[spltIndex.length - 1];
+    return parseInt(suffix);
+}
 
 export class Connector {
     config: IndexerConfig;
@@ -25,26 +35,17 @@ export class Connector {
 
     writeCounter: number = 0;
 
-    cleanupInProgress: boolean = false;
-    isBroadcaster: boolean;
-
-    constructor(config: IndexerConfig, isBroadcaster: boolean) {
+    constructor(config: IndexerConfig) {
         this.config = config;
         this.chainName = config.chainName;
         this.elastic = new Client(config.elastic);
-        this.isBroadcaster = isBroadcaster;
 
-        if (isBroadcaster)
-            this.broadcast = new RPCBroadcaster(config.broadcast);
+        this.broadcast = new RPCBroadcaster(config.broadcast);
 
         this.opDrain = [];
         this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
-    }
-
-    getSubfix(blockNum: number) {
-        return String(Math.floor(blockNum / 10000000)).padStart(8, '0');
     }
 
     setState(state: IndexerState) {
@@ -90,105 +91,338 @@ export class Connector {
 
         logger.info('Initializing ws broadcaster...');
 
-        if (this.isBroadcaster)
-            this.broadcast.initUWS();
+        this.broadcast.initUWS();
     }
 
-    async checkGaps() {
+    async getOrderedDeltaIndices() {
+        const deltaIndices: Array<ElasticIndex> = await this.elastic.cat.indices({
+            index:  `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+            format: 'json'
+        });
+        deltaIndices.sort((a, b) => {
+            const aNum = indexToSuffixNum(a.index);
+            const bNum = indexToSuffixNum(b.index);
+            if (aNum < bNum)
+                return -1;
+            if (aNum > bNum)
+                return 1;
+            return 0;
+        });
+        return deltaIndices;
+    }
+
+    async getIndexedBlock(blockNum: number) {
+        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
         try {
-
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-                size: 0,
-                aggs: {
-                    gaps: {
-                        scripted_metric: {
-                            init_script: "state.blocks = [];",
-                            map_script: `
-                                state.blocks.add(
-                                    [doc["@global.block_num"].value, doc["block_num"].value]
-                                );
-                            `,
-                            combine_script: `
-                                def result = [];
-                                for (blockInfo in state.blocks) { result.add(blockInfo); }
-                                return result;
-                            `,
-                            reduce_script: `
-                                def blocks = [];
-                                for (b in states) {
-                                    for (bInfo in b) {
-                                    blocks.add(bInfo);
-                                    }
-                                }
-
-                                blocks.sort((a,b)-> a[0].compareTo(b[0]));
-
-                                def prevInfo = blocks.get(0);
-                                def result = [];
-                                def item = new HashMap();
-                                for (blockInfo in blocks) {
-
-                                    def gapSize = Math.abs(blockInfo[0] - prevInfo[0]);
-                                    if (gapSize > 1) {
-                                        item["gap_size"] = gapSize;
-                                        item["to"] = blockInfo;
-                                        item["from"] = prevInfo;
-                                        result.add(item);
-                                        item = new HashMap();
-                                    }
-
-                                    prevInfo = blockInfo;
-                                }
-                                return result;
-                            `
+                index: `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`,
+                query: {
+                    match: {
+                        block_num: {
+                            query: blockNum
                         }
                     }
                 }
             });
-            return result;
+
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async getIndexedBlockEVM(blockNum: number) {
+        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const sufNum = indexToSuffixNum(suffix);
+        const indices: Array<string> = (await this.getOrderedDeltaIndices())
+            .filter((val) =>
+                Math.abs(indexToSuffixNum(val.index) - sufNum) <= 1)
+            .map((val) => val.index);
+
+        try {
+            const result = await this.elastic.search({
+                index: indices,
+                query: {
+                    match: {
+                        '@global.block_num': {
+                            query: blockNum
+                        }
+                    }
+                }
+            });
+
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async getFirstIndexedBlock() {
+        const indices = await this.getOrderedDeltaIndices();
+        if (indices.length == 0)
+            return null;
+
+        const firstIndex = indices.shift().index;
+        try {
+            const result = await this.elastic.search({
+                index: firstIndex,
+                size: 1,
+                sort: [
+                    {"block_num": { "order": "asc"} }
+                ]
+            });
+
+            if (result?.hits?.hits?.length == 0)
+                return null;
+
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+
         } catch (error) {
             return null;
         }
     }
 
     async getLastIndexedBlock() {
+        const indices = await this.getOrderedDeltaIndices();
+        if (indices.length == 0)
+            return null;
+
+        const lastIndex = indices.pop().index;
         try {
             const result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+                index: lastIndex,
                 size: 1,
                 sort: [
                     {"block_num": { "order": "desc"} }
                 ]
             });
 
-            return result?.hits?.hits[0]?._source;
+            if (result?.hits?.hits?.length == 0)
+                return null;
+
+            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
             return null;
         }
     }
 
-    async purgeBlocksNewerThan(blockNum: number) {
-        const result = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-            body: {
-                query: {
-                    range: {
-                        block_num: {
-                            gte: blockNum
+    async fullGapCheck() : Promise<number> {
+        const lowerBoundDoc = await this.getFirstIndexedBlock();
+        logger.warn(JSON.stringify(lowerBoundDoc, null, 4));
+
+        if (lowerBoundDoc == null)
+            return null;
+
+        const lowerBound = lowerBoundDoc['@global'].block_num;
+
+        const upperBoundDoc = await this.getLastIndexedBlock();
+        if (upperBoundDoc == null)
+            return null;
+
+        const upperBound = upperBoundDoc['@global'].block_num;
+
+        const gapCheck = async (
+            lowerBound: number,
+            upperBound: number,
+            interval: number
+        ) => {
+            const results = await this.elastic.search({
+                index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+                aggs: {
+                    "block_histogram": {
+                        "histogram": {
+                            "field": "@global.block_num",
+                            "interval": interval,
+                            "min_doc_count": 0
+                        },
+                        "aggs": {
+                            "min_block": {
+                                "min": {
+                                    "field": "@global.block_num"
+                                }
+                            },
+                            "max_block": {
+                                "max": {
+                                    "field": "@global.block_num"
+                                }
+                            }
                         }
                     }
+                },
+                size: 0,
+                query: {
+                    "bool": {
+                        "must": [
+                            {
+                                "range": {
+                                    "@global.block_num": {
+                                        "gte": lowerBound,
+                                        "lte": upperBound
+                                    }
+                                }
+                            }
+                        ]
+                    }
                 }
-            },
-            refresh: true
-        })
+            });
 
-        return result;
+            const len = results.aggregations.block_histogram.buckets.length;
+            for (let i = 0; i < len; i++) {
+
+                const bucket = results.aggregations.block_histogram.buckets[i];
+                const lower = bucket.min_block.value;
+                const upper = bucket.max_block.value;
+                const total = bucket.doc_count;
+                const totalRange = (upper - lower) + 1;
+                let hasGap = total < totalRange;
+
+                if (len > 1 && i < (len - 1)) {
+                    const nextBucket = results.aggregations.block_histogram.buckets[i+1];
+                    hasGap = hasGap || (nextBucket.key - upper) != 1;
+                }
+
+                if (hasGap)
+                    return [lower, upper];
+            }
+            return null;
+        }
+        let interval = 10000000;
+        let gap: Array<number> = [lowerBound, upperBound];
+
+        // run gap check routine with smaller and smaller intervals each time
+        while (interval >= 10 && gap != null) {
+            gap = await gapCheck(gap[0], gap[1], interval);
+            console.log(`checked ${JSON.stringify(gap)} with interval ${interval}, ${gap}`);
+            interval /= 10;
+        }
+
+        // if gap is null now there are no gaps
+        if (gap == null)
+            return null;
+
+        // at this point we have the gap located between a range no more than 10
+        // blocks in length, plan is to move lower bound up until we miss the gap
+        // then we know gap starts from previous lower bound
+        let lower = gap[0];
+        let upper = gap[1];
+        gap = await gapCheck(lower, upper, 10);
+        while(gap != null) {
+            console.log(gap);
+            lower += 1;
+            gap = await gapCheck(lower, upper, 10);
+        }
+        lower -= 1;
+
+        // now do the same to find the correct upper bound, bring it down one at
+        // a time
+        gap = await gapCheck(lower, upper, 10);
+        while(gap != null) {
+            console.log(gap);
+            upper -= 1;
+            gap = await gapCheck(lower, upper, 10);
+        }
+        upper += 1;
+
+        console.log(`found gap at ${lower + 1}`);
+
+        return lower;
     }
 
-    pushBlock(blockInfo: IndexedBlockInfo) {
-        const suffix = this.getSubfix(blockInfo.delta.block_num);
+    async _purgeBlocksNewerThan(blockNum: number, evmBlockNum: number) {
+        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
+        const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
+        try {
+            const deltaResult = await this.elastic.deleteByQuery({
+                index: deltaIndex,
+                body: {
+                    query: {
+                        range: {
+                            block_num: {
+                                gte: blockNum
+                            }
+                        }
+                    }
+                },
+                conflicts: 'proceed',
+                refresh: true,
+                error_trace: true
+            });
+            logger.debug(`delta delete result: ${JSON.stringify(deltaResult, null, 4)}`);
+        } catch (e) {
+            if (e.name != 'ResponseError' ||
+                e.meta.body.error.type != 'index_not_found_exception')
+                throw e;
+        }
+        try {
+            const actionResult = await this.elastic.deleteByQuery({
+                index: actionIndex,
+                body: {
+                    query: {
+                        range: {
+                            '@raw.block': {
+                                gte: evmBlockNum
+                            }
+                        }
+                    }
+                },
+                conflicts: 'proceed',
+                refresh: true,
+                error_trace: true
+            });
+            logger.debug(`action delete result: ${JSON.stringify(actionResult, null, 4)}`);
+        } catch (e) {
+            if (e.name != 'ResponseError' ||
+                e.meta.body.error.type != 'index_not_found_exception')
+                throw e;
+        }
+    }
+
+    async _purgeIndicesNewerThan(blockNum: number) {
+        logger.info(`purging indices in db from block ${blockNum}...`);
+        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const targetNum = parseInt(targetSuffix);
+
+        const deleteList = [];
+
+        const deltaIndices = await this.elastic.cat.indices({
+            index:  `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            format: 'json'
+        });
+
+        for (const deltaIndex of deltaIndices)
+            if (indexToSuffixNum(deltaIndex.index) > targetNum)
+                deleteList.push(deltaIndex.index);
+
+        const actionIndices = await this.elastic.cat.indices({
+            index:  `${this.config.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            format: 'json'
+        });
+
+        for (const actionIndex of actionIndices)
+            if (indexToSuffixNum(actionIndex.index) > targetNum)
+                deleteList.push(actionIndex.index);
+
+        if (deleteList.length > 0) {
+            const deleteResult = await this.elastic.indices.delete({
+                index: deleteList
+            });
+            logger.info(`deleted indices result: ${JSON.stringify(deleteResult, null, 4)}`);
+        }
+
+        return deleteList;
+    }
+
+    async purgeNewerThan(blockNum: number, evmBlockNum: number) {
+        await this._purgeIndicesNewerThan(blockNum);
+        await this._purgeBlocksNewerThan(blockNum, evmBlockNum);
+    }
+
+    async pushBlock(blockInfo: IndexedBlockInfo) {
+        const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
@@ -208,9 +442,8 @@ export class Connector {
         this.opDrain = [...this.opDrain, ...operations];
         this.blockDrain.push(blockInfo);
 
-        if (!this.cleanupInProgress &&
-            (this.state == IndexerState.HEAD ||
-             this.blockDrain.length >= this.config.perf.elasticDumpSize)) {
+        if (this.state == IndexerState.HEAD ||
+             this.blockDrain.length >= this.config.perf.elasticDumpSize) {
 
             const ops = this.opDrain;
             const blocks = this.blockDrain;
@@ -218,12 +451,15 @@ export class Connector {
             this.opDrain = [];
             this.blockDrain = [];
             this.writeCounter++;
-            setTimeout(
-                this.drainBlocks.bind(this, ops, blocks), 0);
+
+            if (this.state == IndexerState.HEAD)
+                await this.writeBlocks(ops, blocks);
+            else
+                this.writeBlocks(ops, blocks);
         }
     }
 
-    async drainBlocks(ops: any[], blocks: any[]) {
+    async writeBlocks(ops: any[], blocks: any[]) {
         const bulkResponse = await this.elastic.bulk({
             refresh: true,
             operations: ops,
@@ -268,51 +504,4 @@ export class Connector {
         this.writeCounter--;
     }
 
-    async cleanupFork(blockNum: number) {
-        // set fork cleanup flag, no new write tasks should start
-        this.cleanupInProgress = true;
-
-        // wait until `draining` flag is false, this means all data has been
-        // wrote to db, we can begin cleanup
-        while (this.writeCounter > 0)
-            await new Promise(f => setTimeout(f, 1000));
-
-        // search for specific block num and splice at that point
-        let spliceIndex = this.opDrain.length - 1;
-        while (spliceIndex < 0) {
-            if ('block_num' in this.opDrain[spliceIndex] &&
-               this.opDrain[spliceIndex].block_num < blockNum)
-                break;
-            spliceIndex--;
-        }
-        this.opDrain.splice(spliceIndex);
-
-        // repeat process for block header queues
-        spliceIndex = this.blockDrain.length - 1;
-        while (spliceIndex < 0) {
-            if (this.blockDrain[spliceIndex].delta.block_num < blockNum)
-                break;
-            spliceIndex--;
-        }
-        this.blockDrain.splice(spliceIndex);
-
-        // finally clean up db
-
-        // deltas
-        let resp = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
-            q: `block_num >= ${blockNum}`
-        });
-        logger.info('delta: \n' + JSON.stringify(resp, null, 4));
-
-        // actions 
-        resp = await this.elastic.deleteByQuery({
-            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
-            q: `@raw.block >= ${blockNum - this.config.evmDelta}`
-        });
-        logger.info('action: \n' + JSON.stringify(resp, null, 4));
-
-        // clear fork cleanup flag, new write tasks should be created
-        this.cleanupInProgress = false;
-    }
 };

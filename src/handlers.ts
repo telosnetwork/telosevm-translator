@@ -7,8 +7,11 @@ import {
 
 import {TEVMTransaction} from './utils/evm-tx';
 
+import { removeHexPrefix } from './utils/evm';
+
 import {nameToUint64, parseAsset} from './utils/eosio';
 
+import logger from './utils/winston';
 
 // ethereum tools
 const BN = require('bn.js');
@@ -20,6 +23,8 @@ import {isValidAddress} from '@ethereumjs/util';
 
 import {generateUniqueVRS, ZERO_ADDR} from './utils/evm';
 import moment from 'moment';
+
+const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
 
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
@@ -94,21 +99,37 @@ export async function handleEvmTx(
         );
 }
 
-const stdGasPrice = "0x7a307efa80";
+const stdGasPrice = "0x0";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
 async function queryAddress(accountName: string, rpc: JsonRpc) {
-    const acctInt = nameToUint64(accountName)
-    const result = await rpc.get_table_rows({
-        code: 'eosio.evm',
-        scope: 'eosio.evm',
-        table: 'account',
-        key_type: 'i64',
-        index_position: 3,
-        lower_bound: acctInt,
-        upper_bound: acctInt,
-        limit: 1
-    });
+    const acctInt = nameToUint64(accountName);
+    let retry = 5;
+    let result = null;
+    while (retry > 0) {
+        retry--;
+        try {
+            result = await rpc.get_table_rows({
+                code: 'eosio.evm',
+                scope: 'eosio.evm',
+                table: 'account',
+                key_type: 'i64',
+                index_position: 3,
+                lower_bound: acctInt,
+                upper_bound: acctInt,
+                limit: 1
+            });
+
+        } catch (error) {
+            logger.warn(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
+            logger.warn(error);
+            if (retry > 0) {
+                await sleep(1000);
+                continue;
+            } else
+                throw error;
+        }
+    }
 
     if (result.rows.length == 1) {
         return result.rows[0].address;
@@ -125,7 +146,7 @@ export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
     rpc: JsonRpc,
-    gasUsedBlock: number
+    gasUsedBlock: string
 ) : Promise<StorageEvmTransaction | TxDeserializationError> {
     const quantity = parseAsset(tx.quantity);
 
@@ -177,7 +198,7 @@ export async function handleEvmDeposit(
         data: "0x",
         v: v,
         r: r,
-        s: s 
+        s: s
     };
 
     try {
@@ -195,19 +216,22 @@ export async function handleEvmDeposit(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
-            gas_limit: evmTx.gasLimit?.toString(),
+            gas_limit: evmTx.gasLimit.toString(),
             status: 1,
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: 0,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
             gasusedblock: gasUsedBlock,
-            charged_gas_price: 0,
+            charged_gas_price: '0',
             output: "",
-            raw: evmTx.serialize()
+            raw: evmTx.serialize(),
+            v: v,
+            r: r,
+            s: s
         };
 
         return txBody;
@@ -229,7 +253,7 @@ export async function handleEvmWithdraw(
     blockNum: number,
     tx: EosioEvmWithdraw,
     rpc: JsonRpc,
-    gasUsedBlock: number
+    gasUsedBlock: string
 ) : Promise<StorageEvmTransaction | TxDeserializationError> {
     const address = await queryAddress(tx.to, rpc);
 
@@ -247,7 +271,7 @@ export async function handleEvmWithdraw(
         data: "0x",
         v: v,
         r: r,
-        s: s 
+        s: s
     };
     try {
         const evmTx = new TEVMTransaction(txParams, {common: common});
@@ -263,7 +287,7 @@ export async function handleEvmWithdraw(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit?.toString(),
@@ -271,11 +295,14 @@ export async function handleEvmWithdraw(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: 0,
+            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
             gasusedblock: gasUsedBlock,
-            charged_gas_price: 0,
+            charged_gas_price: '0',
             output: "",
-            raw: evmTx.serialize()
+            raw: evmTx.serialize(),
+            v: v,
+            r: r,
+            s: s
         };
 
         return txBody;

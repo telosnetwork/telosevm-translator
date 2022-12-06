@@ -1,14 +1,14 @@
 {
-  "name": "ship-tests",
-  "version": "0.1a1",
-  "description": "State History Tests",
+  "name": "telosevm-es-indexer",
+  "version": "0.1a2",
+  "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
-  "repository": "https://github.com/guilledk/ship-tests",
+  "repository": "https://github.com/telosnetwork/telosevm-es-indexer",
   "scripts": {},
   "dependencies": {
     "@elastic/elasticsearch": "^8.2.1",
-    "@eosrio/node-abieos": "^2.1.1",
+    "@eosrio/node-abieos": "2.1.1",
     "@ethereumjs/block": "^3.6.3",
     "@ethereumjs/common": "^2.6.5",
     "@ethereumjs/rlp": "^4.0.0-beta.3",
@@ -29,6 +29,7 @@
     "lru-cache": "^7.13.1",
     "moment": "^2.29.4",
     "node-fetch": "^2.6.7",
+    "node-oom-heapdump": "^3.0.1",
     "node-worker-threads-pool": "^1.5.1",
     "p-queue": "^6.6.2",
     "rlp": "^3.0.0",
@@ -37,12 +38,13 @@
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.4.0",
     "why-is-node-running": "^2.2.2",
     "winston": "^3.7.2",
-    "ws": "^7.5.7"
+    "ws": "^7.5.9"
   },
   "devDependencies": {
     "@ethereumjs/blockchain": "^5.5.3",
     "@types/debug": "^4.1.7",
     "@types/elliptic": "^6.4.14",
+    "@types/js-priority-queue": "^0.0.6",
     "@types/lru-cache": "^7.10.10",
     "@types/readable-stream": "^2.3.14",
     "@types/text-encoding": "^0.0.36",

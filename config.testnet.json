@@ -5,7 +5,7 @@
     "chainId": 41,
 
     "endpoint": "http://testnet.telos.net",
-    "wsEndpoint": "ws://api2.hosts.caleos.io:28999",
+    "wsEndpoint": "ws://141.193.240.11:18993",
 
     "evmDeployBlock": 136393814,
     "evmPrevHash": "",
@@ -14,17 +14,20 @@
     "startBlock": 136393814,
     "stopBlock": 4294967295,
     "perf": {
-        "workerAmount": 16,
-        "elasticDumpSize": 4096,
-        "maxMsgsInFlight": 10000
+        "workerAmount": 4,
+        "concurrencyAmount": 8,
+        "maxBlocksBehind": 1000,
+        "elasticDumpSize": 2048,
+        "maxMsgsInFlight": 8000
     },
-    
+
     "elastic": {
         "node": "http://localhost:9200",
         "auth": {
             "username": "elastic",
             "password": "password"
         },
+        "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",
@@ -34,6 +37,6 @@
 
     "broadcast": {
         "wsHost": "127.0.0.1",
-        "wsPort": 7300 
+        "wsPort": 7300
     }
 }

@@ -9,12 +9,12 @@ import {TEVMTransaction} from '../utils/evm-tx';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
-const BN = require('bn.js');
+import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';
 
 import logger from '../utils/winston';
-import { isHexPrefixed, isValidAddress } from '@ethereumjs/util';
+import { addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString } from '@ethereumjs/util';
 
 const args: {chainId: number} = workerData;
 
@@ -77,29 +77,29 @@ parentPort.on(
                 logger.warn('Failed to parse receiptLog');
             }
 
-            // disable this check due to the posibility of onblock failing
-            // if (receipt.block != arg.blockNum)
-            //    throw new Error("Block number mismach");
-
             const txRaw = Buffer.from(arg.tx.tx, 'hex');
-           
+
             let evmTx = TEVMTransaction.fromSerializedTx(
                 txRaw, {common});
 
-            const evmTxParams = evmTx.toJSON();
-            let fromAddr = null;
+            const isSigned = evmTx.isSigned();
 
-            if (arg.tx.sender != null) {
+            const evmTxParams = evmTx.toJSON();
+
+            let fromAddr = null;
+            let v, r, s;
+
+            if (!isSigned) {
 
                 let senderAddr = arg.tx.sender.toLowerCase();
 
                 if (!isHexPrefixed(senderAddr))
                     senderAddr = `0x${senderAddr}`;
 
-                const [v, r, s] = generateUniqueVRS(
+                [v, r, s] = generateUniqueVRS(
                     arg.nativeBlockHash, senderAddr, arg.trx_index);
 
-                evmTxParams.v = v;
+                evmTxParams.v = addHexPrefix(v.toString(16));
                 evmTxParams.r = r;
                 evmTxParams.s = s;
 
@@ -112,7 +112,12 @@ parentPort.on(
                     logger.error(`error deserializing address \'${arg.tx.sender}\'`);
                     return parentPort.postMessage({success: false, message: 'invalid address'});
                 }
-            }
+            } else
+                [v, r, s] = [
+                    evmTx.v.toNumber(),
+                    unpadHexString(addHexPrefix(evmTx.r.toString('hex'))),
+                    unpadHexString(addHexPrefix(evmTx.s.toString('hex')))
+                ];
 
             if (receipt.itxs) {
                 // @ts-ignore
@@ -130,10 +135,10 @@ parentPort.on(
                 block: arg.blockNum,
                 block_hash: "",
                 to: evmTx.to?.toString(),
-                input_data: evmTx.data?.toString('hex'),
-                input_trimmed: evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
+                input_data: '0x' + evmTx.data?.toString('hex'),
+                input_trimmed: '0x' + evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
                 value: evmTx.value?.toString('hex'),
-                value_d: new BN(evmTx.value?.toString()) / new BN('1000000000000000000'),
+                value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
                 nonce: evmTx.nonce?.toString(),
                 gas_price: evmTx.gasPrice?.toString(),
                 gas_limit: evmTx.gasLimit?.toString(),
@@ -141,14 +146,17 @@ parentPort.on(
                 itxs: receipt.itxs,
                 epoch: receipt.epoch,
                 createdaddr: receipt.createdaddr.toLowerCase(),
-                gasused: parseInt('0x' + receipt.gasused),
-                gasusedblock: parseInt('0x' + receipt.gasusedblock),
-                charged_gas_price: parseInt('0x' + receipt.charged_gas),
+                gasused: new BN(receipt.gasused, 16).toString(),
+                gasusedblock: new BN(receipt.gasusedblock, 16).toString(),
+                charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
-                raw: txRaw 
+                raw: txRaw,
+                v: v,
+                r: r,
+                s: s
             };
 
-            if (fromAddr != null)
+            if (!isSigned)
                 txBody['from'] = fromAddr;
 
             else

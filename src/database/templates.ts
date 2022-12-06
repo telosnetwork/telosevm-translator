@@ -84,7 +84,7 @@ export function getTemplatesForChain(chain: string) {
                         }
                     }
                 },
-                
+
                 "@raw": {
                     "properties": {
                         "hash": {"type": "text"},
@@ -313,7 +313,15 @@ export function getTemplatesForChain(chain: string) {
                         "total_unpaid_blocks": {"type": "long"},
                         "block_num": {"type": "long"}
                     }
-                }
+                },
+
+                // hashes
+                "@evmBlockHash": {"type": "keyword"},
+                "@receiptsRootHash": {"type": "keyword"},
+                "@transactionsRoot": {"type": "keyword"},
+
+                "gasUsed": {"type": "long"},
+                "gasLimit": {"type": "long"}
             }
         }
     };
