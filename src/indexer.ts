@@ -159,7 +159,7 @@ export class TEVMIndexer {
         const receiptsRoot = generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
-        const {gasUsed, gasLimit} = getBlockGas(evmTxs);
+        const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
 
         const blockTimestamp = moment.utc(block.blockTimestamp);
 
@@ -210,7 +210,8 @@ export class TEVMIndexer {
                 "@receiptsRootHash": receiptsRoot.toString('hex'),
                 "@transactionsRoot": transactionsRoot.toString('hex'),
                 "gasUsed": gasUsed.toString(),
-                "gasLimit": gasLimit.toString()
+                "gasLimit": gasLimit.toString(),
+                "size": size.toString()
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,

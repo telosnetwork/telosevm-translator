@@ -1323,6 +1323,7 @@ export class StorageEosioDelta {
     "@transactionsRoot": string;
     gasUsed: string;
     gasLimit: string;
+    size: string;
 
     code: string;
     table: string;
@@ -1430,13 +1431,15 @@ export function getBlockGas(evmTxs: Array<EVMTxWrapper>) {
 
     let gasUsed = new BN(0);
     let gasLimit = new BN(0);
+    let size = new BN(0);
 
     for (const evmTx of evmTxs) {
         gasUsed.iadd(new BN(evmTx.evmTx.gasused));
         gasLimit.iadd(new BN(evmTx.evmTx.gas_limit));
+        size.iadd(new BN(evmTx.evmTx.raw.length));
     }
 
-    return {gasUsed, gasLimit};
+    return {gasUsed, gasLimit, size};
 }
 
 export function generateBloom(evmTxs: Array<EVMTxWrapper>): Buffer {
