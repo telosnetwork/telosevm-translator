@@ -2331,8 +2331,8 @@
   "version" "2.0.1"
 
 "uWebSockets.js@github:uNetworking/uWebSockets.js#v20.4.0":
+  "resolved" "git+ssh://git@github.com/uNetworking/uWebSockets.js.git#65f39bdff763be3883e6cf18e433dd4fec155845"
   "version" "20.4.0"
-  "resolved" "https://github.com/uNetworking/uWebSockets.js/archive/refs/tags/v20.4.0.tar.gz"
 
 "v8-compile-cache-lib@^3.0.1":
   "integrity" "sha512-wa7YjyUGfNZngI/vtK0UHAN+lgDCxBPCylVXGp0zu59Fz5aiGtNXaq3DhIov063MorB+VfufLh3JlF2KdTK3xg=="

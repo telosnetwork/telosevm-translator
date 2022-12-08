@@ -7,6 +7,8 @@ copy package.json /indexer
 copy tsconfig.json /indexer
 copy config.json /indexer
 
+copy hyperion-seq /hyperion-sequential-reader
+
 workdir /indexer
 
 run yarn install
