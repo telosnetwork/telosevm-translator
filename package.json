@@ -16,6 +16,8 @@
     "@ethereumjs/tx": "^3.5.1",
     "@ethereumjs/util": "^8.0.0-beta.1",
     "@ethereumjs/vm": "^5.9.3",
+    "@greymass/eosio": "^0.6.4",
+    "@types/bn.js": "^5.1.1",
     "assert": "^2.0.0",
     "collections": "^5.1.13",
     "eosjs": "^22.1.0",
