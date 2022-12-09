@@ -6,7 +6,8 @@
   "license": "MIT",
   "repository": "https://github.com/telosnetwork/telosevm-es-indexer",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "build:watch": "tsc --watch"
   },
   "type": "module",
   "dependencies": {

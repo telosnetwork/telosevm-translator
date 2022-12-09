@@ -31,11 +31,11 @@ import {ABI} from "@greymass/eosio";
 
 
 // debug packages
-const logWhyIsNodeRunning = require('why-is-node-running');
+import logWhyIsNodeRunning from "why-is-node-running";
+
+import nodeOOMHeapdump from "node-oom-heapdump";
 
 if (process.env.LOG_LEVEL == 'debug') {
-    const nodeOOMHeapdump = require('node-oom-heapdump');
-
     nodeOOMHeapdump({
         path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`)
     });

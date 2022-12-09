@@ -1,4 +1,3 @@
-import { TextDecoder, TextEncoder } from 'text-encoding';
 import { Serialize, RpcInterfaces } from 'eosjs';
 
 import { deserializeUInt, serializeUInt } from './binary.js';

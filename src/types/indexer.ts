@@ -57,7 +57,7 @@ export type IndexedBlockInfo = {
 export enum IndexerState {
     SYNC = 0,
     HEAD = 1
-};
+}
 
 export type StartBlockInfo = {
     startBlock: number;
