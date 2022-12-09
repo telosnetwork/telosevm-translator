@@ -5,10 +5,8 @@
 /* eslint-disable max-classes-per-file */
 /* eslint-disable jsdoc/check-indentation */
 
-import * as numeric from 'eosjs/dist/eosjs-numeric';
-import { TransactionHeader } from 'eosjs/dist/eosjs-api-interfaces';
-import { Abi, BlockTaposInfo } from 'eosjs/dist/eosjs-rpc-interfaces';
-import { Query } from 'eosjs/dist/eosjs-api-interfaces';
+import {Numeric, ApiInterfaces, RpcInterfaces} from "eosjs";
+
 
 /** A field in an abi */
 export interface Field {
@@ -515,7 +513,7 @@ export class SerialBuffer {
             }
         }
         const name = s.substr(pos).trim();
-        this.pushArray(numeric.signedDecimalToBinary(8, amount));
+        this.pushArray(Numeric.signedDecimalToBinary(8, amount));
         this.pushSymbol({ name, precision });
     }
 
@@ -523,7 +521,7 @@ export class SerialBuffer {
     public getAsset(): string {
         const amount = this.getUint8Array(8);
         const { name, precision } = this.getSymbol();
-        let s = numeric.signedBinaryToDecimal(amount, precision + 1);
+        let s = Numeric.signedBinaryToDecimal(amount, precision + 1);
         if (precision) {
             s = s.substr(0, s.length - precision) + '.' + s.substr(s.length - precision);
         }
@@ -532,7 +530,7 @@ export class SerialBuffer {
 
     /** Append a public key */
     public pushPublicKey(s: string): void {
-        const key = numeric.stringToPublicKey(s);
+        const key = Numeric.stringToPublicKey(s);
         this.push(key.type);
         this.pushArray(key.data);
     }
@@ -541,20 +539,20 @@ export class SerialBuffer {
     public getPublicKey(): string {
         const type = this.get();
         let data: Uint8Array;
-        if (type === numeric.KeyType.wa) {
+        if (type === Numeric.KeyType.wa) {
             const begin = this.readPos;
             this.skip(34);
             this.skip(this.getVaruint32());
             data = new Uint8Array(this.array.buffer, this.array.byteOffset + begin, this.readPos - begin);
         } else {
-            data = this.getUint8Array(numeric.publicKeyDataSize);
+            data = this.getUint8Array(Numeric.publicKeyDataSize);
         }
-        return numeric.publicKeyToString({ type, data });
+        return Numeric.publicKeyToString({ type, data });
     }
 
     /** Append a private key */
     public pushPrivateKey(s: string): void {
-        const key = numeric.stringToPrivateKey(s);
+        const key = Numeric.stringToPrivateKey(s);
         this.push(key.type);
         this.pushArray(key.data);
     }
@@ -562,13 +560,13 @@ export class SerialBuffer {
     /** Get a private key */
     public getPrivateKey(): string {
         const type = this.get();
-        const data = this.getUint8Array(numeric.privateKeyDataSize);
-        return numeric.privateKeyToString({ type, data });
+        const data = this.getUint8Array(Numeric.privateKeyDataSize);
+        return Numeric.privateKeyToString({ type, data });
     }
 
     /** Append a signature */
     public pushSignature(s: string): void {
-        const key = numeric.stringToSignature(s);
+        const key = Numeric.stringToSignature(s);
         this.push(key.type);
         this.pushArray(key.data);
     }
@@ -577,16 +575,16 @@ export class SerialBuffer {
     public getSignature(): string {
         const type = this.get();
         let data: Uint8Array;
-        if (type === numeric.KeyType.wa) {
+        if (type === Numeric.KeyType.wa) {
             const begin = this.readPos;
             this.skip(65);
             this.skip(this.getVaruint32());
             this.skip(this.getVaruint32());
             data = new Uint8Array(this.array.buffer, this.array.byteOffset + begin, this.readPos - begin);
         } else {
-            data = this.getUint8Array(numeric.signatureDataSize);
+            data = this.getUint8Array(Numeric.signatureDataSize);
         }
-        return numeric.signatureToString({ type, data });
+        return Numeric.signatureToString({ type, data });
     }
 } // SerialBuffer
 
@@ -928,16 +926,16 @@ export const createInitialTypes = (): Map<string, Type> => {
         uint64: createType({
             name: 'uint64',
             serialize: (buffer: SerialBuffer, data: string | number) => {
-                buffer.pushArray(numeric.decimalToBinary(8, '' + data));
+                buffer.pushArray(Numeric.decimalToBinary(8, '' + data));
             },
-            deserialize: (buffer: SerialBuffer) => { return numeric.binaryToDecimal(buffer.getUint8Array(8)); },
+            deserialize: (buffer: SerialBuffer) => { return Numeric.binaryToDecimal(buffer.getUint8Array(8)); },
         }),
         int64: createType({
             name: 'int64',
             serialize: (buffer: SerialBuffer, data: string | number) => {
-                buffer.pushArray(numeric.signedDecimalToBinary(8, '' + data));
+                buffer.pushArray(Numeric.signedDecimalToBinary(8, '' + data));
             },
-            deserialize: (buffer: SerialBuffer) => { return numeric.signedBinaryToDecimal(buffer.getUint8Array(8)); },
+            deserialize: (buffer: SerialBuffer) => { return Numeric.signedBinaryToDecimal(buffer.getUint8Array(8)); },
         }),
         int32: createType({
             name: 'int32',
@@ -956,15 +954,15 @@ export const createInitialTypes = (): Map<string, Type> => {
         }),
         uint128: createType({
             name: 'uint128',
-            serialize: (buffer: SerialBuffer, data: string) => { buffer.pushArray(numeric.decimalToBinary(16, '' + data)); },
-            deserialize: (buffer: SerialBuffer) => { return numeric.binaryToDecimal(buffer.getUint8Array(16)); },
+            serialize: (buffer: SerialBuffer, data: string) => { buffer.pushArray(Numeric.decimalToBinary(16, '' + data)); },
+            deserialize: (buffer: SerialBuffer) => { return Numeric.binaryToDecimal(buffer.getUint8Array(16)); },
         }),
         int128: createType({
             name: 'int128',
             serialize: (buffer: SerialBuffer, data: string) => {
-                buffer.pushArray(numeric.signedDecimalToBinary(16, '' + data));
+                buffer.pushArray(Numeric.signedDecimalToBinary(16, '' + data));
             },
-            deserialize: (buffer: SerialBuffer) => { return numeric.signedBinaryToDecimal(buffer.getUint8Array(16)); },
+            deserialize: (buffer: SerialBuffer) => { return Numeric.signedBinaryToDecimal(buffer.getUint8Array(16)); },
         }),
         float32: createType({
             name: 'float32',
@@ -1385,7 +1383,7 @@ export const getType = (types: Map<string, Type>, name: string): Type => {
  * @param initialTypes Set of types to build on.
  * In most cases, it's best to fill this from a fresh call to `getTypesFromAbi()`.
  */
-export const getTypesFromAbi = (initialTypes: Map<string, Type>, abi?: Abi): Map<string, Type> => {
+export const getTypesFromAbi = (initialTypes: Map<string, Type>, abi?: RpcInterfaces.Abi): Map<string, Type> => {
     const types = new Map(initialTypes);
     if (abi && abi.types) {
         for (const { new_type_name, type } of abi.types) {
@@ -1430,7 +1428,7 @@ const reverseHex = (h: string): string => {
 };
 
 /** TAPoS: Return transaction fields which reference `refBlock` and expire `expireSeconds` after `timestamp` */
-export const transactionHeader = (refBlock: BlockTaposInfo, expireSeconds: number): TransactionHeader => {
+export const transactionHeader = (refBlock: RpcInterfaces.BlockTaposInfo, expireSeconds: number): ApiInterfaces.TransactionHeader => {
     const timestamp = refBlock.header ? refBlock.header.timestamp : refBlock.timestamp;
     const prefix = parseInt(reverseHex(refBlock.id.substr(16, 8)), 16);
 
@@ -1645,10 +1643,10 @@ const anyvarDefsByIndex = [
     anyvarDefs.asset,
 ];
 
-export const serializeQuery = (buffer: SerialBuffer, query: Query): void => {
+export const serializeQuery = (buffer: SerialBuffer, query: ApiInterfaces.Query): void => {
     let method: string;
     let arg: Anyvar;
-    let filter: Query[];
+    let filter: ApiInterfaces.Query[];
     if (typeof query === 'string') {
         method = query;
     } else if (Array.isArray(query) && query.length === 2) {

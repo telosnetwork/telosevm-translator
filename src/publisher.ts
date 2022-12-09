@@ -1,11 +1,9 @@
 import uWS, {TemplatedApp} from "uWebSockets.js";
 
-import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer";
-import {Bloom} from "./utils/evm";
+import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer.js";
+import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm.js";
 
-import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm";
-
-import logger from './utils/winston';
+import logger from './utils/winston.js';
 
 
 export default class RPCBroadcaster {
@@ -29,19 +27,22 @@ export default class RPCBroadcaster {
                 /* We need a slightly higher timeout for this crazy example */
                 idleTimeout: 60,
                 open: (ws) => ws.subscribe('broadcast'),
-                message: () => {},
-                drain: () => {},
-                close: () => {},
+                message: () => {
+                },
+                drain: () => {
+                },
+                close: () => {
+                },
             }).listen(host, port, (token) => {
-                if (token) {
-                    logger.info('Listening to port ' + port);
-                } else {
-                    logger.error('Failed to listen to port ' + port);
-                }
+            if (token) {
+                logger.info('Listening to port ' + port);
+            } else {
+                logger.error('Failed to listen to port ' + port);
+            }
         });
     }
 
-    convertTimestampToEpoch(timestamp: string) : number {
+    convertTimestampToEpoch(timestamp: string): number {
         return Math.floor(new Date(timestamp).getTime() / 1000);
     }
 

@@ -1,4 +1,4 @@
-import { TEVMIndexer } from './indexer';
+import {TEVMIndexer} from './indexer.js';
 
 const conf = require('../config.json');
 

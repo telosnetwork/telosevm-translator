@@ -166,13 +166,13 @@ import {
   zeros,
   bufferToHex,
 } from 'ethereumjs-util'
-import { Blockchain, BlockHeaderBuffer, BlockOptions, HeaderData, JsonHeader } from '@ethereumjs/block/dist/types';
+import { Blockchain, BlockHeaderBuffer, BlockOptions, HeaderData, JsonHeader } from '@ethereumjs/block/dist/types.js';
 import {
   CLIQUE_EXTRA_VANITY,
   CLIQUE_EXTRA_SEAL,
   CLIQUE_DIFF_INTURN,
   CLIQUE_DIFF_NOTURN,
-} from '@ethereumjs/block/dist/clique';
+} from '@ethereumjs/block/dist/clique.js';
 
 interface HeaderCache {
   hash: Buffer | undefined
@@ -201,7 +201,7 @@ export class BlockHeader {
   public readonly nonce: Buffer
   public readonly baseFeePerGas?: typeof BN
 
-  public readonly _common: Common
+  public readonly _common: Common.default
 
   private cache: HeaderCache = {
     hash: undefined,
@@ -395,7 +395,7 @@ export class BlockHeader {
     if (options.common) {
       this._common = options.common.copy()
     } else {
-      this._common = new Common({
+      this._common = new Common.default({
         chain: Chain.Mainnet, // default
       })
       if (options.initWithGenesisHeader) {
@@ -1224,13 +1224,13 @@ export class BlockHeader {
   }
 }
 
-import {StorageEvmTransaction} from '../types/evm';
-import {EosioAction} from "../types/eosio";
+import {StorageEvmTransaction} from '../types/evm.js';
+import {EosioAction} from "../types/eosio.js";
 import {RpcInterfaces, Serialize} from "eosjs";
-import {TxDeserializationError} from "../handlers";
+import {TxDeserializationError} from "../handlers.js";
 import {Trie} from "@ethereumjs/trie";
 import RLP from "rlp";
-import {Log} from "@ethereumjs/vm/dist/evm/types";
+import {Log} from "@ethereumjs/vm/dist/evm/types.js";
 import {bufArrToArr} from '@ethereumjs/util';
 
 export function getErrorMessage(error: unknown) {
@@ -1408,7 +1408,7 @@ export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
                 for (const topic of hexLogs.topics)
                     topics.push(Buffer.from(topic, 'hex'))
 
-                logs.push([ 
+                logs.push([
                     Buffer.from(hexLogs.address, 'hex'),
                     topics,
                     Buffer.from(hexLogs.data, 'hex')

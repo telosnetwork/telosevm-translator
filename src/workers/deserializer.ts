@@ -1,8 +1,8 @@
 import { parentPort, workerData } from 'worker_threads';
 import { Serialize } from 'eosjs';
 
-import logger from '../utils/winston';
-import { deserializeEosioType } from '../utils/eosio';
+import logger from '../utils/winston.js';
+import { deserializeEosioType } from '../utils/eosio.js';
 
 const args: {abi: string} = workerData;
 

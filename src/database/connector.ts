@@ -1,12 +1,12 @@
 const { Client, ApiResponse } = require('@elastic/elasticsearch');
 
-import RPCBroadcaster from '../publisher';
-import { IndexerConfig, IndexedBlockInfo, IndexerState, ElasticIndex } from '../types/indexer';
-import { getTemplatesForChain } from './templates';
+import RPCBroadcaster from '../publisher.js';
+import { IndexerConfig, IndexedBlockInfo, IndexerState, ElasticIndex } from '../types/indexer.js';
+import { getTemplatesForChain } from './templates.js';
 
-import logger from '../utils/winston';
-import {BulkResponseItem} from '@elastic/elasticsearch/lib/api/types';
-import {StorageEosioDelta} from '../utils/evm';
+import logger from '../utils/winston.js';
+import {estypes} from '@elastic/elasticsearch';
+import {StorageEosioDelta} from '../utils/evm.js';
 
 interface ConfigInterface {
     [key: string]: any;
@@ -472,7 +472,7 @@ export class Connector {
             // The presence of the `error` key indicates that the operation
             // that we did for the document has failed.
             bulkResponse.items.forEach((
-                action: BulkResponseItem, i: number) => {
+                action: estypes.BulkResponseItem, i: number) => {
                 const operation = Object.keys(action)[0]
                 // @ts-ignore
                 if (action[operation].error) {

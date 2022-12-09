@@ -1,11 +1,11 @@
 import {
     EosioEvmRaw,
     StorageEvmTransaction
-} from '../types/evm';
+} from '../types/evm.js';
 
 // ethereum tools
-import {Bloom, generateUniqueVRS} from '../utils/evm';
-import {TEVMTransaction} from '../utils/evm-tx';
+import {Bloom, generateUniqueVRS} from '../utils/evm.js';
+import {TEVMTransaction} from '../utils/evm-tx.js';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
@@ -13,14 +13,14 @@ import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';
 
-import logger from '../utils/winston';
+import logger from '../utils/winston.js';
 import { addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString } from '@ethereumjs/util';
 
 const args: {chainId: number} = workerData;
 
 logger.info('Launching evm tx deserialization worker...');
 
-const common: Common = Common.custom({
+const common: Common.default = Common.default.custom({
     chainId: args.chainId,
     defaultHardfork: Hardfork.Istanbul
 }, {
