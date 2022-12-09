@@ -1,5 +1,4 @@
 import * as _BN from "bn.js";
-
 const BN = _BN.default;
 
 export function removeHexPrefix(str: string) {
