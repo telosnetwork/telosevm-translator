@@ -1,6 +1,7 @@
 import {TEVMIndexer} from './indexer.js';
+import {readFileSync} from "node:fs";
 
-const conf = require('../config.json');
+const conf = JSON.parse(readFileSync('config.json').toString());
 
 if (process.env.CHAIN_NAME)
     conf.chainName = process.env.CHAIN_NAME;
