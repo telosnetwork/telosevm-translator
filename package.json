@@ -42,7 +42,7 @@
     "rlp": "^3.0.0",
     "sha1-uint8array": "^0.10.3",
     "text-encoding": "^0.7.0",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.4.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.15.0",
     "why-is-node-running": "^2.2.2",
     "winston": "^3.7.2",
     "ws": "^7.5.9"
