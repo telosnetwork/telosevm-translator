@@ -1,5 +1,5 @@
-import {HyperionSequentialReader} from '../../hyperion-sequential-reader/dist/reader.js';
-
+import {HyperionSequentialReader} from 'hyperion-sequential-reader';
+import {readFileSync} from "fs";
 import path from 'path';
 
 import {
@@ -32,6 +32,7 @@ import moment from 'moment';
 import {GetBlockResult} from 'eosjs/dist/eosjs-rpc-interfaces';
 import {JsonRpc} from 'eosjs';
 import {getRPCClient} from './utils/eosio';
+import {ABI} from "@greymass/eosio";
 
 // debug packages
 const logWhyIsNodeRunning = require('why-is-node-running');
@@ -117,7 +118,6 @@ export class TEVMIndexer {
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-        logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec` +
             ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle`;
         const untilHead = this.headBlock - this.lastBlock;
@@ -128,7 +128,6 @@ export class TEVMIndexer {
         }
 
         logger.info(statsString);
-        this.queuedUpLastSecond = 0;
         this.pushedLastSecond = 0;
     }
 
@@ -230,7 +229,7 @@ export class TEVMIndexer {
      */
     async processBlock(block: any): Promise<void> {
 
-        console.log(JSON.stringify(block));
+        logger.info(JSON.stringify(block));
         // await this.maybeHandleFork(newestBlock);
         // const storableBlockInfo = this.hashBlock(newestBlock);
 
@@ -243,6 +242,8 @@ export class TEVMIndexer {
 
         // For debug stats
         this.pushedLastSecond++;
+
+        this.reader.ack();
     }
 
     /*
@@ -254,7 +255,6 @@ export class TEVMIndexer {
 
         let startBlock = this.startBlock;
         let startEvmBlock = this.startBlock - this.config.evmDelta;
-        let stopBlock = this.stopBlock;
         let prevHash;
 
         await this.connector.init();
@@ -313,6 +313,12 @@ export class TEVMIndexer {
             poolSize: this.config.perf.workerAmount,
             startBlock: startBlock
         });
+        this.reader.events.on('block', this.processBlock.bind(this));
+        ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
+            const abi = ABI.from(JSON.parse(readFileSync(`./abis/${c}.json`).toString()));
+            this.reader.addContract(c, abi);
+        })
+        this.reader.start();
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);

@@ -22,7 +22,7 @@ import {numToHex} from './evm'
 export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
   public readonly gasPrice: BN
 
-  public readonly common: Common
+  // public readonly common: Common
 
   /**
    * Instantiate a transaction from a data dictionary.
@@ -109,7 +109,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
   public constructor(txData: TxData, opts: TxOptions = {}) {
     super(txData, opts);
 
-    this.common = this._validateTxV(this.v, opts.common)
+    // this.common = this._validateTxV(this.v, opts.common)
 
     this.gasPrice = new BN(toBuffer(txData.gasPrice === '' ? '0x' : txData.gasPrice))
 
