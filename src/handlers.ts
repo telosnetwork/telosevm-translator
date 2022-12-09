@@ -14,7 +14,8 @@ import moment from 'moment';
 import Common, {Chain, Hardfork} from '@ethereumjs/common';
 
 // ethereum tools
-const BN = require('bn.js');
+import * as _BN from "bn.js";
+const BN = _BN.default;
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -208,7 +209,7 @@ export async function handleEvmDeposit(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
+            value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit.toString(),
@@ -278,7 +279,7 @@ export async function handleEvmWithdraw(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: (new BN(evmTx.value?.toString()) / new BN('1000000000000000000')).toString(),
+            value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit?.toString(),
