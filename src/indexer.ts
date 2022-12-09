@@ -1,19 +1,15 @@
-import {HyperionSequentialReader} from 'hyperion-sequential-reader';
-import {readFileSync} from "fs";
-import path from 'path';
+import {readFileSync} from "node:fs";
+import path from 'node:path';
 
-import {
-    IndexedBlockInfo,
-    IndexerConfig,
-    IndexerState,
-    StartBlockInfo
-} from './types/indexer';
+import {HyperionSequentialReader} from "@eosrio/hyperion-sequential-reader";
 
-import logger from './utils/winston';
+import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
 
-import {StorageEosioAction} from './types/evm';
+import logger from './utils/winston.js';
 
-import {Connector} from './database/connector';
+import {StorageEosioAction} from './types/evm.js';
+
+import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
@@ -25,14 +21,14 @@ import {
     getBlockGas,
     ProcessedBlock,
     StorageEosioDelta
-} from './utils/evm'
+} from './utils/evm.js'
 
 import BN from 'bn.js';
 import moment from 'moment';
-import {GetBlockResult} from 'eosjs/dist/eosjs-rpc-interfaces';
-import {JsonRpc} from 'eosjs';
-import {getRPCClient} from './utils/eosio';
+import {JsonRpc, RpcInterfaces} from 'eosjs';
+import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
+
 
 // debug packages
 const logWhyIsNodeRunning = require('why-is-node-running');
@@ -41,7 +37,8 @@ if (process.env.LOG_LEVEL == 'debug') {
     const nodeOOMHeapdump = require('node-oom-heapdump');
 
     nodeOOMHeapdump({
-        path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`) });
+        path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`)
+    });
 }
 
 
@@ -56,7 +53,7 @@ process.on('unhandledRejection', error => {
 });
 
 
-const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 
 export class TEVMIndexer {
@@ -68,7 +65,7 @@ export class TEVMIndexer {
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
 
-    genesisBlock: GetBlockResult = null;
+    genesisBlock: RpcInterfaces.GetBlockResult = null;
 
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
     switchingState: boolean = false;  // flag required to do state switching cleanly
@@ -265,10 +262,10 @@ export class TEVMIndexer {
             const gap = await this.connector.fullGapCheck();
             if (gap == null) {
                 // no gaps found
-                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
+                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                    ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                 else {
                     logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
                     process.exit(1);
@@ -308,9 +305,9 @@ export class TEVMIndexer {
 
         this.reader = new HyperionSequentialReader(
             this.wsEndpoint, {
-            poolSize: this.config.perf.workerAmount,
-            startBlock: startBlock
-        });
+                poolSize: this.config.perf.workerAmount,
+                startBlock: startBlock
+            });
         this.reader.events.on('block', this.processBlock.bind(this));
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`./abis/${c}.json`).toString()));
@@ -352,7 +349,7 @@ export class TEVMIndexer {
      */
     private async getGenesisBlock() {
         let genesisBlock = null;
-        while(genesisBlock == null) {
+        while (genesisBlock == null) {
             try {
                 // get genesis information
                 genesisBlock = await this.rpc.get_block(
@@ -401,7 +398,7 @@ export class TEVMIndexer {
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return { startBlock, startEvmBlock, prevHash };
+        return {startBlock, startEvmBlock, prevHash};
     }
 
     /*
@@ -434,7 +431,7 @@ export class TEVMIndexer {
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return { startBlock, startEvmBlock, prevHash };
+        return {startBlock, startEvmBlock, prevHash};
     }
 
     /*

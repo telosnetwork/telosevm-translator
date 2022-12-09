@@ -1,11 +1,9 @@
 import { TextDecoder, TextEncoder } from 'text-encoding';
-import { SerialBuffer } from 'eosjs/dist/eosjs-serialize';
+import { Serialize, RpcInterfaces } from 'eosjs';
 
-import { deserializeUInt, serializeUInt } from './binary';
-import { Serialize } from 'eosjs';
-import { ShipTableDelta, ShipTransactionTrace } from '../types/ship';
-import { EosioActionTrace, EosioContractRow, EosioTransaction } from '../types/eosio';
-import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
+import { deserializeUInt, serializeUInt } from './binary.js';
+import { ShipTableDelta, ShipTransactionTrace } from '../types/ship.js';
+import { EosioActionTrace, EosioContractRow, EosioTransaction } from '../types/eosio.js';
 
 function charToSymbol(c: any) {
     if (typeof c == 'string') c = c.charCodeAt(0);
@@ -37,7 +35,7 @@ export function nameToUint64(name: any) {
 }
 
 export function serializeEosioName(name: string): string {
-    const buffer = new SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder()});
+    const buffer = new Serialize.SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder()});
 
     buffer.pushName(name);
 
@@ -60,7 +58,7 @@ export function deserializeEosioName(data: string): string {
         n = n >> BigInt(8);
     }
 
-    const buffer = new SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder(), array: bytes});
+    const buffer = new Serialize.SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder(), array: bytes});
 
     return buffer.getName();
 }
@@ -206,10 +204,10 @@ export function extractGlobalContractRow(deltas: ShipTableDelta[]): EosioContrac
         }
     }
 
-    return null; 
+    return null;
 }
 
-export function getTableAbiType(abi: Abi, contract: string, table: string): string {
+export function getTableAbiType(abi: RpcInterfaces.Abi, contract: string, table: string): string {
     for (const row of abi.tables) {
         if (row.name === table) {
             return row.type;
@@ -219,7 +217,7 @@ export function getTableAbiType(abi: Abi, contract: string, table: string): stri
     throw new Error('Type for table not found ' + contract + ':' + table);
 }
 
-export function getActionAbiType(abi: Abi, contract: string, action: string): string {
+export function getActionAbiType(abi: RpcInterfaces.Abi, contract: string, action: string): string {
     for (const row of abi.actions) {
         if (row.name === action) {
             return row.type;
@@ -269,7 +267,7 @@ export function parseAsset(s: string) {
 
 
 import { JsonRpc } from 'eosjs';
-import { IndexerConfig } from '../types/indexer';
+import { IndexerConfig } from '../types/indexer.js';
 
 // @ts-ignore
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));

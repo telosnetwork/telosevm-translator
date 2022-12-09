@@ -1,49 +1,41 @@
-import {
-    EosioEvmRaw,
-    EosioEvmDeposit,
-    EosioEvmWithdraw,
-    StorageEvmTransaction
-} from './types/evm';
+import {EosioEvmDeposit, EosioEvmRaw, EosioEvmWithdraw, StorageEvmTransaction} from './types/evm.js';
 
-import {TEVMTransaction} from './utils/evm-tx';
+import {TEVMTransaction} from './utils/evm-tx.js';
 
-import { removeHexPrefix } from './utils/evm';
+import {generateUniqueVRS, removeHexPrefix, ZERO_ADDR} from './utils/evm.js';
 
-import {nameToUint64, parseAsset} from './utils/eosio';
+import {nameToUint64, parseAsset} from './utils/eosio.js';
 
-import logger from './utils/winston';
-
-// ethereum tools
-const BN = require('bn.js');
-import Common from '@ethereumjs/common'
-import { Chain, Hardfork } from '@ethereumjs/common'
+import logger from './utils/winston.js';
 import {JsonRpc} from 'eosjs';
 import {StaticPool} from 'node-worker-threads-pool';
 import {isValidAddress} from '@ethereumjs/util';
-
-import {generateUniqueVRS, ZERO_ADDR} from './utils/evm';
 import moment from 'moment';
+import Common, {Chain, Hardfork} from '@ethereumjs/common';
 
-const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
+// ethereum tools
+const BN = require('bn.js');
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 
 const KEYWORD_STRING_TRIM_SIZE = 32000;
 
-let common: Common = null;
+let common: Common.default = null;
 let deseralizationPool: StaticPool<(x: any) => any> = null;
 
 export class TxDeserializationError {
-    info: {[key: string]: string};
+    info: { [key: string]: string };
     timestamp: string;
     stack: string;
     message: string;
 
     constructor(
         message: string,
-        info: {[key: string]: any}
+        info: { [key: string]: any }
     ) {
         this.info = info;
-        this.stack = (<any> new Error()).stack;
+        this.stack = (<any>new Error()).stack;
         this.timestamp = moment.utc().format();
         this.message = message;
     }
@@ -52,14 +44,14 @@ export class TxDeserializationError {
 export function isTxDeserializationError(obj: any): obj is TxDeserializationError {
     return (
         obj.info !== undefined &&
-        obj.timestamp !== undefined && 
+        obj.timestamp !== undefined &&
         obj.stack !== undefined &&
         obj.message !== undefined
     );
 }
 
 export function setCommon(chainId: number) {
-    common = Common.custom({
+    common = Common.default.custom({
         chainId: chainId,
         defaultHardfork: Hardfork.Istanbul
     }, {
@@ -80,7 +72,7 @@ export async function handleEvmTx(
     blockNum: number,
     tx: EosioEvmRaw,
     consoleLog: string
-) : Promise<StorageEvmTransaction | TxDeserializationError> {
+): Promise<StorageEvmTransaction | TxDeserializationError> {
     const result = await deseralizationPool.exec([{
         nativeBlockHash, trx_index, blockNum, tx, consoleLog
     }]);
@@ -147,7 +139,7 @@ export async function handleEvmDeposit(
     tx: EosioEvmDeposit,
     rpc: JsonRpc,
     gasUsedBlock: string
-) : Promise<StorageEvmTransaction | TxDeserializationError> {
+): Promise<StorageEvmTransaction | TxDeserializationError> {
     const quantity = parseAsset(tx.quantity);
 
     let toAddr = null;
@@ -166,7 +158,7 @@ export async function handleEvmDeposit(
                 });
         }
     } else {
-        if(isValidAddress(tx.memo))
+        if (isValidAddress(tx.memo))
             toAddr = tx.memo;
 
         else {
@@ -254,7 +246,7 @@ export async function handleEvmWithdraw(
     tx: EosioEvmWithdraw,
     rpc: JsonRpc,
     gasUsedBlock: string
-) : Promise<StorageEvmTransaction | TxDeserializationError> {
+): Promise<StorageEvmTransaction | TxDeserializationError> {
     const address = await queryAddress(tx.to, rpc);
 
     const quantity = parseAsset(tx.quantity);
@@ -275,11 +267,10 @@ export async function handleEvmWithdraw(
     };
     try {
         const evmTx = new TEVMTransaction(txParams, {common: common});
-
         const inputData = '0x' + evmTx.data?.toString('hex');
         const txBody: StorageEvmTransaction = {
             hash: '0x' + evmTx.hash()?.toString('hex'),
-            from: '0x' + address.toLowerCase(), 
+            from: '0x' + address.toLowerCase(),
             trx_index: trx_index,
             block: blockNum,
             block_hash: "",
