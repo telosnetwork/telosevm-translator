@@ -1,6 +1,6 @@
 export interface EosioEvmRaw {
     ram_payer: string,
-    tx: string,
+    tx: {array: Uint8Array},
     estimate_gas: boolean,
     sender: null | string
 }

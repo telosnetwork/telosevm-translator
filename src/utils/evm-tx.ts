@@ -12,7 +12,6 @@ import {
 
 import {Capability, JsonTx, N_DIV_2, TxData, TxOptions, TxValuesArray} from '@ethereumjs/tx'
 import {BaseTransaction} from '@ethereumjs/tx/dist/baseTransaction.js'
-import Common from '@ethereumjs/common'
 import {checkMaxInitCodeSize} from '@ethereumjs/tx/dist/util.js'
 import {numToHex} from './evm.js'
 
@@ -109,8 +108,6 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
     public constructor(txData: TxData, opts: TxOptions = {}) {
         super(txData, opts);
 
-        // this.common = this._validateTxV(this.v, opts.common)
-
         this.gasPrice = new BN(toBuffer(txData.gasPrice === '' ? '0x' : txData.gasPrice))
 
         if (this.gasPrice.mul(this.gasLimit).gt(MAX_INTEGER)) {
@@ -129,7 +126,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
             // instead of hashing only the first six elements (i.e. nonce, gasprice, startgas, to, value, data)
             // hash nine elements, with v replaced by CHAIN_ID, r = 0 and s = 0.
             const v = this.v!
-            const chainIdDoubled = this.common.chainIdBN().muln(2)
+            const chainIdDoubled = this.txOptions.common.chainIdBN().muln(2)
 
             // v and chain ID meet EIP-155 conditions
             if (v.eq(chainIdDoubled.addn(35)) || v.eq(chainIdDoubled.addn(36))) {
@@ -138,8 +135,8 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
         }
         // }
 
-        if (this.common.isActivatedEIP(3860)) {
-            checkMaxInitCodeSize(this.common, this.data.length)
+        if (this.txOptions.common.isActivatedEIP(3860)) {
+            checkMaxInitCodeSize(this.txOptions.common, this.data.length)
         }
 
         const freeze = opts?.freeze ?? true
@@ -179,7 +176,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
         const {v, r, s} = this
         if ((v === undefined || r === undefined || s === undefined)) {
             return false;
-        } else if ((v == this.common.chainIdBN()) && (bnToHex(r) === numToHex(0)) && (bnToHex(s) === numToHex(0))) {
+        } else if ((v == this.txOptions.common.chainIdBN()) && (bnToHex(r) === numToHex(0)) && (bnToHex(s) === numToHex(0))) {
             return false;
         } else if ((bnToHex(v) === numToHex(0)) && (bnToHex(r) === numToHex(0)) && (bnToHex(s) === numToHex(0))) {
             return false;
@@ -212,7 +209,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
         ]
 
         if (this.supports(Capability.EIP155ReplayProtection)) {
-            values.push(toBuffer(this.common.chainIdBN()))
+            values.push(toBuffer(this.txOptions.common.chainIdBN()))
             values.push(unpadBuffer(toBuffer(0)))
             values.push(unpadBuffer(toBuffer(0)))
         }
@@ -250,14 +247,14 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
      * The amount of gas paid for the data in this tx
      */
     getDataFee(): BN {
-        if (this.cache.dataFee && this.cache.dataFee.hardfork === this.common.hardfork()) {
+        if (this.cache.dataFee && this.cache.dataFee.hardfork === this.txOptions.common.hardfork()) {
             return this.cache.dataFee.value
         }
 
         if (Object.isFrozen(this)) {
             this.cache.dataFee = {
                 value: super.getDataFee(),
-                hardfork: this.common.hardfork(),
+                hardfork: this.txOptions.common.hardfork(),
             }
         }
 
@@ -323,7 +320,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
 
         // EIP-2: All transaction signatures whose s-value is greater than secp256k1n/2 are considered invalid.
         // Reasoning: https://ethereum.stackexchange.com/a/55728
-        if (this.common.gteHardfork('homestead') && this.s?.gt(N_DIV_2)) {
+        if (this.txOptions.common.gteHardfork('homestead') && this.s?.gt(N_DIV_2)) {
             const msg = this._errorMsg(
                 'Invalid Signature: s-values greater than secp256k1n/2 are considered invalid'
             )
@@ -337,7 +334,7 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
                 v!,
                 bnToUnpaddedBuffer(r!),
                 bnToUnpaddedBuffer(s!),
-                this.supports(Capability.EIP155ReplayProtection) ? this.common.chainIdBN() : undefined
+                this.supports(Capability.EIP155ReplayProtection) ? this.txOptions.common.chainIdBN() : undefined
             )
         } catch (e: any) {
             const msg = this._errorMsg('Invalid Signature')
@@ -351,11 +348,11 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
     protected _processSignature(v: number, r: Buffer, s: Buffer) {
         const vBN = new BN(v)
         if (this.supports(Capability.EIP155ReplayProtection)) {
-            vBN.iadd(this.common.chainIdBN().muln(2).addn(8))
+            vBN.iadd(this.txOptions.common.chainIdBN().muln(2).addn(8))
         }
 
         const opts = {
-            common: this.common,
+            common: this.txOptions.common,
         }
 
         return TEVMTransaction.fromTxData(
@@ -389,73 +386,6 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
             r: this.r !== undefined ? bnToHex(this.r) : undefined,
             s: this.s !== undefined ? bnToHex(this.s) : undefined,
         }
-    }
-
-    /**
-     * Validates tx's `v` value
-     */
-    private _validateTxV(v?: BN, common?: Common.default): Common.default {
-        // let chainIdBN
-        // // No unsigned tx and EIP-155 activated and chain ID included
-        // if (
-        //   v !== undefined &&
-        //   !v.eqn(0) &&
-        //   (!common || common.gteHardfork('spuriousDragon')) &&
-        //   !v.eqn(27) &&
-        //   !v.eqn(28)
-        // ) {
-        //   if (common) {
-        //     const chainIdDoubled = common.chainIdBN().muln(2)
-        //     const isValidEIP155V = v.eq(chainIdDoubled.addn(35)) || v.eq(chainIdDoubled.addn(36))
-
-        //     if (!isValidEIP155V) {
-        //       throw new Error(
-        //         `Incompatible EIP155-based V ${v} and chain id ${common.chainIdBN()}. See the Common parameter of the Transaction constructor to set the chain id.`
-        //       )
-        //     }
-        //   } else {
-        //     // Derive the original chain ID
-        //     let numSub
-        //     if (v.subn(35).isEven()) {
-        //       numSub = 35
-        //     } else {
-        //       numSub = 36
-        //     }
-        //     // Use derived chain ID to create a proper Common
-        //     chainIdBN = v.subn(numSub).divn(2)
-        //   }
-        // }
-        // return this._getCommon(common, chainIdBN)
-        return common;
-    }
-
-    /**
-     * @deprecated if you have called this internal method please use `tx.supports(Capabilities.EIP155ReplayProtection)` instead
-     */
-    private _unsignedTxImplementsEIP155() {
-        return this.common.gteHardfork('spuriousDragon')
-    }
-
-    /**
-     * @deprecated if you have called this internal method please use `tx.supports(Capabilities.EIP155ReplayProtection)` instead
-     */
-    private _signedTxImplementsEIP155() {
-        if (!this.isSigned()) {
-            const msg = this._errorMsg('This transaction is not signed')
-            throw new Error(msg)
-        }
-        const onEIP155BlockOrLater = this.common.gteHardfork('spuriousDragon')
-
-        // EIP155 spec:
-        // If block.number >= 2,675,000 and v = CHAIN_ID * 2 + 35 or v = CHAIN_ID * 2 + 36, then when computing the hash of a transaction for purposes of signing or recovering, instead of hashing only the first six elements (i.e. nonce, gasprice, startgas, to, value, data), hash nine elements, with v replaced by CHAIN_ID, r = 0 and s = 0.
-        const v = this.v!
-
-        const chainIdDoubled = this.common.chainIdBN().muln(2)
-
-        const vAndChainIdMeetEIP155Conditions =
-            v.eq(chainIdDoubled.addn(35)) || v.eq(chainIdDoubled.addn(36))
-
-        return vAndChainIdMeetEIP155Conditions && onEIP155BlockOrLater
     }
 
     /**

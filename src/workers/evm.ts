@@ -77,7 +77,7 @@ parentPort.on(
                 logger.warn('Failed to parse receiptLog');
             }
 
-            const txRaw = Buffer.from(arg.tx.tx, 'hex');
+            const txRaw = Buffer.from(arg.tx.tx.array);
 
             let evmTx = TEVMTransaction.fromSerializedTx(
                 txRaw, {common});

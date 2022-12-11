@@ -1,5 +1,5 @@
 import {readFileSync} from "node:fs";
-import path from 'node:path';
+
 
 import {HyperionSequentialReader} from "@eosrio/hyperion-sequential-reader";
 
@@ -7,13 +7,13 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './t
 
 import logger from './utils/winston.js';
 
-import {StorageEosioAction} from './types/evm.js';
+import {StorageEosioAction, StorageEvmTransaction} from './types/evm.js';
 
 import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
-    EMPTY_TRIE_BUF,
+    EMPTY_TRIE_BUF, EVMTxWrapper,
     formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
@@ -26,20 +26,27 @@ import {
 import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {getRPCClient} from './utils/eosio.js';
-import {ABI} from "@greymass/eosio";
+import {
+    deserializeEosioType,
+    extractGlobalContractRow,
+    extractShipTraces,
+    getActionAbiType,
+    getRPCClient
+} from './utils/eosio.js';
+import {ABI, Serializer} from "@greymass/eosio";
 
 
 // debug packages
 import logWhyIsNodeRunning from "why-is-node-running";
 
 import nodeOOMHeapdump from "node-oom-heapdump";
-
-if (process.env.LOG_LEVEL == 'debug') {
-    nodeOOMHeapdump({
-        path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`)
-    });
-}
+import {
+    handleEvmDeposit,
+    handleEvmTx,
+    handleEvmWithdraw,
+    isTxDeserializationError, setCommon,
+    TxDeserializationError
+} from "./handlers.js";
 
 
 process.on('unhandledRejection', error => {
@@ -54,7 +61,11 @@ process.on('unhandledRejection', error => {
 
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
-
+interface InprogressBuffers {
+    evmTransactions: Array<EVMTxWrapper>;
+    errors: TxDeserializationError[];
+    evmBlockNum: number;
+};
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -90,6 +101,8 @@ export class TEVMIndexer {
 
     private statsTaskId: NodeJS.Timer;
 
+    private limboBuffs: InprogressBuffers = null;
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -107,8 +120,10 @@ export class TEVMIndexer {
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
-        if (process.env.LOG_LEVEL == 'debug')
-            process.on('SIGUSR1', async () => logWhyIsNodeRunning());
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
+
+        setCommon(telosConfig.chainId);
     }
 
     /*
@@ -220,22 +235,173 @@ export class TEVMIndexer {
         return storableBlockInfo;
     }
 
+    private handleStateSwitch(block: any) {
+        // SYNC & HEAD mode swtich detection
+        const blocksUntilHead = block.head.block_num - this.lastBlock;
+
+        if (blocksUntilHead <= 100) {
+            this.state = IndexerState.HEAD;
+            this.connector.state = IndexerState.HEAD;
+
+            logger.info(
+                'switched to HEAD mode! blocks will be written to db asap.');
+        }
+    }
+
     /*
      * State history on-block-deserialized call back, pushes blocks out of order
      * will sleep if block received is too far from last stored block.
      */
     async processBlock(block: any): Promise<void> {
 
-        logger.info(JSON.stringify(block));
-        // await this.maybeHandleFork(newestBlock);
-        // const storableBlockInfo = this.hashBlock(newestBlock);
+        if (block.blockInfo.this_block.block_num < this.startBlock)
+            return;
 
-        // // Push to db
-        // await this.connector.pushBlock(storableBlockInfo);
+        if (this.state == IndexerState.SYNC)
+            this.handleStateSwitch(block.blockInfo);
 
-        // // Update block num state tracking attributes
-        // this.lastBlock = storableBlockInfo.delta['@global'].block_num;
-        // this.lastNativeBlock = storableBlockInfo.delta.block_num;
+        const currentBlock = block.blockInfo.this_block.block_num;
+
+        // process deltas to catch evm block num
+        const globalDelta = extractGlobalContractRow(block.deltas).value;
+
+        let buffs: InprogressBuffers = null;
+
+        if (globalDelta != null) {
+            const currentEvmBlock = globalDelta.block_num;
+
+            buffs = {
+                evmTransactions: [],
+                errors: [],
+                evmBlockNum: currentEvmBlock
+            };
+
+            if (this.limboBuffs != null) {
+                for (const evmTx of this.limboBuffs.evmTransactions)
+                    evmTx.evmTx.block = currentEvmBlock;
+
+                buffs.evmTransactions = this.limboBuffs.evmTransactions
+                buffs.errors = this.limboBuffs.errors;
+                this.limboBuffs = null;
+            }
+        } else {
+            logger.warn(`onblock failed at block ${currentBlock}`);
+
+            if (this.limboBuffs == null) {
+                this.limboBuffs = {
+                    evmTransactions: [],
+                    errors: [],
+                    evmBlockNum: 0
+                };
+            }
+
+            buffs = this.limboBuffs;
+        }
+
+        const evmBlockNum = buffs.evmBlockNum;
+        const evmTransactions = buffs.evmTransactions;
+        const errors = buffs.errors;
+
+        // traces
+        let gasUsedBlock: string;
+        const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
+        const contractWhitelist = [
+            "eosio.evm", "eosio.token",  // evm
+            "eosio.msig"  // deferred transaction sig catch
+        ];
+        const actionWhitelist = [
+            "raw", "withdraw", "transfer",  // evm
+            "exec" // msig deferred sig catch
+        ]
+
+        for (const action of block.actions) {
+
+            if (!contractWhitelist.includes(action.account) ||
+                !actionWhitelist.includes(action.name))
+                continue;
+
+            // discard transfers to accounts other than eosio.evm
+            // and transfers from system accounts
+            if ((action.name == "transfer" && action.data.to != "eosio.evm") ||
+                (action.name == "transfer" && action.data.from in systemAccounts))
+                continue;
+
+
+            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
+            if (action.account == "eosio.evm") {
+                if (action.name == "raw") {
+                    evmTx = await handleEvmTx(
+                        block.blockInfo.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        action.data,
+                        action.console  // tx.trace.console
+                    );
+                    if (!isTxDeserializationError(evmTx))
+                        gasUsedBlock = evmTx.gasusedblock;
+                } else if (action.name == "withdraw"){
+                    evmTx = await handleEvmWithdraw(
+                        block.blockInfo.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        action.data,
+                        this.rpc,
+                        gasUsedBlock
+                    );
+                }
+            } else if (action.account == "eosio.token" &&
+                action.name == "transfer" &&
+                action.data.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(
+                    block.blockInfo.this_block.block_id,
+                    evmTransactions.length,
+                    evmBlockNum,
+                    action.data,
+                    this.rpc,
+                    gasUsedBlock
+                );
+            } else
+                continue;
+
+            if (isTxDeserializationError(evmTx)) {
+                if (this.config.debug) {
+                    errors.push(evmTx);
+                    continue;
+                } else {
+                    logger.error(evmTx.info.error);
+                    throw new Error(JSON.stringify(evmTx));
+                }
+            }
+
+            evmTransactions.push({
+                trx_id: action.trxId,
+                action_ordinal: action.console,
+                signatures: [],
+                evmTx: evmTx
+            });
+        }
+
+        if (globalDelta == null)
+            return;
+
+        const newestBlock = new ProcessedBlock({
+            nativeBlockHash: block.blockInfo.this_block.block_id,
+            nativeBlockNumber: currentBlock,
+            evmBlockNumber: evmBlockNum,
+            blockTimestamp: block.blockHeader.timestamp,
+            evmTxs: evmTransactions,
+            errors: errors
+        });
+
+        await this.maybeHandleFork(newestBlock);
+        const storableBlockInfo = this.hashBlock(newestBlock);
+
+        // Push to db
+        await this.connector.pushBlock(storableBlockInfo);
+
+        // Update block num state tracking attributes
+        this.lastBlock = evmBlockNum;
+        this.lastNativeBlock = storableBlockInfo.delta.block_num;
 
         // For debug stats
         this.pushedLastSecond++;
@@ -305,14 +471,16 @@ export class TEVMIndexer {
         this.lastBlock = startEvmBlock - 1;
         this.lastNativeBlock = this.startBlock - 1;
 
-        this.reader = new HyperionSequentialReader(
-            this.wsEndpoint, {
-                poolSize: this.config.perf.workerAmount,
-                startBlock: startBlock
-            });
+        this.reader = new HyperionSequentialReader({
+            poolSize: this.config.perf.workerAmount,
+            shipApi: this.wsEndpoint,
+            chainApi: this.config.endpoint,
+            blockConcurrency: this.config.perf.workerAmount,
+            startBlock: startBlock
+        });
         this.reader.events.on('block', this.processBlock.bind(this));
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
-            const abi = ABI.from(JSON.parse(readFileSync(`./abis/${c}.json`).toString()));
+            const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
             this.reader.addContract(c, abi);
         })
         this.reader.start();
@@ -336,8 +504,8 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
-        if (process.env.LOG_LEVEL == 'debug')
-            logWhyIsNodeRunning();
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     logWhyIsNodeRunning();
 
         clearInterval(this.statsTaskId);
 

@@ -184,24 +184,13 @@ export function extractShipContractRows(deltas: ShipTableDelta[]): Array<EosioCo
     return result;
 }
 
-export function extractGlobalContractRow(deltas: ShipTableDelta[]): EosioContractRow<any> {
-    for (const delta of deltas) {
-        if (delta[0] === 'table_delta_v0' || delta[0] === 'table_delta_v1') {
-            if (delta[1].name === 'contract_row') {
-                for (const row of delta[1].rows) {
-                    if (row.data[0] === 'contract_row_v0') {
-                        const dt: EosioContractRow<any> = {...row.data[1], present: !!row.present};
-                        if (dt.code == 'eosio' && dt.scope == 'eosio' && dt.table == 'global')
-                            return dt;
-                    } else {
-                        throw new Error('Unsupported contract row received: ' + row.data[0]);
-                    }
-                }
-            }
-        } else {
-            throw new Error('Unsupported table delta response received: ' + delta[0]);
-        }
-    }
+export function extractGlobalContractRow(contractRows: Array<any>): any {
+   for (const row of contractRows) {
+        if (row.code === 'eosio' &&
+            row.scope ==='eosio' &&
+            row.table === 'global')
+            return row
+   }
 
     return null;
 }
