@@ -14,8 +14,7 @@ import moment from 'moment';
 import Common, {Chain, Hardfork} from '@ethereumjs/common';
 
 // ethereum tools
-import * as _BN from "bn.js";
-const BN = _BN.default;
+import BN from "bn.js";
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -72,10 +71,12 @@ export async function handleEvmTx(
     trx_index: number,
     blockNum: number,
     tx: EosioEvmRaw,
-    consoleLog: string
+    consoleLog: string,
+    gasUsedBlock: BN
 ): Promise<StorageEvmTransaction | TxDeserializationError> {
     const result = await deseralizationPool.exec([{
-        nativeBlockHash, trx_index, blockNum, tx, consoleLog
+        nativeBlockHash, trx_index, blockNum, tx, consoleLog,
+        gasUsedBlock: gasUsedBlock.toString()
     }]);
 
     if (result.success)
@@ -112,6 +113,7 @@ async function queryAddress(accountName: string, rpc: JsonRpc) {
                 upper_bound: acctInt,
                 limit: 1
             });
+            break
 
         } catch (error) {
             logger.warn(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
@@ -139,7 +141,7 @@ export async function handleEvmDeposit(
     blockNum: number,
     tx: EosioEvmDeposit,
     rpc: JsonRpc,
-    gasUsedBlock: string
+    gasUsedBlock: BN
 ): Promise<StorageEvmTransaction | TxDeserializationError> {
     const quantity = parseAsset(tx.quantity);
 
@@ -197,7 +199,7 @@ export async function handleEvmDeposit(
     try {
         const evmTx = TEVMTransaction.fromTxData(
             txParams, {common: common});
-
+        const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
         const inputData = '0x' + evmTx.data?.toString('hex');
         const txBody: StorageEvmTransaction = {
             hash: '0x' + evmTx.hash()?.toString('hex'),
@@ -209,7 +211,7 @@ export async function handleEvmDeposit(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
+            value_d: tx.quantity,
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit.toString(),
@@ -217,8 +219,8 @@ export async function handleEvmDeposit(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
-            gasusedblock: gasUsedBlock,
+            gasused: gasUsed.toString(),
+            gasusedblock: gasUsedBlock.add(gasUsed).toString(),
             charged_gas_price: '0',
             output: "",
             raw: evmTx.serialize(),
@@ -246,7 +248,7 @@ export async function handleEvmWithdraw(
     blockNum: number,
     tx: EosioEvmWithdraw,
     rpc: JsonRpc,
-    gasUsedBlock: string
+    gasUsedBlock: BN
 ): Promise<StorageEvmTransaction | TxDeserializationError> {
     const address = await queryAddress(tx.to, rpc);
 
@@ -268,6 +270,7 @@ export async function handleEvmWithdraw(
     };
     try {
         const evmTx = new TEVMTransaction(txParams, {common: common});
+        const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
         const inputData = '0x' + evmTx.data?.toString('hex');
         const txBody: StorageEvmTransaction = {
             hash: '0x' + evmTx.hash()?.toString('hex'),
@@ -279,7 +282,7 @@ export async function handleEvmWithdraw(
             input_data: inputData,
             input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
             value: evmTx.value?.toString(16),
-            value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
+            value_d: tx.quantity,
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit?.toString(),
@@ -287,8 +290,8 @@ export async function handleEvmWithdraw(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: new BN(removeHexPrefix(stdGasLimit), 16).toString(),
-            gasusedblock: gasUsedBlock,
+            gasused: gasUsed.toString(),
+            gasusedblock: gasUsedBlock.add(gasUsed).toString(),
             charged_gas_price: '0',
             output: "",
             raw: evmTx.serialize(),

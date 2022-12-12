@@ -186,8 +186,7 @@ export class TEVMIndexer {
         //  }
         //  console.log(`total header size: ${blockHeaderSize}`);
 
-        //  if (block.evmBlockNumber == 180698860)
-        //      process.exit(0);
+
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -303,7 +302,7 @@ export class TEVMIndexer {
         const errors = buffs.errors;
 
         // traces
-        let gasUsedBlock: string;
+        let gasUsedBlock = new BN(0);
         const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
         const contractWhitelist = [
             "eosio.evm", "eosio.token",  // evm
@@ -316,52 +315,54 @@ export class TEVMIndexer {
 
         for (const action of block.actions) {
 
-            if (!contractWhitelist.includes(action.account) ||
-                !actionWhitelist.includes(action.name))
+            if (!contractWhitelist.includes(action.act.account) ||
+                !actionWhitelist.includes(action.act.name))
                 continue;
 
             // discard transfers to accounts other than eosio.evm
             // and transfers from system accounts
-            if ((action.name == "transfer" && action.data.to != "eosio.evm") ||
-                (action.name == "transfer" && action.data.from in systemAccounts))
+            if ((action.act.name == "transfer" && action.act.data.to != "eosio.evm") ||
+                (action.act.name == "transfer" && action.act.data.from in systemAccounts))
                 continue;
 
 
             let evmTx: StorageEvmTransaction | TxDeserializationError = null;
-            if (action.account == "eosio.evm") {
-                if (action.name == "raw") {
+            if (action.act.account == "eosio.evm") {
+                if (action.act.name == "raw") {
                     evmTx = await handleEvmTx(
                         block.blockInfo.this_block.block_id,
                         evmTransactions.length,
                         evmBlockNum,
-                        action.data,
-                        action.console  // tx.trace.console
+                        action.act.data,
+                        action.console,  // tx.trace.console,
+                        gasUsedBlock
                     );
-                    if (!isTxDeserializationError(evmTx))
-                        gasUsedBlock = evmTx.gasusedblock;
-                } else if (action.name == "withdraw"){
+                } else if (action.act.name == "withdraw"){
                     evmTx = await handleEvmWithdraw(
                         block.blockInfo.this_block.block_id,
                         evmTransactions.length,
                         evmBlockNum,
-                        action.data,
+                        action.act.data,
                         this.rpc,
                         gasUsedBlock
                     );
                 }
-            } else if (action.account == "eosio.token" &&
-                action.name == "transfer" &&
-                action.data.to == "eosio.evm") {
+            } else if (action.act.account == "eosio.token" &&
+                action.act.name == "transfer" &&
+                action.act.data.to == "eosio.evm") {
                 evmTx = await handleEvmDeposit(
                     block.blockInfo.this_block.block_id,
                     evmTransactions.length,
                     evmBlockNum,
-                    action.data,
+                    action.act.data,
                     this.rpc,
                     gasUsedBlock
                 );
             } else
                 continue;
+
+            if (!isTxDeserializationError(evmTx))
+                gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
 
             if (isTxDeserializationError(evmTx)) {
                 if (this.config.debug) {

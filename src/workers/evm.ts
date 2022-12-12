@@ -38,7 +38,8 @@ parentPort.on(
         trx_index: number,
         blockNum: number,
         tx: EosioEvmRaw,
-        consoleLog: string
+        consoleLog: string,
+        gasUsedBlock: string
     }>) => {
         const arg = param[0];
         try {
@@ -77,7 +78,7 @@ parentPort.on(
                 logger.warn('Failed to parse receiptLog');
             }
 
-            const txRaw = Buffer.from(arg.tx.tx.array);
+            const txRaw = Buffer.from(arg.tx.tx, "hex");
 
             let evmTx = TEVMTransaction.fromSerializedTx(
                 txRaw, {common});
@@ -147,7 +148,7 @@ parentPort.on(
                 epoch: receipt.epoch,
                 createdaddr: receipt.createdaddr.toLowerCase(),
                 gasused: new BN(receipt.gasused, 16).toString(),
-                gasusedblock: new BN(receipt.gasusedblock, 16).toString(),
+                gasusedblock: new BN(arg.gasUsedBlock).add(new BN(receipt.gasused)).toString(),
                 charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
                 raw: txRaw,

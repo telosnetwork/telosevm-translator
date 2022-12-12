@@ -50,9 +50,9 @@
     "tslib" "^2.4.0"
     "undici" "^5.1.1"
 
-"@eosrio/hyperion-sequential-reader@file:../hyperion-sequential-reader/packages/eosrio-hyperion-sequential-reader-1.1.0.tgz":
-  "integrity" "sha512-FYgkVIpDjiNPRfBcch6btqMn3Zqcw9kdDhnB6Z/8FR/AWPGKYia25lcymVY917g2EEo1repr2dCzBqhxeBVhaw=="
-  "resolved" "file:../hyperion-sequential-reader/packages/eosrio-hyperion-sequential-reader-1.1.0.tgz"
+"@eosrio/hyperion-sequential-reader@file:./eosrio-hyperion-sequential-reader-1.1.0.tgz":
+  "integrity" "sha512-oWoisqHdOXAC+okbX+SclRcN+uzvEHk47d1r3R4EWc+OEo99Cqisdxbghp7eq4ZyrB6IgztoGQNRZOHn0WCUdw=="
+  "resolved" "file:eosrio-hyperion-sequential-reader-1.1.0.tgz"
   "version" "1.1.0"
   dependencies:
     "@greymass/eosio" "0.6.5"
@@ -501,7 +501,7 @@
     "@ethersproject/properties" "^5.7.0"
     "@ethersproject/strings" "^5.7.0"
 
-"@greymass/eosio@^0.6.4", "@greymass/eosio@0.6.5":
+"@greymass/eosio@^0.6.5", "@greymass/eosio@0.6.5":
   "integrity" "sha512-KQHNvJIdfzNI6aAsNSXT8w6cZ77oHPPxzQgvTqy6svQx6LEh+pZGZxJIMvxNgIgSCJcfyOtzYuzXj0ehs+oeow=="
   "resolved" "https://registry.npmjs.org/@greymass/eosio/-/eosio-0.6.5.tgz"
   "version" "0.6.5"
