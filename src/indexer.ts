@@ -27,10 +27,7 @@ import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
 import {
-    deserializeEosioType,
     extractGlobalContractRow,
-    extractShipTraces,
-    getActionAbiType,
     getRPCClient
 } from './utils/eosio.js';
 import {ABI, Serializer} from "@greymass/eosio";
@@ -79,7 +76,6 @@ export class TEVMIndexer {
     genesisBlock: RpcInterfaces.GetBlockResult = null;
 
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
-    switchingState: boolean = false;  // flag required to do state switching cleanly
 
     config: IndexerConfig;  // global indexer config as defined by envoinrment or config file
 
@@ -95,7 +91,6 @@ export class TEVMIndexer {
     private forked: boolean = false  // flag required to limit the amount of fork handling tasks to one at all times
 
     // debug status used to print statistics
-    private queuedUpLastSecond: number = 0;
     private pushedLastSecond: number = 0;
     private idleWorkers: number = 0;
 

@@ -148,7 +148,7 @@ parentPort.on(
                 epoch: receipt.epoch,
                 createdaddr: receipt.createdaddr.toLowerCase(),
                 gasused: new BN(receipt.gasused, 16).toString(),
-                gasusedblock: new BN(arg.gasUsedBlock).add(new BN(receipt.gasused)).toString(),
+                gasusedblock: new BN(arg.gasUsedBlock).add(new BN(receipt.gasused, 16)).toString(),
                 charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
                 raw: txRaw,
