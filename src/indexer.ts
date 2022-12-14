@@ -36,7 +36,6 @@ import {ABI, Serializer} from "@greymass/eosio";
 // debug packages
 import logWhyIsNodeRunning from "why-is-node-running";
 
-import nodeOOMHeapdump from "node-oom-heapdump";
 import {
     handleEvmDeposit,
     handleEvmTx,
