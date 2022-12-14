@@ -370,7 +370,7 @@ export class TEVMIndexer {
 
             evmTransactions.push({
                 trx_id: action.trxId,
-                action_ordinal: action.console,
+                action_ordinal: action.actionOrdinal,
                 signatures: [],
                 evmTx: evmTx
             });
