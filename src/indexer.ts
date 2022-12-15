@@ -306,8 +306,12 @@ export class TEVMIndexer {
             "raw", "withdraw", "transfer",  // evm
             "exec" // msig deferred sig catch
         ]
-
         for (const action of block.actions) {
+            const duplicate = evmTransactions.find(tx => {
+                return tx.trx_id === action.trxId
+            });
+            if (duplicate)
+                throw new Error('Duplicate action processing!!!');
 
             if (!contractWhitelist.includes(action.act.account) ||
                 !actionWhitelist.includes(action.act.name))
@@ -315,7 +319,7 @@ export class TEVMIndexer {
 
             // discard transfers to accounts other than eosio.evm
             // and transfers from system accounts
-            if ((action.act.name == "transfer" && action.act.data.to != "eosio.evm") ||
+            if ((action.act.name == "transfer" && action.receiver != "eosio.evm") ||
                 (action.act.name == "transfer" && action.act.data.from in systemAccounts))
                 continue;
 
