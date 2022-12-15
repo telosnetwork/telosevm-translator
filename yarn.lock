@@ -50,9 +50,9 @@
     tslib "^2.4.0"
     undici "^5.5.1"
 
-"@eosrio/hyperion-sequential-reader@file:./eosrio-hyperion-sequential-reader-1.1.1.tgz":
-  version "1.1.1"
-  resolved "file:./eosrio-hyperion-sequential-reader-1.1.1.tgz#77b05ecad5378548afb340a371ab0d9efef7d2ec"
+"@eosrio/hyperion-sequential-reader@file:./eosrio-hyperion-sequential-reader-1.1.0.tgz":
+  version "1.1.0"
+  resolved "file:./eosrio-hyperion-sequential-reader-1.1.0.tgz#bcf81a4762559bb04a5a3cc85f36ae1840d10be8"
   dependencies:
     "@greymass/eosio" "0.6.5"
     async "^3.2.4"
@@ -113,12 +113,12 @@
   integrity sha512-LM4jS5n33bJN60fM5EC8VeyhUgga6/DjCPBV2vWjnfVtobqtOiNC4SQ1MRFqyBSmJGGdB533JZWewyvlcdJtkQ==
 
 "@ethereumjs/trie@^5.0.0-beta.1":
-  version "5.0.1"
-  resolved "https://registry.yarnpkg.com/@ethereumjs/trie/-/trie-5.0.1.tgz#3cb5730450839c8a540ec48e16a7825a1d0897e5"
-  integrity sha512-MA8uXR2pa+r8+wBvlyeZoUewwbUZe4Iy4zKi38THP6/flYvIIY+bTVjf/EA3jMhH68j6nJH5SFu5wi5SBdS/2A==
+  version "5.0.2"
+  resolved "https://registry.yarnpkg.com/@ethereumjs/trie/-/trie-5.0.2.tgz#766c22c380367b9f00eed685ba3044c290e15c33"
+  integrity sha512-fZ7CbygZwJ2UTOgJt39L8nQHsLzB6eC0317TdKgkZQfG4AZ4ir+DyESUcl0g5iEN6t6ZqEYj7AfNB2/6C/jR5g==
   dependencies:
     "@ethereumjs/rlp" "^4.0.0"
-    "@ethereumjs/util" "^8.0.0"
+    "@ethereumjs/util" "^8.0.3"
     "@types/readable-stream" "^2.3.13"
     ethereum-cryptography "^1.1.2"
     readable-stream "^3.6.0"
@@ -131,10 +131,10 @@
     "@ethereumjs/common" "^2.6.4"
     ethereumjs-util "^7.1.5"
 
-"@ethereumjs/util@^8.0.0", "@ethereumjs/util@^8.0.0-beta.1":
-  version "8.0.2"
-  resolved "https://registry.yarnpkg.com/@ethereumjs/util/-/util-8.0.2.tgz#b7348fc7253649b0f00685a94546c6eee1fad819"
-  integrity sha512-b1Fcxmq+ckCdoLPhVIBkTcH8szigMapPuEmD8EDakvtI5Na5rzmX1sBW73YQqaPc7iUxGCAzZP1LrFQ7aEMugA==
+"@ethereumjs/util@^8.0.0-beta.1", "@ethereumjs/util@^8.0.3":
+  version "8.0.3"
+  resolved "https://registry.yarnpkg.com/@ethereumjs/util/-/util-8.0.3.tgz#410c2dc8c6d519b29f1a471aa9b9df9952e41239"
+  integrity sha512-0apCbwc8xAaie6W7q6QyogfyRS2BMU816a8KwpnpRw9Qrc6Bws+l7J3LfCLMt2iL6Wi8CYb0B29AeIr2N4vHnw==
   dependencies:
     "@ethereumjs/rlp" "^4.0.0-beta.2"
     async "^3.2.4"
@@ -504,6 +504,17 @@
   version "0.6.5"
   resolved "https://registry.yarnpkg.com/@greymass/eosio/-/eosio-0.6.5.tgz#914f98868bb918fe665691d1235988103e8a4181"
   integrity sha512-KQHNvJIdfzNI6aAsNSXT8w6cZ77oHPPxzQgvTqy6svQx6LEh+pZGZxJIMvxNgIgSCJcfyOtzYuzXj0ehs+oeow==
+  dependencies:
+    bn.js "^4.11.9"
+    brorand "^1.1.0"
+    elliptic "^6.5.4"
+    hash.js "^1.0.0"
+    tslib "^2.0.3"
+
+"@greymass/eosio@0.6.6":
+  version "0.6.6"
+  resolved "https://registry.yarnpkg.com/@greymass/eosio/-/eosio-0.6.6.tgz#2e119474a198b81229d45ace1a8107a646db7ea7"
+  integrity sha512-3kuPA6XVftRFIz3kaXakH9qhkutdHfJDAymUd98oO2cO74wv07t9/5SZfC6eBp+ijnu3pMvBIPXv9LogV7sYfg==
   dependencies:
     bn.js "^4.11.9"
     brorand "^1.1.0"
