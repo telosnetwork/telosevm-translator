@@ -121,8 +121,7 @@ export class TEVMIndexer {
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec` +
-            ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle`;
+        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastBlock;
 
         if (untilHead > 3) {
@@ -244,8 +243,10 @@ export class TEVMIndexer {
      */
     async processBlock(block: any): Promise<void> {
 
-        if (block.blockInfo.this_block.block_num < this.startBlock)
+        if (block.blockInfo.this_block.block_num < this.startBlock) {
+            this.reader.ack();
             return;
+        }
 
         if (this.state == IndexerState.SYNC)
             this.handleStateSwitch(block.blockInfo);
@@ -303,12 +304,13 @@ export class TEVMIndexer {
             "raw", "withdraw", "transfer",  // evm
             "exec" // msig deferred sig catch
         ]
+        const actDigests = [];
         for (const action of block.actions) {
-            const duplicate = evmTransactions.find(tx => {
-                return tx.trx_id === action.trxId
-            });
-            if (duplicate)
-                throw new Error('Duplicate action processing!!!');
+            const aDuplicate = actDigests.find(digest => {
+                return digest === action.receipt.act_digest
+            })
+            if (aDuplicate)
+                continue;
 
             if (!contractWhitelist.includes(action.act.account) ||
                 !actionWhitelist.includes(action.act.name))
@@ -375,6 +377,7 @@ export class TEVMIndexer {
                 signatures: [],
                 evmTx: evmTx
             });
+            actDigests.push(action.receipt.act_digest);
         }
 
         if (globalDelta == null)
@@ -473,7 +476,7 @@ export class TEVMIndexer {
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
-            startBlock: startBlock
+            startBlock: Math.max(startBlock - 100, 0)
         });
         this.reader.events.on('block', this.processBlock.bind(this));
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
