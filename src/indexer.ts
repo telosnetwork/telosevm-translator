@@ -33,9 +33,6 @@ import {
 import {ABI, Serializer} from "@greymass/eosio";
 
 
-// debug packages
-import logWhyIsNodeRunning from "why-is-node-running";
-
 import {
     handleEvmDeposit,
     handleEvmTx,
@@ -468,7 +465,8 @@ export class TEVMIndexer {
         // Init state tracking attributes
         this.prevHash = prevHash;
         this.lastBlock = startEvmBlock - 1;
-        this.lastNativeBlock = this.startBlock - 1;
+        this.lastNativeBlock = startBlock - 1;
+        this.connector.lastPushed = startEvmBlock - 1;
 
         this.reader = new HyperionSequentialReader({
             poolSize: this.config.perf.workerAmount,

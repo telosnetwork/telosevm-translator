@@ -31,6 +31,9 @@ export class Connector {
     blockDrain: any[];
     opDrain: any[];
 
+    totalPushed: number = 0;
+    lastPushed: number = 0;
+
     writeCounter: number = 0;
 
     constructor(config: IndexerConfig) {
@@ -420,6 +423,10 @@ export class Connector {
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
+        const currentEvmBlock = blockInfo.delta['@global'].block_num;
+        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1)
+            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`)
+
         const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
@@ -439,6 +446,9 @@ export class Connector {
 
         this.opDrain = [...this.opDrain, ...operations];
         this.blockDrain.push(blockInfo);
+
+        this.lastPushed = currentEvmBlock;
+        this.totalPushed++;
 
         if (this.state == IndexerState.HEAD ||
             this.blockDrain.length >= this.config.perf.elasticDumpSize) {
