@@ -1298,15 +1298,6 @@ export function hashTxAction(action: EosioAction) {
     }
 }
 
-export function getContract(contractAbi: RpcInterfaces.Abi) {
-    const types = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), contractAbi)
-    const actions = new Map()
-    for (const {name, type} of contractAbi.actions) {
-        actions.set(name, Serialize.getType(types, type))
-    }
-    return {types, actions}
-}
-
 const nfObject = new Intl.NumberFormat('en-US');
 
 export function formatBlockNumbers(blockNum: number, evmBlockNum: number) {
@@ -1357,12 +1348,10 @@ export class ProcessedBlock {
     }
 }
 
-export type BlockConsumer = (block: ProcessedBlock) => any;
-
-export function generateTxRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
+export async function generateTxRootHash(evmTxs: Array<EVMTxWrapper>): Promise<Buffer> {
     const trie = new Trie()
     for (const [i, tx] of evmTxs.entries())
-        trie.put(Buffer.from(RLP.encode(i)), tx.evmTx.raw).then();
+        await trie.put(Buffer.from(RLP.encode(i)), tx.evmTx.raw);
 
     return trie.root()
 }
@@ -1394,7 +1383,7 @@ export function encodeReceipt(receipt: TxReceipt) {
     return encoded
 }
 
-export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
+export async function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Promise<Buffer> {
     const receiptTrie = new Trie()
     for (const [i, tx] of evmTxs.entries()) {
         const logs: Log[] = [];
@@ -1426,7 +1415,7 @@ export function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Buffer {
             status: tx.evmTx.status
         };
         const encodedReceipt = encodeReceipt(receipt)
-        receiptTrie.put(Buffer.from(RLP.encode(i)), encodedReceipt).then();
+        await receiptTrie.put(Buffer.from(RLP.encode(i)), encodedReceipt);
     }
     return receiptTrie.root()
 }

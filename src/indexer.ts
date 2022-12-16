@@ -137,12 +137,12 @@ export class TEVMIndexer {
      * Generate valid ethereum has, requires blocks to be passed in order, updates state
      * handling class attributes.
      */
-    hashBlock(block: ProcessedBlock) {
+    async hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
         // generate valid ethereum hashes
-        const transactionsRoot = generateTxRootHash(evmTxs);
-        const receiptsRoot = generateReceiptRootHash(evmTxs);
+        const transactionsRoot = await generateTxRootHash(evmTxs);
+        const receiptsRoot = await  generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
         const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
@@ -393,7 +393,7 @@ export class TEVMIndexer {
         });
 
         await this.maybeHandleFork(newestBlock);
-        const storableBlockInfo = this.hashBlock(newestBlock);
+        const storableBlockInfo = await this.hashBlock(newestBlock);
 
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
