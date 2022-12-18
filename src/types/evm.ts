@@ -17,24 +17,6 @@ export interface EosioEvmWithdraw {
     quantity: string
 }
 
-export interface EvmBigNumber {
-    _hex: string
-}
-
-export interface EvmTransaction {
-    from: string,
-    nonce: number,
-    gasPrice: string,
-    gasLimit: string,
-    to: string,
-    value: string,
-    data: string,
-    v: number | string,
-    r: string,
-    s: string
-}
-
-
 // Hyperion plugin compat
 export interface InteralEvmTransaction {
     callType: string,

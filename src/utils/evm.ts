@@ -1319,6 +1319,7 @@ export class StorageEosioDelta {
     };
     "@blockHash": string;
     "@evmBlockHash": string;
+    "@evmPrevBlockHash": string;
     "@receiptsRootHash": string;
     "@transactionsRoot": string;
     gasUsed: string;
