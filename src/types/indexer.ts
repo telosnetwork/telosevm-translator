@@ -32,6 +32,7 @@ export type IndexerConfig = {
     evmDelta: number;
     startBlock: number;
     stopBlock: number;
+    irreversibleOnly: boolean;
     perf: {
         workerAmount: number;
         elasticDumpSize: number;

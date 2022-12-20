@@ -93,6 +93,7 @@ export class TEVMIndexer {
     private statsTaskId: NodeJS.Timer;
 
     private limboBuffs: InprogressBuffers = null;
+    private irreversibleOnly: boolean;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -106,6 +107,7 @@ export class TEVMIndexer {
         this.stopBlock = telosConfig.stopBlock;
         this.rpc = getRPCClient(telosConfig);
         this.connector = new Connector(telosConfig);
+        this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
         process.on('SIGINT', async () => await this.stop());
         process.on('SIGQUIT', async () => await this.stop());
@@ -476,7 +478,8 @@ export class TEVMIndexer {
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
-            startBlock: Math.max(startBlock - 100, 0)
+            startBlock: Math.max(startBlock - 100, 0),
+            irreversibleOnly: this.irreversibleOnly
         });
         this.reader.events.on('block', this.processBlock.bind(this));
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
