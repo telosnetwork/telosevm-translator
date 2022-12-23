@@ -195,6 +195,7 @@ export class TEVMIndexer {
                 },
                 "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
+                "@blockHash": block.nativeBlockHash,
                 "@receiptsRootHash": receiptsRoot.toString('hex'),
                 "@transactionsRoot": transactionsRoot.toString('hex'),
                 "gasUsed": gasUsed.toString(),

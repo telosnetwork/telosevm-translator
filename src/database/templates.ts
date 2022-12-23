@@ -319,6 +319,7 @@ export function getTemplatesForChain(chain: string) {
 
                 "@evmPrevBlockHash": {"type": "keyword"},
                 "@evmBlockHash": {"type": "keyword"},
+                "@blockHash": {"type": "keyword"},
                 "@receiptsRootHash": {"type": "keyword"},
                 "@transactionsRoot": {"type": "keyword"},
 
