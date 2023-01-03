@@ -151,7 +151,7 @@ parentPort.on(
                 gasusedblock: new BN(arg.gasUsedBlock).add(new BN(receipt.gasused, 16)).toString(),
                 charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
-                raw: txRaw,
+                raw: evmTx.serialize(),
                 v: v,
                 r: r,
                 s: s
