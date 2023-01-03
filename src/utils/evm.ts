@@ -140,7 +140,8 @@ export function generateUniqueVRS(
         addHexPrefix(blockHashBN.add(trxIndexBN).toString('hex')));
 
     const s = unpadHexString(
-        addHexPrefix(sender.toLowerCase().padEnd(64, '0')));
+        addHexPrefix(
+            removeHexPrefix(sender.toLowerCase()).padEnd(64, '0')));
 
     return [v, r, s];
 }
@@ -1225,8 +1226,6 @@ export class BlockHeader {
 }
 
 import {StorageEvmTransaction} from '../types/evm.js';
-import {EosioAction} from "../types/eosio.js";
-import {RpcInterfaces, Serialize} from "eosjs";
 import {TxDeserializationError} from "../handlers.js";
 import {Trie} from "@ethereumjs/trie";
 import RLP from "rlp";
@@ -1270,33 +1269,6 @@ export const DS_TYPES = [
     'contract_index_double',
     'contract_index_long_double'
 ];
-const debug = true;
-import {createHash} from "sha1-uint8array";
-
-export function hashTxAction(action: EosioAction) {
-    if (debug) {
-        // debug mode, pretty responses
-        let uid = action.account;
-        uid = uid + "." + action.name;
-        for (const auth of action.authorization) {
-            uid = uid + "." + auth.actor;
-            uid = uid + "." + auth.permission;
-        }
-        uid = uid + "." + createHash().update(action.data as string).digest("hex");
-        return uid;
-    } else {
-        // release mode, only hash
-        const hash = createHash();
-        hash.update(action.account);
-        hash.update(action.name);
-        for (const auth of action.authorization) {
-            hash.update(auth.actor);
-            hash.update(auth.permission);
-        }
-        hash.update(action.data as string);
-        return hash.digest("hex");
-    }
-}
 
 const nfObject = new Intl.NumberFormat('en-US');
 
