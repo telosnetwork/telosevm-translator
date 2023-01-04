@@ -1381,7 +1381,7 @@ export async function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Prom
         }
 
         const receipt: TxReceipt = {
-            cumulativeGasUsed: new BN(tx.evmTx.gasused),
+            cumulativeGasUsed: new BN(tx.evmTx.gasusedblock),
             bitvector: bloom,
             logs: logs,
             status: tx.evmTx.status
