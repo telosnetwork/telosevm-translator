@@ -651,7 +651,9 @@ export class TEVMIndexer {
      * Detect forks and handle them, leave every state tracking attribute in a healthy state
      */
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (this.forked || b.nativeBlockNumber > this.lastNativeBlock)
+        if (this.forked ||
+            b.nativeBlockNumber > this.lastNativeBlock ||
+            b.nativeBlockNumber == this.startBlock)
             return;
 
         this.forked = true;
