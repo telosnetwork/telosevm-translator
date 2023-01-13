@@ -1370,10 +1370,10 @@ export async function generateReceiptRootHash(evmTxs: Array<EVMTxWrapper>): Prom
                 const topics: Buffer[] = [];
 
                 for (const topic of hexLogs.topics)
-                    topics.push(Buffer.from(topic, 'hex'))
+                    topics.push(Buffer.from(topic.padStart(64, '0'), 'hex'))
 
                 logs.push([
-                    Buffer.from(hexLogs.address, 'hex'),
+                    Buffer.from(hexLogs.address.padStart(40, '0'), 'hex'),
                     topics,
                     Buffer.from(hexLogs.data, 'hex')
                 ]);

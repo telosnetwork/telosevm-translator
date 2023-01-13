@@ -463,7 +463,7 @@ export class Connector {
             if (this.state == IndexerState.HEAD)
                 await this.writeBlocks(ops, blocks);
             else
-                this.writeBlocks(ops, blocks);
+                this.writeBlocks(ops, blocks).then();
         }
     }
 
