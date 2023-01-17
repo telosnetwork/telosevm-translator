@@ -678,6 +678,7 @@ export class TEVMIndexer {
         this.prevHash = lastBlock['@evmBlockHash'];
         this.lastBlock = lastBlock['@global'].block_num;
         this.lastNativeBlock = lastBlock.block_num;
+        this.connector.lastPushed = this.lastBlock
 
         this.forked = false;
     }
