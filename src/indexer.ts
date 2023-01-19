@@ -81,8 +81,8 @@ export class TEVMIndexer {
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
     headBlock: number;
-    lastBlock: number;  // last native block number that was succesfully pushed to db in order
-    lastNativeBlock: number;  // last evm block number that was succesfully pushed to db in order
+    lastBlock: number;  // last evm block number that was succesfully pushed to db in order
+    lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
 
     private forked: boolean = false  // flag required to limit the amount of fork handling tasks to one at all times
 
@@ -94,6 +94,8 @@ export class TEVMIndexer {
 
     private limboBuffs: InprogressBuffers = null;
     private irreversibleOnly: boolean;
+
+    private latestBlockHashes: Array<{blockNum: number, hash: string}> = [];
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -124,7 +126,7 @@ export class TEVMIndexer {
      */
     updateDebugStats() {
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec`;
-        const untilHead = this.headBlock - this.lastBlock;
+        const untilHead = this.headBlock - this.lastNativeBlock;
 
         if (untilHead > 3) {
             const hoursETA = `${((untilHead / this.pushedLastSecond) / (60 * 60)).toFixed(1)}hs`;
@@ -398,6 +400,12 @@ export class TEVMIndexer {
         await this.maybeHandleFork(newestBlock);
         const storableBlockInfo = await this.hashBlock(newestBlock);
 
+        this.latestBlockHashes.push(
+            {blockNum: currentBlock, hash: storableBlockInfo.delta["@evmBlockHash"]}
+        );
+        if (this.latestBlockHashes.length > 1000)
+            this.latestBlockHashes.shift()
+
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
 
@@ -409,6 +417,14 @@ export class TEVMIndexer {
         this.pushedLastSecond++;
 
         this.reader.ack();
+    }
+
+    getOldHash(blockNum: number) {
+        for (const iterBlock of this.latestBlockHashes) {
+            if (iterBlock.blockNum == blockNum)
+                return iterBlock.hash;
+        }
+        throw new Error('hash not found on cache!');
     }
 
     /*
@@ -470,6 +486,7 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = prevHash;
+        this.startBlock = startBlock;
         this.lastBlock = startEvmBlock - 1;
         this.lastNativeBlock = startBlock - 1;
         this.connector.lastPushed = startEvmBlock - 1;
@@ -658,7 +675,7 @@ export class TEVMIndexer {
 
         this.forked = true;
 
-        logger.info('chain fork detected. reverse all blocks which were affected');
+        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastNativeBlock}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
@@ -666,19 +683,11 @@ export class TEVMIndexer {
         await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
         logger.debug(`purged db of blocks newer than ${b.toString()}, continue...`);
 
-        const lastBlock = await this.connector.getLastIndexedBlock();
-
-        if (lastBlock == null || lastBlock.block_num != (b.nativeBlockNumber - 1)) {
-            throw new Error(
-                `Error while handling fork, block number mismatch! last block: ${
-                    JSON.stringify(lastBlock, null, 4)}`);
-        }
-
         // tweak variables used by ordering machinery
-        this.prevHash = lastBlock['@evmBlockHash'];
-        this.lastBlock = lastBlock['@global'].block_num;
-        this.lastNativeBlock = lastBlock.block_num;
-        this.connector.lastPushed = this.lastBlock
+        this.prevHash = this.getOldHash(b.nativeBlockNumber - 1);
+        this.lastBlock = b.evmBlockNumber - 1;
+        this.lastNativeBlock = b.nativeBlockNumber - 1;
+        this.connector.forkCleanup(b.nativeBlockNumber, b.evmBlockNumber);
 
         this.forked = false;
     }

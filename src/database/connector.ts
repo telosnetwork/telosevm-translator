@@ -424,8 +424,11 @@ export class Connector {
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
         const currentEvmBlock = blockInfo.delta['@global'].block_num;
-        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1)
-            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`)
+        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1) {
+            logger.warn(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}... dropping pushBlock...`)
+            return;
+            // throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`)
+        }
 
         const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
@@ -467,6 +470,29 @@ export class Connector {
         }
     }
 
+    forkCleanup(blockNum: number, evmBlockNum: number) {
+        this.lastPushed = evmBlockNum - 1;
+        let i = 0;
+        while (i < this.opDrain.length) {
+            const op = this.opDrain[i];
+            if (Object.getPrototypeOf(op) == StorageEosioDelta.prototype &&
+                op.block_num == blockNum) {
+                this.opDrain.splice(i - 1);
+                break;
+            }
+            i++;
+        }
+        i = 0;
+        while (i < this.blockDrain.length) {
+            const block = this.blockDrain[i];
+            if (block.delta.block_num == blockNum) {
+                this.blockDrain.splice(i);
+                break;
+            }
+            i++
+        }
+    }
+
     async writeBlocks(ops: any[], blocks: any[]) {
         const bulkResponse = await this.elastic.bulk<any, any>({
             refresh: true,
@@ -500,7 +526,6 @@ export class Connector {
 
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
-
         logger.info(`drained ${ops.length} operations.`);
         logger.info(`broadcasting ${blocks.length} blocks...`)
 
