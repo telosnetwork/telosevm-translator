@@ -22,7 +22,7 @@ import {
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
-    getBlockGas,
+    getBlockGas, NULL_HASH,
     ProcessedBlock,
     StorageEosioDelta
 } from './utils/evm'
@@ -206,6 +206,7 @@ export class TEVMIndexer {
                 "@global": {
                     "block_num": block.evmBlockNumber
                 },
+                "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
                 "@receiptsRootHash": receiptsRoot.toString('hex'),
                 "@transactionsRoot": transactionsRoot.toString('hex'),
@@ -387,6 +388,7 @@ export class TEVMIndexer {
                             block_num: this.evmDeployBlock - this.config.evmDelta - 1
                         },
                         '@blockHash': this.genesisBlock.id.toLowerCase(),
+                        '@evmPrevBlockHash': NULL_HASH,
                         '@evmBlockHash': this.ethGenesisHash,
                     }),
                     nativeHash: this.genesisBlock.id.toLowerCase(),
