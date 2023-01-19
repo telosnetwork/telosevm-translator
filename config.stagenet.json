@@ -1,24 +1,20 @@
 {
-    "debug": true,
-
     "chainName": "telos-stagenet",
     "chainId": 41,
 
-    "endpoint": "http://testrpc.us.telos.net:8888",
+    "endpoint": "http://testrpc.us.telos.net:8884",
     "wsEndpoint": "ws://testrpc.us.telos.net:18999",
 
-    "evmDeployBlock": 1109372,
+    "evmDeployBlock": 31177571,
     "evmPrevHash": "",
     "evmDelta": 74390,
 
-    "startBlock": 1109372,
+    "startBlock": 31177571,
     "stopBlock": 4294967295,
+    "irreversibleOnly": false,
     "perf": {
         "workerAmount": 4,
-        "concurrencyAmount": 8,
-        "maxBlocksBehind": 200,
-        "elasticDumpSize": 200,
-        "maxMsgsInFlight": 1000
+        "elasticDumpSize": 200
     },
 
     "elastic": {

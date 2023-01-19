@@ -1,6 +1,4 @@
 {
-    "debug": false,
-
     "chainName": "telos-mainnet",
     "chainId": 40,
 
@@ -13,12 +11,10 @@
 
     "startBlock": 180698860,
     "stopBlock": 4294967295,
+    "irreversibleOnly": false,
     "perf": {
         "workerAmount": 4,
-        "concurrencyAmount": 8,
-        "maxBlocksBehind": 1000,
-        "elasticDumpSize": 2048,
-        "maxMsgsInFlight": 8000
+        "elasticDumpSize": 2048
     },
 
     "elastic": {

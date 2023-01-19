@@ -1,11 +1,11 @@
 import {
     EosioEvmRaw,
     StorageEvmTransaction
-} from '../types/evm';
+} from '../types/evm.js';
 
 // ethereum tools
-import {Bloom, generateUniqueVRS} from '../utils/evm';
-import {TEVMTransaction} from '../utils/evm-tx';
+import {Bloom, generateUniqueVRS} from '../utils/evm.js';
+import {TEVMTransaction} from '../utils/evm-tx.js';
 import Common from '@ethereumjs/common'
 import { Chain, Hardfork } from '@ethereumjs/common'
 
@@ -13,14 +13,14 @@ import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';
 
-import logger from '../utils/winston';
+import logger from '../utils/winston.js';
 import { addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString } from '@ethereumjs/util';
 
 const args: {chainId: number} = workerData;
 
 logger.info('Launching evm tx deserialization worker...');
 
-const common: Common = Common.custom({
+const common: Common.default = Common.default.custom({
     chainId: args.chainId,
     defaultHardfork: Hardfork.Istanbul
 }, {
@@ -38,7 +38,8 @@ parentPort.on(
         trx_index: number,
         blockNum: number,
         tx: EosioEvmRaw,
-        consoleLog: string
+        consoleLog: string,
+        gasUsedBlock: string
     }>) => {
         const arg = param[0];
         try {
@@ -77,7 +78,7 @@ parentPort.on(
                 logger.warn('Failed to parse receiptLog');
             }
 
-            const txRaw = Buffer.from(arg.tx.tx, 'hex');
+            const txRaw = Buffer.from(arg.tx.tx, "hex");
 
             let evmTx = TEVMTransaction.fromSerializedTx(
                 txRaw, {common});
@@ -147,10 +148,10 @@ parentPort.on(
                 epoch: receipt.epoch,
                 createdaddr: receipt.createdaddr.toLowerCase(),
                 gasused: new BN(receipt.gasused, 16).toString(),
-                gasusedblock: new BN(receipt.gasusedblock, 16).toString(),
+                gasusedblock: new BN(arg.gasUsedBlock).add(new BN(receipt.gasused, 16)).toString(),
                 charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
                 output: receipt.output,
-                raw: txRaw,
+                raw: evmTx.serialize(),
                 v: v,
                 r: r,
                 s: s

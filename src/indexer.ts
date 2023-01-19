@@ -1,23 +1,19 @@
-import StateHistoryBlockReader from './ship';
+import {readFileSync} from "node:fs";
 
-import path from 'path';
 
-import {
-    IndexedBlockInfo,
-    IndexerConfig,
-    IndexerState,
-    StartBlockInfo
-} from './types/indexer';
+import {HyperionSequentialReader} from "@eosrio/hyperion-sequential-reader";
 
-import logger from './utils/winston';
+import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
 
-import {StorageEosioAction} from './types/evm';
+import logger from './utils/winston.js';
 
-import {Connector} from './database/connector';
+import {StorageEosioAction, StorageEvmTransaction} from './types/evm.js';
+
+import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
-    EMPTY_TRIE_BUF,
+    EMPTY_TRIE_BUF, EVMTxWrapper,
     formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
@@ -25,22 +21,25 @@ import {
     getBlockGas, NULL_HASH,
     ProcessedBlock,
     StorageEosioDelta
-} from './utils/evm'
+} from './utils/evm.js'
 
 import BN from 'bn.js';
 import moment from 'moment';
-import PriorityQueue from 'js-priority-queue';
-import {GetBlockResult} from 'eosjs/dist/eosjs-rpc-interfaces';
+import {JsonRpc, RpcInterfaces} from 'eosjs';
+import {
+    extractGlobalContractRow,
+    getRPCClient
+} from './utils/eosio.js';
+import {ABI, Serializer} from "@greymass/eosio";
 
-// debug packages
-const logWhyIsNodeRunning = require('why-is-node-running');
 
-if (process.env.LOG_LEVEL == 'debug') {
-    const nodeOOMHeapdump = require('node-oom-heapdump');
-
-    nodeOOMHeapdump({
-        path: path.resolve(__dirname, `telosevm-indexer-${process.pid}`) });
-}
+import {
+    handleEvmDeposit,
+    handleEvmTx,
+    handleEvmWithdraw,
+    isTxDeserializationError, setCommon,
+    TxDeserializationError
+} from "./handlers.js";
 
 
 process.on('unhandledRejection', error => {
@@ -54,8 +53,12 @@ process.on('unhandledRejection', error => {
 });
 
 
-const sleep = (ms: number) => new Promise( res => setTimeout(res, ms));
-
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+interface InprogressBuffers {
+    evmTransactions: Array<EVMTxWrapper>;
+    errors: TxDeserializationError[];
+    evmBlockNum: number;
+};
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -66,36 +69,31 @@ export class TEVMIndexer {
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
 
-    genesisBlock: GetBlockResult = null;
+    genesisBlock: RpcInterfaces.GetBlockResult = null;
 
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
-    switchingState: boolean = false;  // flag required to do state switching cleanly
 
     config: IndexerConfig;  // global indexer config as defined by envoinrment or config file
 
-    private reader: StateHistoryBlockReader;  // websocket state history connector, deserializes nodeos protocol
+    private reader: HyperionSequentialReader;  // websocket state history connector, deserializes nodeos protocol
+    private rpc: JsonRpc;
     connector: Connector;  // custom elastic search db driver
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
-    lastOrderedBlock: number;  // last native block number that was succesfully pushed to db in order
-    lastNativeOrderedBlock: number;  // last evm block number that was succesfully pushed to db in order
-
-    private blocksQueue: PriorityQueue<ProcessedBlock> = new PriorityQueue({
-        comparator: function(a, b) {
-            return a.evmBlockNumber - b.evmBlockNumber;
-        }
-    });  // queue of blocks pending for processing
-
-    private ordering: boolean = false;  // flag required to limit the amount of ordering tasks to one at all times
-    private forked: boolean = false  // flag required to limit the amount of fork handling tasks to one at all times
+    headBlock: number;
+    lastBlock: number;  // last evm block number that was succesfully pushed to db in order
+    lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
 
     // debug status used to print statistics
-    private queuedUpLastSecond: number = 0;
     private pushedLastSecond: number = 0;
     private idleWorkers: number = 0;
 
-    private ordererTaskId: NodeJS.Timer;
     private statsTaskId: NodeJS.Timer;
+
+    private limboBuffs: InprogressBuffers = null;
+    private irreversibleOnly: boolean;
+
+    private latestBlockHashes: Array<{blockNum: number, hash: string}> = [];
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -107,35 +105,26 @@ export class TEVMIndexer {
 
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
-
+        this.rpc = getRPCClient(telosConfig);
         this.connector = new Connector(telosConfig);
-
-        this.reader = new StateHistoryBlockReader(
-            this, {
-            min_block_confirmation: 1,
-            ds_threads: telosConfig.perf.workerAmount,
-            allow_empty_deltas: true,
-            allow_empty_traces: true,
-            allow_empty_blocks: true,
-            delta_whitelist: ['contract_row', 'contract_table']
-        });
+        this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
         process.on('SIGINT', async () => await this.stop());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
-        if (process.env.LOG_LEVEL == 'debug')
-            process.on('SIGUSR1', async () => logWhyIsNodeRunning());
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
+
+        setCommon(telosConfig.chainId);
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-        logger.debug(`Last second ${this.queuedUpLastSecond} blocks were queued up.`);
-        let statsString = `${formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)} pushed, at ${this.pushedLastSecond} blocks/sec` +
-            ` ${this.idleWorkers}/${this.config.perf.concurrencyAmount} workers idle`;
-        const untilHead = this.reader.headBlock - this.reader.currentBlock;
+        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec`;
+        const untilHead = this.headBlock - this.lastNativeBlock;
 
         if (untilHead > 3) {
             const hoursETA = `${((untilHead / this.pushedLastSecond) / (60 * 60)).toFixed(1)}hs`;
@@ -143,7 +132,6 @@ export class TEVMIndexer {
         }
 
         logger.info(statsString);
-        this.queuedUpLastSecond = 0;
         this.pushedLastSecond = 0;
     }
 
@@ -151,12 +139,12 @@ export class TEVMIndexer {
      * Generate valid ethereum has, requires blocks to be passed in order, updates state
      * handling class attributes.
      */
-    hashBlock(block: ProcessedBlock) {
+    async hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
         // generate valid ethereum hashes
-        const transactionsRoot = generateTxRootHash(evmTxs);
-        const receiptsRoot = generateReceiptRootHash(evmTxs);
+        const transactionsRoot = await generateTxRootHash(evmTxs);
+        const receiptsRoot = await  generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
         const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
@@ -190,8 +178,7 @@ export class TEVMIndexer {
         //  }
         //  console.log(`total header size: ${blockHeaderSize}`);
 
-        //  if (block.evmBlockNumber == 180698860)
-        //      process.exit(0);
+
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -208,6 +195,7 @@ export class TEVMIndexer {
                 },
                 "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
+                "@blockHash": block.nativeBlockHash,
                 "@receiptsRootHash": receiptsRoot.toString('hex'),
                 "@transactionsRoot": transactionsRoot.toString('hex'),
                 "gasUsed": gasUsed.toString(),
@@ -239,106 +227,196 @@ export class TEVMIndexer {
         return storableBlockInfo;
     }
 
-    /*
-     * Return newest block from priority queue or null in case queue is empty
-     */
-    maybeGetNewestBlock() {
-        try {
-            return this.blocksQueue.peek();
-        } catch(e) {
-            logger.debug(`getNewestBlock called but queue is empty!`);
-            return null;
+    private handleStateSwitch(block: any) {
+        // SYNC & HEAD mode swtich detection
+        const blocksUntilHead = block.head.block_num - this.lastBlock;
+
+        if (blocksUntilHead <= 100) {
+            this.state = IndexerState.HEAD;
+            this.connector.state = IndexerState.HEAD;
+
+            logger.info(
+                'switched to HEAD mode! blocks will be written to db asap.');
         }
-    }
-
-    /*
-     * Orderer routine, gets periodically called to drain blocks priority queue,
-     * manages internal state class attributes to guarantee only one task consumes
-     * from queue at a time.
-     */
-    async orderer() {
-        // make sure we have blocks we need to order, no other orderer task
-        // is running
-        if (this.ordering || this.blocksQueue.length == 0)
-            return;
-
-        logger.debug('Running orderer...');
-        let newestBlock: ProcessedBlock = this.maybeGetNewestBlock();
-
-        if (newestBlock == null) {
-            this.ordering = false;
-            return;
-        }
-
-        this.ordering = true;
-
-        const firstBlockNum = newestBlock.evmBlockNumber;
-        const firstNativeBlockNum = newestBlock.nativeBlockNumber;
-        logger.debug(`Peek result ${newestBlock.toString()}`);
-        logger.debug(`Looking for ${formatBlockNumbers(this.lastNativeOrderedBlock + 1, this.lastOrderedBlock + 1)}...`);
-
-        await this.maybeHandleFork(newestBlock);
-
-        // While blocks queue is not empty, and contains next block we are looking for loop
-        while(newestBlock != null && newestBlock.evmBlockNumber == this.lastOrderedBlock + 1) {
-
-            const storableBlockInfo = this.hashBlock(newestBlock);
-
-            // Push to db
-            await this.connector.pushBlock(storableBlockInfo);
-
-            if (this.blocksQueue.length == 0)  // Sanity check
-                throw new Error(`About to call dequeue with blocksQueue.length == 0!`);
-
-            // Remove newest block of queue
-            this.blocksQueue.dequeue();
-
-            // Update block num state tracking attributes
-            this.lastOrderedBlock = newestBlock.evmBlockNumber;
-            this.lastNativeOrderedBlock = newestBlock.nativeBlockNumber;
-
-            // For debug stats
-            this.pushedLastSecond++;
-
-            // Awknowledge block
-            this.reader.finishBlock();
-
-            // Step machinery
-            newestBlock = this.maybeGetNewestBlock();
-            if (newestBlock != null)
-                await this.maybeHandleFork(newestBlock);
-        }
-
-        // Debug push statistics
-        const blocksPushed = this.lastOrderedBlock - firstBlockNum;
-        if (blocksPushed > 0) {
-            logger.debug(`pushed  ${blocksPushed} blocks, range: ${
-                formatBlockNumbers(firstNativeBlockNum, firstBlockNum)}-${
-                    formatBlockNumbers(this.lastNativeOrderedBlock, this.lastOrderedBlock)}`);
-        }
-
-        // Clear ordering flag allowing new ordering tasks to start
-        this.ordering = false;
     }
 
     /*
      * State history on-block-deserialized call back, pushes blocks out of order
      * will sleep if block received is too far from last stored block.
      */
-    async consumer(block: ProcessedBlock): Promise<void> {
+    async processBlock(block: any): Promise<void> {
 
-        this.blocksQueue.queue(block);
-        this.queuedUpLastSecond++;
+        if (block.blockInfo.this_block.block_num < this.startBlock) {
+            this.reader.ack();
+            return;
+        }
 
-        if (this.state == IndexerState.HEAD)
+        if (this.state == IndexerState.SYNC)
+            this.handleStateSwitch(block.blockInfo);
+
+        const currentBlock = block.blockInfo.this_block.block_num;
+
+        // process deltas to catch evm block num
+        const globalDelta = extractGlobalContractRow(block.deltas).value;
+
+        let buffs: InprogressBuffers = null;
+
+        if (globalDelta != null) {
+            const currentEvmBlock = globalDelta.block_num;
+
+            buffs = {
+                evmTransactions: [],
+                errors: [],
+                evmBlockNum: currentEvmBlock
+            };
+
+            if (this.limboBuffs != null) {
+                for (const evmTx of this.limboBuffs.evmTransactions)
+                    evmTx.evmTx.block = currentEvmBlock;
+
+                buffs.evmTransactions = this.limboBuffs.evmTransactions
+                buffs.errors = this.limboBuffs.errors;
+                this.limboBuffs = null;
+            }
+        } else {
+            logger.warn(`onblock failed at block ${currentBlock}`);
+
+            if (this.limboBuffs == null) {
+                this.limboBuffs = {
+                    evmTransactions: [],
+                    errors: [],
+                    evmBlockNum: 0
+                };
+            }
+
+            buffs = this.limboBuffs;
+        }
+
+        const evmBlockNum = buffs.evmBlockNum;
+        const evmTransactions = buffs.evmTransactions;
+        const errors = buffs.errors;
+
+        // traces
+        let gasUsedBlock = new BN(0);
+        const systemAccounts = [ 'eosio', 'eosio.stake', 'eosio.ram' ];
+        const contractWhitelist = [
+            "eosio.evm", "eosio.token",  // evm
+            "eosio.msig"  // deferred transaction sig catch
+        ];
+        const actionWhitelist = [
+            "raw", "withdraw", "transfer",  // evm
+            "exec" // msig deferred sig catch
+        ]
+        const actDigests = [];
+        for (const action of block.actions) {
+            const aDuplicate = actDigests.find(digest => {
+                return digest === action.receipt.act_digest
+            })
+            if (aDuplicate)
+                continue;
+
+            if (!contractWhitelist.includes(action.act.account) ||
+                !actionWhitelist.includes(action.act.name))
+                continue;
+
+            // discard transfers to accounts other than eosio.evm
+            // and transfers from system accounts
+            if ((action.act.name == "transfer" && action.receiver != "eosio.evm") ||
+                (action.act.name == "transfer" && action.act.data.from in systemAccounts))
+                continue;
+
+
+            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
+            if (action.act.account == "eosio.evm") {
+                if (action.act.name == "raw") {
+                    evmTx = await handleEvmTx(
+                        block.blockInfo.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        action.act.data,
+                        action.console,  // tx.trace.console,
+                        gasUsedBlock
+                    );
+                } else if (action.act.name == "withdraw"){
+                    evmTx = await handleEvmWithdraw(
+                        block.blockInfo.this_block.block_id,
+                        evmTransactions.length,
+                        evmBlockNum,
+                        action.act.data,
+                        this.rpc,
+                        gasUsedBlock
+                    );
+                }
+            } else if (action.act.account == "eosio.token" &&
+                action.act.name == "transfer" &&
+                action.act.data.to == "eosio.evm") {
+                evmTx = await handleEvmDeposit(
+                    block.blockInfo.this_block.block_id,
+                    evmTransactions.length,
+                    evmBlockNum,
+                    action.act.data,
+                    this.rpc,
+                    gasUsedBlock
+                );
+            } else
+                continue;
+
+            if (isTxDeserializationError(evmTx)) {
+                logger.error(evmTx.info.error);
+                throw new Error(JSON.stringify(evmTx));
+            }
+
+            gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
+
+            evmTransactions.push({
+                trx_id: action.trxId,
+                action_ordinal: action.actionOrdinal,
+                signatures: [],
+                evmTx: evmTx
+            });
+            actDigests.push(action.receipt.act_digest);
+        }
+
+        if (globalDelta == null)
             return;
 
-        // worker catch up machinery
-        while(block.evmBlockNumber - this.lastOrderedBlock >= this.config.perf.maxBlocksBehind) {
-            this.idleWorkers++;
-            await sleep(200);
-            this.idleWorkers--;
+        const newestBlock = new ProcessedBlock({
+            nativeBlockHash: block.blockInfo.this_block.block_id,
+            nativeBlockNumber: currentBlock,
+            evmBlockNumber: evmBlockNum,
+            blockTimestamp: block.blockHeader.timestamp,
+            evmTxs: evmTransactions,
+            errors: errors
+        });
+
+        await this.maybeHandleFork(newestBlock);
+        const storableBlockInfo = await this.hashBlock(newestBlock);
+
+        this.latestBlockHashes.push(
+            {blockNum: currentBlock, hash: storableBlockInfo.delta["@evmBlockHash"]}
+        );
+        if (this.latestBlockHashes.length > 1000)
+            this.latestBlockHashes.shift()
+
+        // Push to db
+        await this.connector.pushBlock(storableBlockInfo);
+
+        // Update block num state tracking attributes
+        this.lastBlock = evmBlockNum;
+        this.lastNativeBlock = storableBlockInfo.delta.block_num;
+
+        // For debug stats
+        this.pushedLastSecond++;
+
+        this.reader.ack();
+    }
+
+    getOldHash(blockNum: number) {
+        for (const iterBlock of this.latestBlockHashes) {
+            if (iterBlock.blockNum == blockNum)
+                return iterBlock.hash;
         }
+        throw new Error('hash not found on cache!');
     }
 
     /*
@@ -350,7 +428,6 @@ export class TEVMIndexer {
 
         let startBlock = this.startBlock;
         let startEvmBlock = this.startBlock - this.config.evmDelta;
-        let stopBlock = this.stopBlock;
         let prevHash;
 
         await this.connector.init();
@@ -362,10 +439,10 @@ export class TEVMIndexer {
             const gap = await this.connector.fullGapCheck();
             if (gap == null) {
                 // no gaps found
-                ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromLastBlock(lastBlock));
+                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                    ({ startBlock, startEvmBlock, prevHash } = await this.getBlockInfoFromGap(gap));
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                 else {
                     logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
                     process.exit(1);
@@ -401,23 +478,27 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = prevHash;
-        this.lastOrderedBlock = startEvmBlock - 1;
-        this.lastNativeOrderedBlock = this.startBlock - 1;
+        this.startBlock = startBlock;
+        this.lastBlock = startEvmBlock - 1;
+        this.lastNativeBlock = startBlock - 1;
+        this.connector.lastPushed = startEvmBlock - 1;
 
-        // Begin websocket consumtion
-        this.reader.startProcessing({
-            start_block_num: startBlock,
-            end_block_num: stopBlock,
-            max_messages_in_flight: this.config.perf.maxMsgsInFlight,
-            irreversible_only: false,
-            have_positions: [],
-            fetch_block: true,
-            fetch_traces: true,
-            fetch_deltas: true
+        this.reader = new HyperionSequentialReader({
+            poolSize: this.config.perf.workerAmount,
+            shipApi: this.wsEndpoint,
+            chainApi: this.config.endpoint,
+            blockConcurrency: this.config.perf.workerAmount,
+            startBlock: Math.max(startBlock - 100, 0),
+            irreversibleOnly: this.irreversibleOnly
         });
+        this.reader.events.on('block', this.processBlock.bind(this));
+        ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
+            const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
+            this.reader.addContract(c, abi);
+        })
+        this.reader.start();
 
         // Launch bg routines
-        this.ordererTaskId = setInterval(() => this.orderer(), 400);
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
 
     }
@@ -436,13 +517,10 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
-        if (process.env.LOG_LEVEL == 'debug')
-            logWhyIsNodeRunning();
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     logWhyIsNodeRunning();
 
-        clearInterval(this.ordererTaskId);
         clearInterval(this.statsTaskId);
-
-        this.reader.stopProcessing();
 
         await this._waitWriteTasks();
 
@@ -454,10 +532,10 @@ export class TEVMIndexer {
      */
     private async getGenesisBlock() {
         let genesisBlock = null;
-        while(genesisBlock == null) {
+        while (genesisBlock == null) {
             try {
                 // get genesis information
-                genesisBlock = await this.reader.rpc.get_block(
+                genesisBlock = await this.rpc.get_block(
                     this.evmDeployBlock - 1);
 
             } catch (e) {
@@ -503,7 +581,7 @@ export class TEVMIndexer {
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return { startBlock, startEvmBlock, prevHash };
+        return {startBlock, startEvmBlock, prevHash};
     }
 
     /*
@@ -536,7 +614,7 @@ export class TEVMIndexer {
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return { startBlock, startEvmBlock, prevHash };
+        return {startBlock, startEvmBlock, prevHash};
     }
 
     /*
@@ -582,41 +660,23 @@ export class TEVMIndexer {
      * Detect forks and handle them, leave every state tracking attribute in a healthy state
      */
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (this.forked || b.nativeBlockNumber > this.lastNativeOrderedBlock)
+        if (b.nativeBlockNumber > this.lastNativeBlock ||
+            b.nativeBlockNumber == this.startBlock)
             return;
 
-        this.forked = true;
-
-        logger.info('chain fork detected. reverse all blocks which were affected');
+        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastNativeBlock}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
-
-        // clear blocksQueue
-        let iterB = this.maybeGetNewestBlock();
-        while (iterB != null && iterB.nativeBlockNumber > b.nativeBlockNumber) {
-            this.blocksQueue.dequeue();
-            logger.debug(`deleted ${iterB.toString()} from blocksQueue`);
-            iterB = this.maybeGetNewestBlock();
-        }
 
         // finally purge db
         await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
         logger.debug(`purged db of blocks newer than ${b.toString()}, continue...`);
 
-        const lastBlock = await this.connector.getLastIndexedBlock();
-
-        if (lastBlock == null || lastBlock.block_num != (b.nativeBlockNumber - 1)) {
-            throw new Error(
-                `Error while handling fork, block number mismatch! last block: ${
-                    JSON.stringify(lastBlock, null, 4)}`);
-        }
-
         // tweak variables used by ordering machinery
-        this.prevHash = lastBlock['@evmBlockHash'];
-        this.lastOrderedBlock = lastBlock['@global'].block_num;
-        this.lastNativeOrderedBlock = lastBlock.block_num;
-
-        this.forked = false;
+        this.prevHash = this.getOldHash(b.nativeBlockNumber - 1);
+        this.lastBlock = b.evmBlockNumber - 1;
+        this.lastNativeBlock = b.nativeBlockNumber - 1;
+        this.connector.forkCleanup(b.nativeBlockNumber, b.evmBlockNumber);
     }
 
     printIntroText() {

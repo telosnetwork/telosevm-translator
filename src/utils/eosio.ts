@@ -1,11 +1,8 @@
-import { TextDecoder, TextEncoder } from 'text-encoding';
-import { SerialBuffer } from 'eosjs/dist/eosjs-serialize';
+import { Serialize, RpcInterfaces } from 'eosjs';
 
-import { deserializeUInt, serializeUInt } from './binary';
-import { Serialize } from 'eosjs';
-import { ShipTableDelta, ShipTransactionTrace } from '../types/ship';
-import { EosioActionTrace, EosioContractRow, EosioTransaction } from '../types/eosio';
-import { Abi } from 'eosjs/dist/eosjs-rpc-interfaces';
+import { deserializeUInt, serializeUInt } from './binary.js';
+import { ShipTableDelta, ShipTransactionTrace } from '../types/ship.js';
+import { EosioActionTrace, EosioContractRow, EosioTransaction } from '../types/eosio.js';
 
 function charToSymbol(c: any) {
     if (typeof c == 'string') c = c.charCodeAt(0);
@@ -36,51 +33,6 @@ export function nameToUint64(name: any) {
     return n.toString();
 }
 
-export function serializeEosioName(name: string): string {
-    const buffer = new SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder()});
-
-    buffer.pushName(name);
-
-    const bytes = buffer.asUint8Array();
-    let n = BigInt(0);
-
-    for (const byte of bytes) {
-        n = (n << BigInt(8)) + BigInt(byte);
-    }
-
-    return serializeUInt(n).toString();
-}
-
-export function deserializeEosioName(data: string): string {
-    const bytes = new Uint8Array(8);
-    let n = deserializeUInt(data);
-
-    for (let i = 0; i < 8; i ++) {
-        bytes[7 - i] = Number(n & BigInt(0xFF));
-        n = n >> BigInt(8);
-    }
-
-    const buffer = new SerialBuffer({textEncoder: new TextEncoder(), textDecoder: new TextDecoder(), array: bytes});
-
-    return buffer.getName();
-}
-
-export function eosioTimestampToDate(timestamp: string): Date {
-    return new Date(timestamp + '+0000');
-}
-
-export function splitEosioToken(asset: string, contract?: string): {amount: string, token_symbol: string, token_precision: number, token_contract?: string} {
-    const split1 = asset.split(' ');
-    const split2 = split1[0].split('.');
-
-    return {
-        amount: split2.join(''),
-        token_symbol: split1[1],
-        token_precision: split2[1] ? split2[1].length : 0,
-        token_contract: contract
-    };
-}
-
 export function deserializeEosioType(type: string, data: Uint8Array | string, types: Map<string, Serialize.Type>, checkLength: boolean = true): any {
     let dataArray;
     if (typeof data === 'string') {
@@ -97,13 +49,6 @@ export function deserializeEosioType(type: string, data: Uint8Array | string, ty
     }
 
     return result;
-}
-
-export function serializeEosioType(type: string, value: any, types: Map<string, Serialize.Type>): Uint8Array {
-    const buffer = new Serialize.SerialBuffer({ textEncoder: new TextEncoder(), textDecoder: new TextDecoder() });
-    Serialize.getType(types, type).serialize(buffer, value);
-
-    return buffer.asUint8Array();
 }
 
 export function extractShipTraces(data: ShipTransactionTrace[]): Array<{trace: EosioActionTrace<any>, tx: EosioTransaction<any>}> {
@@ -165,51 +110,18 @@ export function extractShipTraces(data: ShipTransactionTrace[]): Array<{trace: E
     return result;
 }
 
-export function extractShipContractRows(deltas: ShipTableDelta[]): Array<EosioContractRow<any>> {
-    const result: EosioContractRow<any>[] = [];
+export function extractGlobalContractRow(contractRows: Array<any>): any {
+   for (const row of contractRows) {
+        if (row.code === 'eosio' &&
+            row.scope ==='eosio' &&
+            row.table === 'global')
+            return row
+   }
 
-    for (const delta of deltas) {
-        if (delta[0] === 'table_delta_v0' || delta[0] === 'table_delta_v1') {
-            if (delta[1].name === 'contract_row') {
-                for (const row of delta[1].rows) {
-                    if (row.data[0] === 'contract_row_v0') {
-                        result.push({...row.data[1], present: !!row.present});
-                    } else {
-                        throw new Error('Unsupported contract row received: ' + row.data[0]);
-                    }
-                }
-            }
-        } else {
-            throw new Error('Unsupported table delta response received: ' + delta[0]);
-        }
-    }
-
-    return result;
+    return null;
 }
 
-export function extractGlobalContractRow(deltas: ShipTableDelta[]): EosioContractRow<any> {
-    for (const delta of deltas) {
-        if (delta[0] === 'table_delta_v0' || delta[0] === 'table_delta_v1') {
-            if (delta[1].name === 'contract_row') {
-                for (const row of delta[1].rows) {
-                    if (row.data[0] === 'contract_row_v0') {
-                        const dt: EosioContractRow<any> = {...row.data[1], present: !!row.present};
-                        if (dt.code == 'eosio' && dt.scope == 'eosio' && dt.table == 'global')
-                            return dt;
-                    } else {
-                        throw new Error('Unsupported contract row received: ' + row.data[0]);
-                    }
-                }
-            }
-        } else {
-            throw new Error('Unsupported table delta response received: ' + delta[0]);
-        }
-    }
-
-    return null; 
-}
-
-export function getTableAbiType(abi: Abi, contract: string, table: string): string {
+export function getTableAbiType(abi: RpcInterfaces.Abi, contract: string, table: string): string {
     for (const row of abi.tables) {
         if (row.name === table) {
             return row.type;
@@ -219,7 +131,7 @@ export function getTableAbiType(abi: Abi, contract: string, table: string): stri
     throw new Error('Type for table not found ' + contract + ':' + table);
 }
 
-export function getActionAbiType(abi: Abi, contract: string, action: string): string {
+export function getActionAbiType(abi: RpcInterfaces.Abi, contract: string, action: string): string {
     for (const row of abi.actions) {
         if (row.name === action) {
             return row.type;
@@ -269,7 +181,7 @@ export function parseAsset(s: string) {
 
 
 import { JsonRpc } from 'eosjs';
-import { IndexerConfig } from '../types/indexer';
+import { IndexerConfig } from '../types/indexer.js';
 
 // @ts-ignore
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));

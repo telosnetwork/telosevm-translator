@@ -96,7 +96,7 @@ export function getTemplatesForChain(chain: string) {
                         "input_data": {"enabled": "false"},
                         "input_trimmed": {"type": "keyword"},
                         "value": {"type": "text"},
-                        "value_d": {"type": "double"},
+                        "value_d": {"type": "text"},
                         "nonce": {"type": "long"},
                         "v": {"enabled": false},
                         "r": {"enabled": false},
@@ -319,6 +319,7 @@ export function getTemplatesForChain(chain: string) {
 
                 "@evmPrevBlockHash": {"type": "keyword"},
                 "@evmBlockHash": {"type": "keyword"},
+                "@blockHash": {"type": "keyword"},
                 "@receiptsRootHash": {"type": "keyword"},
                 "@transactionsRoot": {"type": "keyword"},
 

@@ -1,4 +1,4 @@
-import { EosioContractRow } from './eosio';
+import { EosioContractRow } from './eosio.js';
 
 export interface BlockRequestType {
     start_block_num?: number;

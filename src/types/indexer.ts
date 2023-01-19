@@ -1,6 +1,6 @@
-import {TxDeserializationError} from '../handlers';
-import {StorageEosioAction} from '../types/evm';
-import {StorageEosioDelta} from '../utils/evm';
+import {TxDeserializationError} from '../handlers.js';
+import {StorageEosioAction} from './evm.js';
+import {StorageEosioDelta} from '../utils/evm.js';
 
 export type ConnectorConfig = {
     node: string;
@@ -22,7 +22,6 @@ export type BroadcasterConfig = {
 };
 
 export type IndexerConfig = {
-    debug: boolean;
     chainName: string;
     chainId: number;
     endpoint: string;
@@ -32,12 +31,10 @@ export type IndexerConfig = {
     evmDelta: number;
     startBlock: number;
     stopBlock: number;
+    irreversibleOnly: boolean;
     perf: {
         workerAmount: number;
-        concurrencyAmount: number;
-        maxBlocksBehind: number;
         elasticDumpSize: number;
-        maxMsgsInFlight: number;
     },
     elastic: ConnectorConfig;
     broadcast: BroadcasterConfig;
@@ -57,7 +54,7 @@ export type IndexedBlockInfo = {
 export enum IndexerState {
     SYNC = 0,
     HEAD = 1
-};
+}
 
 export type StartBlockInfo = {
     startBlock: number;

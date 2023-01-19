@@ -1,12 +1,10 @@
-const { Client, ApiResponse } = require('@elastic/elasticsearch');
+import RPCBroadcaster from '../publisher.js';
+import {ElasticIndex, IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js';
+import {getTemplatesForChain} from './templates.js';
 
-import RPCBroadcaster from '../publisher';
-import { IndexerConfig, IndexedBlockInfo, IndexerState, ElasticIndex } from '../types/indexer';
-import { getTemplatesForChain } from './templates';
-
-import logger from '../utils/winston';
-import {BulkResponseItem} from '@elastic/elasticsearch/lib/api/types';
-import {StorageEosioDelta} from '../utils/evm';
+import logger from '../utils/winston.js';
+import {Client, estypes} from '@elastic/elasticsearch';
+import {StorageEosioDelta} from '../utils/evm.js';
 
 interface ConfigInterface {
     [key: string]: any;
@@ -24,7 +22,7 @@ function indexToSuffixNum(index: string) {
 
 export class Connector {
     config: IndexerConfig;
-    elastic: typeof Client;
+    elastic: Client;
     broadcast: RPCBroadcaster;
     chainName: string;
 
@@ -32,6 +30,9 @@ export class Connector {
 
     blockDrain: any[];
     opDrain: any[];
+
+    totalPushed: number = 0;
+    lastPushed: number = 0;
 
     writeCounter: number = 0;
 
@@ -66,7 +67,7 @@ export class Connector {
         for (const index of indicesList) {
             try {
                 if (indexConfig[index.name]) {
-                    const creation_status: typeof ApiResponse = await this.elastic['indices'].putTemplate({
+                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic['indices'].putTemplate({
                         name: `${this.chainName}-${index.type}`,
                         body: indexConfig[index.name]
                     });
@@ -95,8 +96,8 @@ export class Connector {
     }
 
     async getOrderedDeltaIndices() {
-        const deltaIndices: Array<ElasticIndex> = await this.elastic.cat.indices({
-            index:  `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
+        const deltaIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
+            index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
             format: 'json'
         });
         deltaIndices.sort((a, b) => {
@@ -170,7 +171,7 @@ export class Connector {
                 index: firstIndex,
                 size: 1,
                 sort: [
-                    {"block_num": { "order": "asc"} }
+                    {"block_num": {"order": "asc"}}
                 ]
             });
 
@@ -195,7 +196,7 @@ export class Connector {
                 index: lastIndex,
                 size: 1,
                 sort: [
-                    {"block_num": { "order": "desc"} }
+                    {"block_num": {"order": "desc"}}
                 ]
             });
 
@@ -209,7 +210,7 @@ export class Connector {
         }
     }
 
-    async fullGapCheck() : Promise<number> {
+    async fullGapCheck(): Promise<number> {
         const lowerBoundDoc = await this.getFirstIndexedBlock();
         logger.warn(JSON.stringify(lowerBoundDoc, null, 4));
 
@@ -229,7 +230,7 @@ export class Connector {
             upperBound: number,
             interval: number
         ) => {
-            const results = await this.elastic.search({
+            const results = await this.elastic.search<any, any>({
                 index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
                 aggs: {
                     "block_histogram": {
@@ -280,7 +281,7 @@ export class Connector {
                 let hasGap = total < totalRange;
 
                 if (len > 1 && i < (len - 1)) {
-                    const nextBucket = results.aggregations.block_histogram.buckets[i+1];
+                    const nextBucket = results.aggregations.block_histogram.buckets[i + 1];
                     hasGap = hasGap || (nextBucket.key - upper) != 1;
                 }
 
@@ -309,7 +310,7 @@ export class Connector {
         let lower = gap[0];
         let upper = gap[1];
         gap = await gapCheck(lower, upper, 10);
-        while(gap != null) {
+        while (gap != null) {
             console.log(gap);
             lower += 1;
             gap = await gapCheck(lower, upper, 10);
@@ -319,7 +320,7 @@ export class Connector {
         // now do the same to find the correct upper bound, bring it down one at
         // a time
         gap = await gapCheck(lower, upper, 10);
-        while(gap != null) {
+        while (gap != null) {
             console.log(gap);
             upper -= 1;
             gap = await gapCheck(lower, upper, 10);
@@ -389,7 +390,7 @@ export class Connector {
         const deleteList = [];
 
         const deltaIndices = await this.elastic.cat.indices({
-            index:  `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
             format: 'json'
         });
 
@@ -398,7 +399,7 @@ export class Connector {
                 deleteList.push(deltaIndex.index);
 
         const actionIndices = await this.elastic.cat.indices({
-            index:  `${this.config.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            index: `${this.config.chainName}-${this.config.elastic.subfix.transaction}-*`,
             format: 'json'
         });
 
@@ -422,16 +423,20 @@ export class Connector {
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
+        const currentEvmBlock = blockInfo.delta['@global'].block_num;
+        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1)
+            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`);
+
         const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
 
         const txOperations = blockInfo.transactions.flatMap(
-           doc => [{index: {_index: txIndex}}, doc]);
+            doc => [{index: {_index: txIndex}}, doc]);
 
         const errOperations = blockInfo.errors.flatMap(
-           doc => [{index: {_index: errIndex}}, doc]);
+            doc => [{index: {_index: errIndex}}, doc]);
 
         const operations = [
             ...errOperations,
@@ -442,8 +447,11 @@ export class Connector {
         this.opDrain = [...this.opDrain, ...operations];
         this.blockDrain.push(blockInfo);
 
+        this.lastPushed = currentEvmBlock;
+        this.totalPushed++;
+
         if (this.state == IndexerState.HEAD ||
-             this.blockDrain.length >= this.config.perf.elasticDumpSize) {
+            this.blockDrain.length >= this.config.perf.elasticDumpSize) {
 
             const ops = this.opDrain;
             const blocks = this.blockDrain;
@@ -455,12 +463,35 @@ export class Connector {
             if (this.state == IndexerState.HEAD)
                 await this.writeBlocks(ops, blocks);
             else
-                this.writeBlocks(ops, blocks);
+                this.writeBlocks(ops, blocks).then();
+        }
+    }
+
+    forkCleanup(blockNum: number, evmBlockNum: number) {
+        this.lastPushed = evmBlockNum - 1;
+        let i = 0;
+        while (i < this.opDrain.length) {
+            const op = this.opDrain[i];
+            if (Object.getPrototypeOf(op) == StorageEosioDelta.prototype &&
+                op.block_num == blockNum) {
+                this.opDrain.splice(i - 1);
+                break;
+            }
+            i++;
+        }
+        i = 0;
+        while (i < this.blockDrain.length) {
+            const block = this.blockDrain[i];
+            if (block.delta.block_num == blockNum) {
+                this.blockDrain.splice(i);
+                break;
+            }
+            i++
         }
     }
 
     async writeBlocks(ops: any[], blocks: any[]) {
-        const bulkResponse = await this.elastic.bulk({
+        const bulkResponse = await this.elastic.bulk<any, any>({
             refresh: true,
             operations: ops,
             error_trace: true
@@ -472,7 +503,7 @@ export class Connector {
             // The presence of the `error` key indicates that the operation
             // that we did for the document has failed.
             bulkResponse.items.forEach((
-                action: BulkResponseItem, i: number) => {
+                action: Partial<Record<estypes.BulkOperationType, estypes.BulkResponseItem>>, i: number) => {
                 const operation = Object.keys(action)[0]
                 // @ts-ignore
                 if (action[operation].error) {
@@ -492,7 +523,6 @@ export class Connector {
 
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
-
         logger.info(`drained ${ops.length} operations.`);
         logger.info(`broadcasting ${blocks.length} blocks...`)
 

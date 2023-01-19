@@ -1,4 +1,4 @@
-from node:16-bullseye
+from node:18-bullseye
 
 run mkdir -p /indexer/build
 
@@ -9,9 +9,11 @@ copy config.json /indexer
 
 workdir /indexer
 
+copy eosrio-hyperion-sequential-reader-1.1.0.tgz ./
+
 run yarn install
 run npx tsc
 
 env LOG_LEVEL debug
 
-cmd ["node", "--inspect=9229", "--max-old-space-size=8192", "build/main.js"]
+cmd ["node", "build/main.js"]
