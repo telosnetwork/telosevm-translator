@@ -424,11 +424,8 @@ export class Connector {
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
         const currentEvmBlock = blockInfo.delta['@global'].block_num;
-        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1) {
-            logger.warn(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}... dropping pushBlock...`)
-            return;
-            // throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`)
-        }
+        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1)
+            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`);
 
         const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;

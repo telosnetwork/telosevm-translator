@@ -22,7 +22,6 @@ export type BroadcasterConfig = {
 };
 
 export type IndexerConfig = {
-    debug: boolean;
     chainName: string;
     chainId: number;
     endpoint: string;

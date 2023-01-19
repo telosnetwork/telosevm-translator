@@ -84,8 +84,6 @@ export class TEVMIndexer {
     lastBlock: number;  // last evm block number that was succesfully pushed to db in order
     lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
 
-    private forked: boolean = false  // flag required to limit the amount of fork handling tasks to one at all times
-
     // debug status used to print statistics
     private pushedLastSecond: number = 0;
     private idleWorkers: number = 0;
@@ -363,18 +361,12 @@ export class TEVMIndexer {
             } else
                 continue;
 
-            if (!isTxDeserializationError(evmTx))
-                gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
-
             if (isTxDeserializationError(evmTx)) {
-                if (this.config.debug) {
-                    errors.push(evmTx);
-                    continue;
-                } else {
-                    logger.error(evmTx.info.error);
-                    throw new Error(JSON.stringify(evmTx));
-                }
+                logger.error(evmTx.info.error);
+                throw new Error(JSON.stringify(evmTx));
             }
+
+            gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
 
             evmTransactions.push({
                 trx_id: action.trxId,
@@ -668,12 +660,9 @@ export class TEVMIndexer {
      * Detect forks and handle them, leave every state tracking attribute in a healthy state
      */
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (this.forked ||
-            b.nativeBlockNumber > this.lastNativeBlock ||
+        if (b.nativeBlockNumber > this.lastNativeBlock ||
             b.nativeBlockNumber == this.startBlock)
             return;
-
-        this.forked = true;
 
         logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastNativeBlock}, chain fork detected. reverse all blocks which were affected`);
 
@@ -688,8 +677,6 @@ export class TEVMIndexer {
         this.lastBlock = b.evmBlockNumber - 1;
         this.lastNativeBlock = b.nativeBlockNumber - 1;
         this.connector.forkCleanup(b.nativeBlockNumber, b.evmBlockNumber);
-
-        this.forked = false;
     }
 
     printIntroText() {
