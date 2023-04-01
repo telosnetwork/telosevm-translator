@@ -1,13 +1,18 @@
+import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
 
-const conf = JSON.parse(readFileSync('config.json').toString());
+
+let conf: IndexerConfig = DEFAULT_CONF;
+try {
+    conf = JSON.parse(readFileSync('config.json').toString());
+} catch (e) { }
 
 if (process.env.CHAIN_NAME)
     conf.chainName = process.env.CHAIN_NAME;
 
 if (process.env.CHAIN_ID)
-    conf.chainId = process.env.CHAIN_ID;
+    conf.chainId = parseInt(process.env.CHAIN_ID, 10);
 
 if (process.env.TELOS_ENDPOINT)
     conf.endpoint = process.env.TELOS_ENDPOINT;

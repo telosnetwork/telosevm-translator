@@ -40,6 +40,44 @@ export type IndexerConfig = {
     broadcast: BroadcasterConfig;
 };
 
+export const DEFAULT_CONF = {
+    "chainName": "telos-mainnet",
+    "chainId": 40,
+
+    "endpoint": "http://mainnet.telos.net",
+    "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
+
+    "evmDeployBlock": 180698860,
+    "evmPrevHash": "",
+    "evmDelta": 36,
+
+    "startBlock": 180698860,
+    "stopBlock": 4294967295,
+    "irreversibleOnly": false,
+    "perf": {
+        "workerAmount": 4,
+        "elasticDumpSize": 2048
+    },
+
+    "elastic": {
+        "node": "http://localhost:9200",
+        "auth": {
+            "username": "elastic",
+            "password": "password"
+        },
+        "docsPerIndex": 10000000,
+        "subfix": {
+            "delta": "delta-v1.5",
+            "transaction": "action-v1.5",
+            "error": "error-v1.5"
+        }
+    },
+
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7300
+    }
+};
 
 export type IndexedBlockInfo = {
     transactions: StorageEosioAction[];
