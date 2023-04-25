@@ -532,6 +532,8 @@ export class Connector {
         logger.info('done.');
 
         this.writeCounter--;
+
+        if (global.gc) {global.gc();}
     }
 
 };

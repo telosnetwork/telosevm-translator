@@ -40,16 +40,16 @@ export type IndexerConfig = {
 };
 
 export const DEFAULT_CONF = {
-    "chainName": "telos-mainnet",
-    "chainId": 40,
+    "chainName": "telos-local",
+    "chainId": 41,
 
-    "endpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
+    "endpoint": "http://127.0.0.1:8888",
+    "wsEndpoint": "ws://127.0.0.1:29999",
 
-    "evmDeployBlock": 180698860,
+    "evmDeployBlock": 35,
     "evmPrevHash": "",
 
-    "startBlock": 180698860,
+    "startBlock": 35,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
@@ -58,7 +58,7 @@ export const DEFAULT_CONF = {
     },
 
     "elastic": {
-        "node": "http://localhost:9200",
+        "node": "http://127.0.0.1:9200",
         "auth": {
             "username": "elastic",
             "password": "password"

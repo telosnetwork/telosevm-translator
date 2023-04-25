@@ -12,7 +12,7 @@
   "type": "module",
   "dependencies": {
     "@elastic/elasticsearch": "^8.2.1",
-    "@eosrio/hyperion-sequential-reader": "file:./eosrio-hyperion-sequential-reader-1.1.0.tgz",
+    "@eosrio/hyperion-sequential-reader": "./eosrio-hyperion-sequential-reader-1.1.0.tgz",
     "@eosrio/node-abieos": "2.1.1",
     "@ethereumjs/block": "^3.6.3",
     "@ethereumjs/common": "^2.6.5",
@@ -31,6 +31,7 @@
     "ethereumjs-units": "^0.2.0",
     "ethereumjs-util": "^7.1.5",
     "ethers": "^5.6.9",
+    "heapdump": "^0.3.15",
     "js-priority-queue": "^0.1.5",
     "keccak": "^3.0.2",
     "lru-cache": "^7.13.1",

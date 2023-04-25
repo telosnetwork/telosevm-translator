@@ -256,16 +256,16 @@ export class TEVMIndexer {
             this.handleStateSwitch(block.blockInfo);
 
         // process deltas to catch evm block num
-        const globalDelta = extractGlobalContractRow(block.deltas).value;
+        const globalDelta = extractGlobalContractRow(block.deltas)?.value;
 
         let buffs: InprogressBuffers = null;
 
-        if (globalDelta != null) {
+        if (globalDelta) {
             const currentEvmBlock = globalDelta.block_num;
 
             // lazy initialization on genesis block case
             if (!this.started) {
-                logger.info(`Got first evm block with num: {currentEvmBlock}`);
+                logger.info(`Got first evm block with num: ${currentEvmBlock}`);
                 await this.genesisBlockInitialization(currentEvmBlock - 1);
                 this.started = true;
             }
@@ -298,8 +298,11 @@ export class TEVMIndexer {
             buffs = this.limboBuffs;
         }
 
-        if (!this.started)
-            throw new Error(`Couldn't figure out genesis info before first block`);
+        if (!this.started) {
+            this.reader.ack();
+            logger.warn(`Couldn't figure out genesis info before first block, skip...`);
+            return;
+        }
 
         const evmBlockNum = buffs.evmBlockNum;
         const evmTransactions = buffs.evmTransactions;
@@ -477,6 +480,18 @@ export class TEVMIndexer {
             startBlock: startBlock,
             irreversibleOnly: this.irreversibleOnly
         });
+
+        this.reader.onConnected = () => {
+            logger.info('SHIP Reader connected.');
+        }
+        this.reader.onDisconnect = () => {
+            logger.warn('SHIP Reader disconnected.');
+            logger.warn(`Retrying in 5 seconds... attempt number ${this.reader.reconnectCount}.`)
+        }
+        this.reader.onError = (err) => {
+            logger.error(`SHIP Reader error: ${err}`);
+        }
+
         this.reader.events.on('block', this.processBlock.bind(this));
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
