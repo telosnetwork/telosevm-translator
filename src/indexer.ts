@@ -13,12 +13,14 @@ import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
-    EMPTY_TRIE_BUF, EVMTxWrapper,
+    EMPTY_TRIE_BUF,
+    EVMTxWrapper,
     formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
-    getBlockGas, NULL_HASH,
+    getBlockGas,
+    NULL_HASH,
     ProcessedBlock,
     StorageEosioDelta
 } from './utils/evm.js'
@@ -26,18 +28,16 @@ import {
 import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {
-    extractGlobalContractRow,
-    getRPCClient
-} from './utils/eosio.js';
-import {ABI, Serializer} from "@greymass/eosio";
+import {extractGlobalContractRow, getRPCClient} from './utils/eosio.js';
+import {ABI} from "@greymass/eosio";
 
 
 import {
     handleEvmDeposit,
     handleEvmTx,
     handleEvmWithdraw,
-    isTxDeserializationError, setCommon,
+    isTxDeserializationError,
+    setCommon,
     TxDeserializationError
 } from "./handlers.js";
 
@@ -117,6 +117,8 @@ export class TEVMIndexer {
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
 
         setCommon(telosConfig.chainId);
+
+        setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
     /*
@@ -227,9 +229,15 @@ export class TEVMIndexer {
         return storableBlockInfo;
     }
 
-    private handleStateSwitch(block: any) {
+    private async handleStateSwitch() {
+        if (this.state == IndexerState.HEAD)
+            return;
+
         // SYNC & HEAD mode swtich detection
-        const blocksUntilHead = block.head.block_num - this.lastBlock;
+        const remoteHead = (await this.rpc.get_info()).head_block_num;
+        const blocksUntilHead = remoteHead - this.lastBlock;
+
+        logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
 
         if (blocksUntilHead <= 100) {
             this.state = IndexerState.HEAD;
@@ -251,9 +259,6 @@ export class TEVMIndexer {
             this.reader.ack();
             return;
         }
-
-        if (this.state == IndexerState.SYNC)
-            this.handleStateSwitch(block.blockInfo);
 
         // process deltas to catch evm block num
         const globalDelta = extractGlobalContractRow(block.deltas)?.value;
