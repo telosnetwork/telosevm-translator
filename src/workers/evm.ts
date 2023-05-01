@@ -172,7 +172,7 @@ parentPort.on(
                     //console.log(txBody['logs']);
                     const bloom = new Bloom();
                     for (const log of txBody['logs']) {
-                        bloom.add(Buffer.from(log['address'], 'hex'));
+                        bloom.add(Buffer.from(log['address'].padStart(40, '0'), 'hex'));
                         for (const topic of log.topics)
                             bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
                     }
