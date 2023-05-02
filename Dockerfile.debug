@@ -16,4 +16,4 @@ run npx tsc
 
 env LOG_LEVEL debug
 
-cmd ["node", "build/main.js"]
+cmd ["node", "--expose-gc", "build/main.js"]
