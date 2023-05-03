@@ -236,17 +236,22 @@ export class TEVMIndexer {
             return;
 
         // SYNC & HEAD mode swtich detection
-        const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
-        const blocksUntilHead = remoteHead - this.lastBlock;
+        try {
+            const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
+            const blocksUntilHead = remoteHead - this.lastBlock;
 
-        logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
+            logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
 
-        if (blocksUntilHead <= 100) {
-            this.state = IndexerState.HEAD;
-            this.connector.state = IndexerState.HEAD;
+            if (blocksUntilHead <= 100) {
+                this.state = IndexerState.HEAD;
+                this.connector.state = IndexerState.HEAD;
 
-            logger.info(
-                'switched to HEAD mode! blocks will be written to db asap.');
+                logger.info(
+                    'switched to HEAD mode! blocks will be written to db asap.');
+            }
+        } catch(error) {
+            logger.warn('get_info query to remote failed with error:');
+            logger.warn(error);
         }
     }
 
