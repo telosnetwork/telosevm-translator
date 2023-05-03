@@ -25,6 +25,7 @@ export type IndexerConfig = {
     chainName: string;
     chainId: number;
     endpoint: string;
+    remoteEndpoint: string;
     wsEndpoint: string;
     evmDeployBlock: number;
     evmPrevHash: string;
@@ -44,6 +45,7 @@ export const DEFAULT_CONF = {
     "chainId": 41,
 
     "endpoint": "http://127.0.0.1:8888",
+    "remoteEndpoint": "http://127.0.0.1:8888",
     "wsEndpoint": "ws://127.0.0.1:29999",
 
     "evmDeployBlock": 35,

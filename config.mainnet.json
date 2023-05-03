@@ -2,7 +2,8 @@
     "chainName": "telos-mainnet",
     "chainId": 40,
 
-    "endpoint": "http://mainnet.telos.net",
+    "endpoint": "http://127.0.0.1:8888",
+    "remoteEndpoint": "http://mainnet.telos.net",
     "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
 
     "evmDeployBlock": 180698860,

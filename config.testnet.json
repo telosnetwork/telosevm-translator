@@ -3,6 +3,7 @@
     "chainId": 41,
 
     "endpoint": "http://testnet.telos.net",
+    "remoteEndpoint": "http://testnet.telos.net",
     "wsEndpoint": "ws://141.193.240.11:18993",
 
     "evmDeployBlock": 136393814,

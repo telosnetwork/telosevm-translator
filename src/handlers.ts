@@ -113,26 +113,24 @@ async function queryAddress(accountName: string, rpc: JsonRpc) {
                 upper_bound: acctInt,
                 limit: 1
             });
-            break
+            if (result.rows.length == 1)
+                return result.rows[0].address;
+
+            if (result.rows.length > 1)
+                throw new Error('multi address for one account, shouldn\'t happen.');
 
         } catch (error) {
-            logger.warn(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
-            logger.warn(error);
-            if (retry > 0) {
-                await sleep(1000);
-                continue;
-            } else
+            logger.error(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
+            logger.error(error);
+            if (retry == 0)
                 throw error;
         }
+
+        logger.warn(`queryAddress returned null for account ${accountName}, int: ${acctInt}, retrying...`);
+        await sleep(500);
     }
 
-    if (result.rows.length == 1) {
-        return result.rows[0].address;
-    } else if (result.rows.length > 1) {
-        throw new Error('multi address for one account, shouldn\'t happen.');
-    } else {
-        return null;
-    }
+    throw new Error(`failed to get eth addr for ${accountName}, int: ${acctInt}`);
 }
 
 export async function handleEvmDeposit(

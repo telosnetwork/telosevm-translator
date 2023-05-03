@@ -78,6 +78,7 @@ export class TEVMIndexer {
 
     private reader: HyperionSequentialReader;  // websocket state history connector, deserializes nodeos protocol
     private rpc: JsonRpc;
+    private remoteRpc: JsonRpc;
     connector: Connector;  // custom elastic search db driver
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
@@ -105,7 +106,8 @@ export class TEVMIndexer {
 
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
-        this.rpc = getRPCClient(telosConfig);
+        this.rpc = getRPCClient(telosConfig.endpoint);
+        this.remoteRpc = getRPCClient(telosConfig.remoteEndpoint);
         this.connector = new Connector(telosConfig);
         this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
@@ -234,7 +236,7 @@ export class TEVMIndexer {
             return;
 
         // SYNC & HEAD mode swtich detection
-        const remoteHead = (await this.rpc.get_info()).head_block_num;
+        const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
         const blocksUntilHead = remoteHead - this.lastBlock;
 
         logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);

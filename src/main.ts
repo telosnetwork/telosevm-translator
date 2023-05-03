@@ -23,6 +23,9 @@ if (process.env.CHAIN_ID)
 if (process.env.TELOS_ENDPOINT)
     conf.endpoint = process.env.TELOS_ENDPOINT;
 
+if (process.env.TELOS_REMOTE_ENDPOINT)
+    conf.remoteEndpoint = process.env.TELOS_REMOTE_ENDPOINT;
+
 if (process.env.TELOS_WS_ENDPOINT)
     conf.wsEndpoint = process.env.TELOS_WS_ENDPOINT;
 

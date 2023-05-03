@@ -3,6 +3,7 @@
     "chainId": 41,
 
     "endpoint": "http://testrpc.us.telos.net:8884",
+    "endpoint": "http://testrpc.us.telos.net:8884",
     "wsEndpoint": "ws://testrpc.us.telos.net:18999",
 
     "evmDeployBlock": 31177571,
