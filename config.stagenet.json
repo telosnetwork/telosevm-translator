@@ -3,11 +3,11 @@
     "chainId": 41,
 
     "endpoint": "http://testrpc.us.telos.net:8884",
+    "endpoint": "http://testrpc.us.telos.net:8884",
     "wsEndpoint": "ws://testrpc.us.telos.net:18999",
 
     "evmDeployBlock": 31177571,
     "evmPrevHash": "",
-    "evmDelta": 74390,
 
     "startBlock": 31177571,
     "stopBlock": 4294967295,
@@ -18,7 +18,7 @@
     },
 
     "elastic": {
-        "node": "http://localhost:9200",
+        "node": "http://127.0.0.1:9200",
         "auth": {
             "username": "elastic",
             "password": "password"

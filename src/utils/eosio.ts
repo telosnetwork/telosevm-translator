@@ -186,6 +186,6 @@ import { IndexerConfig } from '../types/indexer.js';
 // @ts-ignore
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-export function getRPCClient(config: IndexerConfig) {
-    return new JsonRpc(config.endpoint, { fetch });
+export function getRPCClient(endpoint: string) {
+    return new JsonRpc(endpoint, { fetch });
 }

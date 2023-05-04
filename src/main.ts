@@ -1,25 +1,36 @@
+import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
 
-const conf = JSON.parse(readFileSync('config.json').toString());
+import heapdump from 'heapdump';
+
+heapdump.writeSnapshot(function(err, filename) {
+  console.log('dump written to', filename);
+});
+
+
+let conf: IndexerConfig = DEFAULT_CONF;
+try {
+    conf = JSON.parse(readFileSync('config.json').toString());
+} catch (e) { }
 
 if (process.env.CHAIN_NAME)
     conf.chainName = process.env.CHAIN_NAME;
 
 if (process.env.CHAIN_ID)
-    conf.chainId = process.env.CHAIN_ID;
+    conf.chainId = parseInt(process.env.CHAIN_ID, 10);
 
 if (process.env.TELOS_ENDPOINT)
     conf.endpoint = process.env.TELOS_ENDPOINT;
+
+if (process.env.TELOS_REMOTE_ENDPOINT)
+    conf.remoteEndpoint = process.env.TELOS_REMOTE_ENDPOINT;
 
 if (process.env.TELOS_WS_ENDPOINT)
     conf.wsEndpoint = process.env.TELOS_WS_ENDPOINT;
 
 if (process.env.EVM_DEPLOY_BLOCK)
     conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
-
-if (process.env.EVM_DELTA)
-    conf.evmDelta = parseInt(process.env.EVM_DELTA, 10);
 
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;

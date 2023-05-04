@@ -25,10 +25,10 @@ export type IndexerConfig = {
     chainName: string;
     chainId: number;
     endpoint: string;
+    remoteEndpoint: string;
     wsEndpoint: string;
     evmDeployBlock: number;
     evmPrevHash: string;
-    evmDelta: number;
     startBlock: number;
     stopBlock: number;
     irreversibleOnly: boolean;
@@ -40,6 +40,44 @@ export type IndexerConfig = {
     broadcast: BroadcasterConfig;
 };
 
+export const DEFAULT_CONF = {
+    "chainName": "telos-local",
+    "chainId": 41,
+
+    "endpoint": "http://127.0.0.1:8888",
+    "remoteEndpoint": "http://127.0.0.1:8888",
+    "wsEndpoint": "ws://127.0.0.1:29999",
+
+    "evmDeployBlock": 35,
+    "evmPrevHash": "",
+
+    "startBlock": 35,
+    "stopBlock": 4294967295,
+    "irreversibleOnly": false,
+    "perf": {
+        "workerAmount": 4,
+        "elasticDumpSize": 2048
+    },
+
+    "elastic": {
+        "node": "http://127.0.0.1:9200",
+        "auth": {
+            "username": "elastic",
+            "password": "password"
+        },
+        "docsPerIndex": 10000000,
+        "subfix": {
+            "delta": "delta-v1.5",
+            "transaction": "action-v1.5",
+            "error": "error-v1.5"
+        }
+    },
+
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7300
+    }
+};
 
 export type IndexedBlockInfo = {
     transactions: StorageEosioAction[];
