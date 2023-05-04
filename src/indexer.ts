@@ -310,11 +310,8 @@ export class TEVMIndexer {
             buffs = this.limboBuffs;
         }
 
-        if (!this.started) {
-            this.reader.ack();
-            logger.warn(`Couldn't figure out genesis info before first block, skip...`);
-            return;
-        }
+        if (!this.started)
+            throw new Error(`Couldn't figure out genesis info before first block`);
 
         const evmBlockNum = buffs.evmBlockNum;
         const evmTransactions = buffs.evmTransactions;
