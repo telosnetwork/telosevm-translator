@@ -282,13 +282,19 @@ export class Connector {
                 const totalRange = (upper - lower) + 1;
                 let hasGap = total < totalRange;
 
-                if (len > 1 && i < (len - 1)) {
-                    const nextBucket = results.aggregations.block_histogram.buckets[i + 1];
-                    hasGap = hasGap || (nextBucket.key - upper) != 1;
+                // find gap between upper and next bucket start
+                if (len > 1 && i < len && upper !== upperBound) {
+                    let nextBucketStart;
+                    if (i < (len - 1))
+                        nextBucketStart = results.aggregations.block_histogram.buckets[i + 1].key;
+                    else
+                        nextBucketStart = bucket.key + interval
+
+                    hasGap = hasGap || (nextBucketStart - upper) != 1;
                 }
 
                 if (hasGap)
-                    return [lower, upper];
+                    return [lower, lower + interval];
             }
             return null;
         }
