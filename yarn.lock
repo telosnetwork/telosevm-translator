@@ -71,14 +71,15 @@
     tslib "^2.4.0"
     undici "^5.5.1"
 
-"@eosrio/hyperion-sequential-reader@./eosrio-hyperion-sequential-reader-1.1.0.tgz":
-  version "1.1.0"
-  resolved "./eosrio-hyperion-sequential-reader-1.1.0.tgz#c3908fe2e1d436030af5be2d59b340551b4ee59b"
+"@eosrio/hyperion-sequential-reader@^1.2.1":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@eosrio/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.1.tgz#d64ddd7a54753b227fbeb3dc440432a493824501"
+  integrity sha512-auCjJMTa5BRQlU0d3O2I5Jm0aEh/Dkb1Ok/f+gEbKo6E8bZzOe84/JBSyULiyDaq4scT/A++d4pDYjzqfGEQbQ==
   dependencies:
-    "@greymass/eosio" "0.6.10"
+    "@greymass/eosio" "0.6.11"
     async "^3.2.4"
     node-fetch "^3.3.0"
-    ws "^8.11.0"
+    ws "^8.13.0"
 
 "@eosrio/node-abieos@2.1.1":
   version "2.1.1"
@@ -522,10 +523,10 @@
     "@ethersproject/properties" "^5.7.0"
     "@ethersproject/strings" "^5.7.0"
 
-"@greymass/eosio@0.6.10":
-  version "0.6.10"
-  resolved "https://registry.yarnpkg.com/@greymass/eosio/-/eosio-0.6.10.tgz#20028c2f71da8c071e0a78959904660fa54e1182"
-  integrity sha512-lgml9eAR85q1s3cDSFiipK1XensUASpBWPU6vu3FRDot0CBOC46kHnNWXjF9p+/jI2TzxFqPVU185ZxzC9Q3mw==
+"@greymass/eosio@0.6.11":
+  version "0.6.11"
+  resolved "https://registry.yarnpkg.com/@greymass/eosio/-/eosio-0.6.11.tgz#9bd1783f8467834563ac893d41524c01aba0228c"
+  integrity sha512-Ud6V7+vQJ+OLxqD7QcKTv/ik/Hd5uaRHyGY9Hzc+cJXezYU4sADX4TyQ8sn6XIr8ebVVNZFvWpc5JR0a9lBzKw==
   dependencies:
     bn.js "^4.11.9"
     brorand "^1.1.0"
@@ -2154,7 +2155,7 @@ ws@^7.5.9:
   resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.9.tgz#54fa7db29f4c7cec68b1ddd3a89de099942bb591"
   integrity sha512-F+P9Jil7UiSKSkppIiD94dN07AwvFixvLIj1Og1Rl9GGMuNipJnV9JzjD6XuqmAeiswGvUmNLjr5cFuXwNS77Q==
 
-ws@^8.11.0:
+ws@^8.13.0:
   version "8.13.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.13.0.tgz#9a9fb92f93cf41512a0735c8f4dd09b8a1211cd0"
   integrity sha512-x9vcZYTrFPC7aSIbj7sRCYo7L/Xb8Iy+pW0ng0wt2vCJv7M9HOMy0UoN3rr+IFC7hb7vXoqS+P9ktyLLLhO+LA==
