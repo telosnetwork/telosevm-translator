@@ -270,6 +270,8 @@ export class Connector {
                 }
             });
 
+            logger.debug(`gap check result: \n${JSON.stringify(results, null, 4)}`)
+
             const len = results.aggregations.block_histogram.buckets.length;
             for (let i = 0; i < len; i++) {
 
