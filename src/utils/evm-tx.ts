@@ -73,9 +73,16 @@ export class TEVMTransaction extends BaseTransaction<TEVMTransaction> {
         // If length is not 6, it has length 9. If v/r/s are empty Buffers, it is still an unsigned transaction
         // This happens if you get the RLP data from `raw()`
         if (values.length !== 6 && values.length !== 9) {
-            throw new Error(
-                'Invalid transaction. Only expecting 6 values (for unsigned tx) or 9 values (for signed tx).'
-            )
+            if (values.length > 10) {
+                let i = 10;
+                while (i < values.length) {
+                    if (values[i].length !== 0) {
+                        throw new Error(
+                            'Invalid transaction. Only expecting 6 values (for unsigned tx) or 9 values (for signed tx).'
+                        )
+                    }
+                }
+            }
         }
 
         const [nonce, gasPrice, gasLimit, to, value, data, v, r, s] = values
