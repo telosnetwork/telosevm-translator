@@ -1,6 +1,6 @@
 # telosevm translator
 
-Consume `nodeos` state history endpoint and take and EVM dump.
+Consume `nodeos` state history endpoint and take an EVM dump.
 
 ## code "map":
 
