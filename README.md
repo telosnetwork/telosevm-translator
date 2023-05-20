@@ -1,4 +1,4 @@
-# telosevm elasticsearch indexer
+# telosevm translator
 
 Consume `nodeos` state history endpoint and take and EVM dump.
 
@@ -53,11 +53,11 @@ responses.
 
 #### to run via PM2, give it a unique name that makes sense (first install PM2 if not already installed):
 
-    npx tsc && pm2 start build/main.js --name telostest-evm15-indexer
+    npx tsc && pm2 start build/main.js --name telostest-evm15-translator
 
 ### launch indexer (through docker):
 
-#### build telosevm-es-indexer docker:
+#### build telosevm-translator docker:
 
     docker build --tag telosevm-indexer:$VERSION .
 

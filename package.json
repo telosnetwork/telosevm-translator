@@ -4,7 +4,7 @@
   "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
-  "repository": "https://github.com/telosnetwork/telosevm-es-indexer",
+  "repository": "https://github.com/telosnetwork/telosevm-translator",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch"

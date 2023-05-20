@@ -9,9 +9,7 @@ copy config.json /indexer
 
 workdir /indexer
 
-copy eosrio-hyperion-sequential-reader-1.1.0.tgz ./
-
 run yarn install
 run npx tsc
 
-cmd ["node", "build/main.js"]
+cmd ["node", "--expose-gc", "build/main.js"]
