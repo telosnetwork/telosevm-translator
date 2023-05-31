@@ -1,10 +1,11 @@
 import RPCBroadcaster from '../publisher.js';
-import {ElasticIndex, IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js';
+import {IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js';
 import {getTemplatesForChain} from './templates.js';
 
 import logger from '../utils/winston.js';
 import {Client, estypes} from '@elastic/elasticsearch';
 import {StorageEosioDelta} from '../utils/evm.js';
+import { StorageEosioAction } from '../types/evm.js';
 
 interface ConfigInterface {
     [key: string]: any;
@@ -475,27 +476,43 @@ export class Connector {
         }
     }
 
-    forkCleanup(blockNum: number, evmBlockNum: number) {
-        this.lastPushed = evmBlockNum - 1;
-        let i = 0;
-        while (i < this.opDrain.length) {
+    forkCleanup(
+        timestamp: string,
+        lastNonForkedEvm: number,
+        lastNonForked: number,
+        lastForked: number
+    ) {
+        // fix state flag
+        this.lastPushed = lastNonForkedEvm;
+
+        // clear elastic operations drain
+        let i = this.opDrain.length;
+        while (i > 0) {
             const op = this.opDrain[i];
-            if (Object.getPrototypeOf(op) == StorageEosioDelta.prototype &&
-                op.block_num == blockNum) {
-                this.opDrain.splice(i - 1);
-                break;
+            if ((Object.getPrototypeOf(op) == StorageEosioDelta.prototype ||
+                Object.getPrototypeOf(op) == StorageEosioAction.prototype) &&
+                op.block_num > lastNonForked) {
+                this.opDrain.splice(i - 1); // delete indexing info
+                this.opDrain.splice(i);     // delete the document
             }
-            i++;
+            i--;
         }
-        i = 0;
-        while (i < this.blockDrain.length) {
+
+        // clear broadcast queue
+        i = this.blockDrain.length;
+        while (i > 0) {
             const block = this.blockDrain[i];
-            if (block.delta.block_num == blockNum) {
+            if (block.delta.block_num > lastNonForked) {
                 this.blockDrain.splice(i);
-                break;
             }
-            i++
+            i--;
         }
+
+        // write information about fork event
+        const suffix = getSuffix(lastNonForked, this.config.elastic.docsPerIndex);
+        const frkIndex = `${this.chainName}-${this.config.elastic.subfix.fork}-${suffix}`;
+        this.opDrain.push({index: {_index: frkIndex}});
+        this.opDrain.push({timestamp, lastNonForked, lastForked});
     }
 
     async writeBlocks(ops: any[], blocks: any[]) {
