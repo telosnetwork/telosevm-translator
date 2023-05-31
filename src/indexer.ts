@@ -457,7 +457,9 @@ export class TEVMIndexer {
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
 
-        if (lastBlock != null) {  // if we find blocks on the db check for gaps...
+        if (lastBlock != null &&
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            // if we find blocks on the db check for gaps...
             const gap = await this.connector.fullGapCheck();
             if (gap == null) {
                 // no gaps found
