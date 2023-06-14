@@ -213,7 +213,6 @@ export class Connector {
 
     async fullGapCheck(): Promise<number> {
         const lowerBoundDoc = await this.getFirstIndexedBlock();
-        logger.warn(JSON.stringify(lowerBoundDoc, null, 4));
 
         if (lowerBoundDoc == null)
             return null;
