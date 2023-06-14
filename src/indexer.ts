@@ -297,6 +297,13 @@ export class TEVMIndexer {
                 this.limboBuffs = null;
             }
         } else {
+            if (!this.started) {
+                this.reader.ack()
+                logger.warn(`no global delta and !started skip block ${currentBlock}...`);
+                return;
+            }
+
+
             logger.warn(`onblock failed at block ${currentBlock}`);
 
             if (this.limboBuffs == null) {

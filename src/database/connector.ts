@@ -483,13 +483,13 @@ export class Connector {
         lastForked: number
     ) {
         // fix state flag
-        this.lastPushed = lastNonForkedEvm;
+        this.lastPushed = lastNonForkedEvm - 1;
 
         // clear elastic operations drain
         let i = this.opDrain.length;
         while (i > 0) {
             const op = this.opDrain[i];
-            if ((Object.getPrototypeOf(op) == StorageEosioDelta.prototype ||
+            if (op && (Object.getPrototypeOf(op) == StorageEosioDelta.prototype ||
                 Object.getPrototypeOf(op) == StorageEosioAction.prototype) &&
                 op.block_num > lastNonForked) {
                 this.opDrain.splice(i - 1); // delete indexing info
@@ -502,7 +502,7 @@ export class Connector {
         i = this.blockDrain.length;
         while (i > 0) {
             const block = this.blockDrain[i];
-            if (block.delta.block_num > lastNonForked) {
+            if (block && block.delta.block_num > lastNonForked) {
                 this.blockDrain.splice(i);
             }
             i--;
