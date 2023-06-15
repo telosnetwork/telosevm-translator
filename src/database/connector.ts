@@ -273,28 +273,39 @@ export class Connector {
             logger.debug(`gap check result: \n${JSON.stringify(results, null, 4)}`)
 
             const len = results.aggregations.block_histogram.buckets.length;
-            for (let i = 0; i < len; i++) {
 
-                const bucket = results.aggregations.block_histogram.buckets[i];
-                const lower = bucket.min_block.value;
-                const upper = bucket.max_block.value;
+            if (len == 1) {
+                const bucket = results.aggregations.block_histogram.buckets[0];
                 const total = bucket.doc_count;
-                const totalRange = (upper - lower) + 1;
-                let hasGap = total < totalRange;
 
-                // find gap between upper and next bucket start
-                if (len > 1 && i < len && upper !== upperBound) {
-                    let nextBucketStart;
-                    if (i < (len - 1))
-                        nextBucketStart = results.aggregations.block_histogram.buckets[i + 1].key;
-                    else
-                        nextBucketStart = bucket.key + interval
+                const expectedRange = upperBound - lowerBound
 
-                    hasGap = hasGap || (nextBucketStart - upper) != 1;
+                if (total < expectedRange)
+                    return [lowerBound, lowerBound + interval]
+            } else {
+                for (let i = 0; i < len; i++) {
+
+                    const bucket = results.aggregations.block_histogram.buckets[i];
+                    const lower = bucket.min_block.value;
+                    const upper = bucket.max_block.value;
+                    const total = bucket.doc_count;
+                    const totalRange = (upper - lower) + 1;
+                    let hasGap = total < totalRange;
+
+                    // find gap between upper and next bucket start
+                    if (len > 1 && i < len && upper !== upperBound) {
+                        let nextBucketStart;
+                        if (i < (len - 1))
+                            nextBucketStart = results.aggregations.block_histogram.buckets[i + 1].key;
+                        else
+                            nextBucketStart = bucket.key + interval
+
+                        hasGap = hasGap || (nextBucketStart - upper) != 1;
+                    }
+
+                    if (hasGap)
+                        return [lower, lower + interval];
                 }
-
-                if (hasGap)
-                    return [lower, lower + interval];
             }
             return null;
         }
