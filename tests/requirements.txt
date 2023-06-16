@@ -1,0 +1,5 @@
+elasticsearch
+pytest
+pdbpp
+
+tevmc@git+https://github.com/telosnetwork/telos-evm-docker.git@subst_plugin_fix

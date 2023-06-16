@@ -466,10 +466,12 @@ export class TEVMIndexer {
 
         if (lastBlock != null &&
             lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
-            // if we find blocks on the db check for gaps...
-            const gap = await this.connector.fullGapCheck();
+            // if we find blocks on the db check,
+            // integrity and return gap if present...
+            const gap = await this.connector.fullIntegrityCheck();
             if (gap == null) {
                 // no gaps found
+                logger.info('no gaps found.');
                 ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
                 if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))

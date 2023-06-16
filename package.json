@@ -24,6 +24,7 @@
     "@greymass/eosio": "0.6.11",
     "assert": "2.0.0",
     "bn.js": "5.2.1",
+    "bull": "4.10.4",
     "collections": "5.1.13",
     "eosjs": "22.1.0",
     "ethereum-tx-decoder": "3.0.0",
