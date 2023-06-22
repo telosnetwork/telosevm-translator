@@ -119,8 +119,6 @@ export class TEVMIndexer {
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
 
         setCommon(telosConfig.chainId);
-
-        setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
     /*
@@ -493,6 +491,8 @@ export class TEVMIndexer {
 
             this.started = true
         }
+
+        setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
         this.reader = new HyperionSequentialReader({
             poolSize: this.config.perf.workerAmount,
