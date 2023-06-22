@@ -87,7 +87,7 @@ export function getTemplatesForChain(chain: string) {
 
                 "@raw": {
                     "properties": {
-                        "hash": {"type": "text"},
+                        "hash": {"type": "keyword"},
                         "trx_index": {"type": "long"},
                         "block": {"type": "long"},
                         "block_hash": {"type": "text"},
