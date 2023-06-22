@@ -464,7 +464,8 @@ export class TEVMIndexer {
         logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
         if (lastBlock != null &&
-            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH &&
+            ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check')))) {
             // if we find blocks on the db check,
             // integrity and return gap if present...
             logger.debug('performing integrity check...');
