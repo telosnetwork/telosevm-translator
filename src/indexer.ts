@@ -221,6 +221,7 @@ export class TEVMIndexer {
                     "signatures": evmTxData.signatures,
                     "@raw": evmTxData.evmTx
                 });
+
             }
         }
 
@@ -259,7 +260,6 @@ export class TEVMIndexer {
      */
     async processBlock(block: any): Promise<void> {
         const currentBlock = block.blockInfo.this_block.block_num;
-        logger.debug(`got block ${currentBlock}`);
 
         if (currentBlock < this.startBlock) {
             this.reader.ack();
@@ -494,6 +494,12 @@ export class TEVMIndexer {
             this.started = true
         }
 
+        // check node actually contains first block
+        // const block = await this.rpc.get_block(startBlock);
+        // if (!block)
+        //     throw new Error(
+        //         'Looks like local node doesn\'t have start_block on blocks log');
+
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
         this.reader = new HyperionSequentialReader({
@@ -517,6 +523,7 @@ export class TEVMIndexer {
         }
 
         this.reader.events.on('block', this.processBlock.bind(this));
+
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
             this.reader.addContract(c, abi);
@@ -525,7 +532,6 @@ export class TEVMIndexer {
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
-
     }
 
     async genesisBlockInitialization(evmGenesisBlock: number) {
