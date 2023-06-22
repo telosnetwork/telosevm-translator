@@ -259,6 +259,7 @@ export class TEVMIndexer {
      */
     async processBlock(block: any): Promise<void> {
         const currentBlock = block.blockInfo.this_block.block_num;
+        logger.debug(`got block ${currentBlock}`);
 
         if (currentBlock < this.startBlock) {
             this.reader.ack();
