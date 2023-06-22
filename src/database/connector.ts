@@ -201,12 +201,15 @@ export class Connector {
                 ]
             });
 
+            logger.debug(`getLastIndexedBlock:\n${JSON.stringify(result, null, 4)}`);
+
             if (result?.hits?.hits?.length == 0)
                 return null;
 
             return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
         } catch (error) {
+            logger.error(error);
             return null;
         }
     }

@@ -463,11 +463,13 @@ export class TEVMIndexer {
 
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
+        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
         if (lastBlock != null &&
             lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
             // if we find blocks on the db check,
             // integrity and return gap if present...
+            logger.debug('performing integrity check...');
             const gap = await this.connector.fullIntegrityCheck();
             if (gap == null) {
                 // no gaps found
