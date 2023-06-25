@@ -47,10 +47,10 @@ export default class RPCBroadcaster {
     }
 
     broadcastBlock(blockInfo: IndexedBlockInfo) {
-        let gasUsed = 0;
+        let gasUsed = "0x0";
 
         if (blockInfo.transactions.length > 0)
-            blockInfo.transactions[0]['@raw'].gasusedblock;
+            gasUsed = blockInfo.transactions[0]['@raw'].gasusedblock;
 
         const head = Object.assign({}, NEW_HEADS_TEMPLATE, {
             parentHash: `0x${blockInfo.parentHash}`,
