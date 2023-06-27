@@ -50,7 +50,7 @@ export default class RPCBroadcaster {
         let gasUsed = 0;
 
         if (blockInfo.transactions.length > 0)
-            blockInfo.transactions[0]['@raw'].gasusedblock;
+            gasUsed = parseInt(blockInfo.transactions[blockInfo.transactions.length - 1]['@raw'].gasusedblock, 10);
 
         const head = Object.assign({}, NEW_HEADS_TEMPLATE, {
             parentHash: `0x${blockInfo.parentHash}`,
@@ -63,6 +63,9 @@ export default class RPCBroadcaster {
             number: numToHex(blockInfo.delta['@global'].block_num),
             timestamp: `0x${this.convertTimestampToEpoch(blockInfo.delta['@timestamp']).toString(16)}`,
         })
+
+        for (let trx in blockInfo.transactions)
+            this.broadcastData('raw', JSON.stringify(trx));
 
         this.broadcastData('head', JSON.stringify(head));
     }
