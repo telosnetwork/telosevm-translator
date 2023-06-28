@@ -58,7 +58,7 @@ export default class RPCBroadcaster {
             receiptsRoot: `0x${blockInfo.receiptsRoot}`,
             transactionsRoot: `0x${blockInfo.delta['@transactionsRoot']}`,
 
-            gasUsed: gasUsed,
+            gasUsed: numToHex(gasUsed),
             logsBloom: `0x${blockInfo.blockBloom}`,
             number: numToHex(blockInfo.delta['@global'].block_num),
             timestamp: `0x${this.convertTimestampToEpoch(blockInfo.delta['@timestamp']).toString(16)}`,
