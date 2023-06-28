@@ -65,9 +65,9 @@ export default class RPCBroadcaster {
         })
 
         for (let trx of blockInfo.transactions)
-            this.broadcastData('raw', JSON.stringify(trx));
+            this.broadcastData('raw', trx);
 
-        this.broadcastData('head', JSON.stringify(head));
+        this.broadcastData('head', head);
     }
 
     private broadcastData(type: string, data: any) {
