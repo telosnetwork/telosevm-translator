@@ -304,11 +304,17 @@ export class Connector {
             }
         });
 
-        const buckets = results.aggregations.duplicate_blocks.buckets;
+	if (results.aggregations) {
 
-        logger.debug(`findDuplicateDeltas: ${lower}-${upper}`);
+            const buckets = results.aggregations.duplicate_blocks.buckets;
 
-        return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+            logger.debug(`findDuplicateDeltas: ${lower}-${upper}`);
+
+            return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+
+	} else {
+	    return [];
+	}
     }
 
     async findDuplicateActions(lower: number, upper: number): Promise<number[]> {
@@ -336,11 +342,17 @@ export class Connector {
             }
         });
 
-        const buckets = results.aggregations.duplicate_txs.buckets;
+	if (results.aggregations) {
 
-        logger.debug(`findDuplicateActions: ${lower}-${upper}`);
+            const buckets = results.aggregations.duplicate_txs.buckets;
 
-        return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+            logger.debug(`findDuplicateActions: ${lower}-${upper}`);
+
+            return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+
+	} else {
+	    return [];
+	}
     }
 
     async checkGaps(lowerBound: number, upperBound: number, interval: number): Promise<number> {

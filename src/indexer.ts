@@ -87,7 +87,8 @@ export class TEVMIndexer {
     lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
 
     // debug status used to print statistics
-    private pushedLastSecond: number = 0;
+    private pushedLastUpdate: number = 0;
+    private timestampLastUpdate: number;
 
     private statsTaskId: NodeJS.Timer;
 
@@ -119,22 +120,30 @@ export class TEVMIndexer {
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
 
         setCommon(telosConfig.chainId);
+
+	this.timestampLastUpdate = Date.now() / 1000;
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec`;
+	const now = Date.now() / 1000;
+	const timeElapsed = now - this.timestampLastUpdate;
+	const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+
+        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastNativeBlock;
 
         if (untilHead > 3) {
-            const hoursETA = `${((untilHead / this.pushedLastSecond) / (60 * 60)).toFixed(1)}hs`;
+            const hoursETA = `${((untilHead / blocksPerSecond) / (60 * 60)).toFixed(1)}hs`;
             statsString += `, ${untilHead} to reach head, aprox ${hoursETA}`;
         }
 
         logger.info(statsString);
-        this.pushedLastSecond = 0;
+
+        this.pushedLastUpdate = 0;
+	this.timestampLastUpdate = now;
     }
 
     /*
@@ -435,7 +444,7 @@ export class TEVMIndexer {
         this.lastNativeBlock = storableBlockInfo.delta.block_num;
 
         // For debug stats
-        this.pushedLastSecond++;
+        this.pushedLastUpdate++;
 
         this.reader.ack();
     }
@@ -526,7 +535,7 @@ export class TEVMIndexer {
 
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
-            this.reader.addContract(c, abi);
+            this.reader.addContract(c, abi, {});
         })
         this.reader.start();
 
