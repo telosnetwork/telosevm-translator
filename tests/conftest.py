@@ -179,8 +179,11 @@ def init_db_and_run_translator(tevm_node, request):
         )
     )
     es.indices.delete(
+        index=f'{rpc_conf["elastic_prefix"]}-{action_index_spec}**'
+    )
+    es.indices.delete(
         index=f'{rpc_conf["elastic_prefix"]}-{delta_index_spec}-*',
-        )
+    )
 
     ops = []
     for rstart, rend in ranges:
@@ -211,13 +214,14 @@ def init_db_and_run_translator(tevm_node, request):
     es.bulk(operations=ops, refresh=True)
 
     env = {
-        'LOG_LEVEL': 'debug'
+        'LOG_LEVEL': 'debug',
+        'CHAIN_NAME': rpc_conf["elastic_prefix"] 
     }
 
     env.update(os.environ)
 
     proc = subprocess.Popen(
-        ['node', 'build/main.js'],
+        ['node', 'build/main.js', '--skip-start-block-check'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         encoding='utf-8',
         env=env

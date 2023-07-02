@@ -90,7 +90,7 @@ export function getTemplatesForChain(chain: string) {
                         "hash": {"type": "keyword"},
                         "trx_index": {"type": "long"},
                         "block": {"type": "long"},
-                        "block_hash": {"type": "text"},
+                        "block_hash": {"type": "keyword"},
                         "from": {"type": "keyword"},
                         "to": {"type": "keyword"},
                         "input_data": {"enabled": "false"},

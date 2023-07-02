@@ -7,3 +7,4 @@ package-lock.json
 **/*.js
 **/*.js.map
 config.json
+**/__pycache__

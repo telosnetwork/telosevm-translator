@@ -504,10 +504,13 @@ export class TEVMIndexer {
         }
 
         // check node actually contains first block
-        const block = await this.rpc.get_block(startBlock);
-        if (!block)
-            throw new Error(
-                'Looks like local node doesn\'t have start_block on blocks log');
+        try {
+             await this.rpc.get_block(startBlock);
+        } catch(error) {
+            if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
+                throw new Error(
+                    'Looks like local node doesn\'t have start_block on blocks log');
+        }
 
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
