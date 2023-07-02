@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from hashlib import sha256
+
 import pytest
 
 
@@ -22,10 +23,15 @@ def test_dup_block_check_multi(init_db_and_run_translator):
     ...
 
 
-@pytest.mark.txs([
-    {'@raw.block': 100, '@raw.hash': sha256(b'test_tx').hexdigest()},
-    {'@raw.block': 100, '@raw.hash': sha256(b'test_tx').hexdigest()}
+
+test_hash = sha256(b'test_tx').hexdigest()
+@pytest.mark.ranges([
+    (110, 120),
 ])
-@pytest.mark.message('tx duplicates found: ')
+@pytest.mark.txs([
+    {'@raw.block': 110, '@raw.hash': test_hash},
+    {'@raw.block': 115, '@raw.hash': test_hash}
+])
+@pytest.mark.message(f'tx duplicates found: [\"{test_hash}\"]')
 def test_dup_tx_check(init_db_and_run_translator):
     ...

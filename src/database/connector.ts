@@ -163,6 +163,7 @@ export class Connector {
 
     async getFirstIndexedBlock() {
         const indices = await this.getOrderedDeltaIndices();
+
         if (indices.length == 0)
             return null;
 
@@ -430,6 +431,9 @@ export class Connector {
 
         if (deltaDuplicates.length + actionDuplicates.length > 0)
             throw new Error('Duplicates found!')
+
+	if (upperBound - lowerBound < 2)
+	    return null;
 
         // first just check if whole indices are missing
         const gap = await this.findGapInIndices();
