@@ -73,9 +73,8 @@
 
 "@eosrio/hyperion-sequential-reader@file:eosrio-hyperion-sequential-reader-1.2.2.tgz":
   version "1.2.2"
-  resolved "file:eosrio-hyperion-sequential-reader-1.2.2.tgz#6038eb9a40e4a68fbac75f4b6cd49b3c7ebe20cc"
+  resolved "file:eosrio-hyperion-sequential-reader-1.2.2.tgz#6f93de60f6bd82039132a135eaa6f89ba7929fa5"
   dependencies:
-    "@eosrio/node-abieos" "github:guilledk/nodejs-abieos#node_headers_tweaks"
     "@greymass/eosio" "0.6.11"
     async "^3.2.4"
     node-fetch "^3.3.0"
@@ -85,10 +84,6 @@
   version "2.1.1"
   resolved "https://registry.yarnpkg.com/@eosrio/node-abieos/-/node-abieos-2.1.1.tgz#37112a46027082e5ece68e07711720137e96f9da"
   integrity sha512-GuQ3/WUo+LMjOYT2UkUY9b3yHNpHH6RpHgtLScXK+9nb7G8Zalmx1nfpS7hBQGYkJA3NpgmjdxH7xQk5wdml7w==
-
-"@eosrio/node-abieos@github:guilledk/nodejs-abieos#node_headers_tweaks":
-  version "3.2.1"
-  resolved "https://codeload.github.com/guilledk/nodejs-abieos/tar.gz/4467707e6f90639246204b367dd23c22493a44c8"
 
 "@ethereumjs/block@3.6.3", "@ethereumjs/block@^3.5.0", "@ethereumjs/block@^3.6.2", "@ethereumjs/block@^3.6.3":
   version "3.6.3"
