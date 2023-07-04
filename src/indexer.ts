@@ -474,23 +474,27 @@ export class TEVMIndexer {
         logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
         if (lastBlock != null &&
-            lastBlock['@evmPrevBlockHash'] != NULL_HASH &&
-            ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check')))) {
-            // if we find blocks on the db check,
-            // integrity and return gap if present...
-            logger.debug('performing integrity check...');
-            const gap = await this.connector.fullIntegrityCheck();
-            if (gap == null) {
-                // no gaps found
-                logger.info('no gaps found.');
-                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-            } else {
-                if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                else {
-                    logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                    process.exit(1);
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+
+            if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
+                // if we find blocks on the db check,
+                // integrity and return gap if present...
+                logger.debug('performing integrity check...');
+                const gap = await this.connector.fullIntegrityCheck();
+                if (gap == null) {
+                    // no gaps found
+                    logger.info('no gaps found.');
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                } else {
+                    if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
+                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                    else {
+                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                        process.exit(1);
+                    }
                 }
+            } else {
+                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             }
 
             // Init state tracking attributes
@@ -538,7 +542,7 @@ export class TEVMIndexer {
 
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
-            this.reader.addContract(c, abi, {});
+            this.reader.addContract(c, abi);
         })
         this.reader.start();
 
