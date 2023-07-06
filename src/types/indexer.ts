@@ -67,7 +67,7 @@ export const DEFAULT_CONF = {
             "username": "elastic",
             "password": "password"
         },
-        "requestTimeout": 240000,
+        "requestTimeout": 480000,
         "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
