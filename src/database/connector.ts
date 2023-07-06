@@ -576,7 +576,7 @@ export class Connector {
         this.totalPushed++;
 
         if (this.state == IndexerState.HEAD ||
-            this.blockDrain.length >= this.config.perf.elasticDumpSize) {
+            this.opDrain.length >= (this.config.perf.elasticDumpSize * 2)) {
 
             const ops = this.opDrain;
             const blocks = this.blockDrain;
