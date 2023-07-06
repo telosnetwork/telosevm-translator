@@ -192,27 +192,31 @@ export class Connector {
         if (indices.length == 0)
             return null;
 
-        const lastIndex = indices.pop().index;
-        try {
-            const result = await this.elastic.search({
-                index: lastIndex,
-                size: 1,
-                sort: [
-                    {"block_num": {"order": "desc"}}
-                ]
-            });
+        for (let i = indices.length - 1; i >= 0; i--) {
+            const lastIndex = indices[i].index;
+            try {
+                const result = await this.elastic.search({
+                    index: lastIndex,
+                    size: 1,
+                    sort: [
+                        {"block_num": {"order": "desc"}}
+                    ]
+                });
 
-            logger.debug(`getLastIndexedBlock:\n${JSON.stringify(result, null, 4)}`);
+                logger.debug(`getLastIndexedBlock:\n${JSON.stringify(result, null, 4)}`);
 
-            if (result?.hits?.hits?.length == 0)
-                return null;
+                if (result?.hits?.hits?.length == 0)
+                    continue;
 
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+                return new StorageEosioDelta(result?.hits?.hits[0]?._source);
 
-        } catch (error) {
-            logger.error(error);
-            return null;
+            } catch (error) {
+                logger.error(error);
+                throw error;
+            }
         }
+
+        return null;
     }
 
     async findGapInIndices() {

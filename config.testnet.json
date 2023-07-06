@@ -23,6 +23,7 @@
             "username": "elastic",
             "password": "password"
         },
+        "requestTimeout": 240000,
         "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",
