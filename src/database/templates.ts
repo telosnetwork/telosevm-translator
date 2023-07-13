@@ -363,6 +363,36 @@ export function getTemplatesForChain(chain: string) {
             }
         }
     };
+
+    const forkSettings = {
+        "index": {
+            "lifecycle": {
+                "name": defaultLifecyclePolicy,
+                "rollover_alias": chain + "-fork"
+            },
+            "codec": compression,
+            "number_of_shards": shards * 2,
+            "refresh_interval": refresh,
+            "number_of_replicas": replicas,
+            "sort.field": ["timestamp"],
+            "sort.order": ["desc"]
+        }
+    };
+
+    const fork = {
+        "index_patterns": [chain + "-fork-*"],
+        "settings": forkSettings,
+        "mappings": {
+            "properties": {
+
+                // base fields
+                "timestamp": {"type": "date"},
+                "lastNonForked": {"type": "long"},
+                "lastForked": {"type": "long"},
+            }
+        }
+    };
+
     return {
         action: action, delta: delta, error: error
     }

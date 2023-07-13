@@ -13,6 +13,7 @@ export type ConnectorConfig = {
         delta: string;
         error: string;
         transaction: string;
+        fork: string;
     }
 };
 
@@ -69,7 +70,8 @@ export const DEFAULT_CONF = {
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",
-            "error": "error-v1.5"
+            "error": "error-v1.5",
+            "fork": "fork-v1.5"
         }
     },
 
@@ -112,3 +114,9 @@ export interface ElasticIndex {
     "store.size": string;
     "pri.store.size": string;
 }
+
+export type StorageForkInfo = {
+    timestamp: string;
+    lastNonForked: number;
+    lastForked: number;
+};

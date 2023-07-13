@@ -70,10 +70,10 @@ export interface StorageEvmTransaction {
     s: string
 }
 
-export interface StorageEosioAction {
-    "@timestamp": string,
-    "trx_id": string,
-    "action_ordinal": number,
-    "signatures": string[],
-    "@raw": StorageEvmTransaction
+export class StorageEosioAction {
+    "@timestamp": string;
+    "trx_id": string;
+    "action_ordinal": number;
+    "signatures": string[];
+    "@raw": StorageEvmTransaction;
 }

@@ -297,6 +297,13 @@ export class TEVMIndexer {
                 this.limboBuffs = null;
             }
         } else {
+            if (!this.started) {
+                this.reader.ack()
+                logger.warn(`no global delta and !started skip block ${currentBlock}...`);
+                return;
+            }
+
+
             logger.warn(`onblock failed at block ${currentBlock}`);
 
             if (this.limboBuffs == null) {
@@ -457,7 +464,9 @@ export class TEVMIndexer {
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
 
-        if (lastBlock != null) {  // if we find blocks on the db check for gaps...
+        if (lastBlock != null &&
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            // if we find blocks on the db check for gaps...
             const gap = await this.connector.fullGapCheck();
             if (gap == null) {
                 // no gaps found
@@ -687,19 +696,32 @@ export class TEVMIndexer {
             b.nativeBlockNumber == this.startBlock)
             return;
 
+        const lastNonForkedEvm = b.evmBlockNumber - 1;
+        const lastNonForked = b.nativeBlockNumber - 1;
+        const forkedAt = this.lastNativeBlock;
+
         logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastNativeBlock}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
         // finally purge db
-        await this.connector.purgeNewerThan(b.nativeBlockNumber, b.evmBlockNumber);
-        logger.debug(`purged db of blocks newer than ${b.toString()}, continue...`);
+        await this.connector.purgeNewerThan(
+            lastNonForked + 1,
+            lastNonForkedEvm + 1
+        );
+        logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
 
         // tweak variables used by ordering machinery
-        this.prevHash = this.getOldHash(b.nativeBlockNumber - 1);
-        this.lastBlock = b.evmBlockNumber - 1;
-        this.lastNativeBlock = b.nativeBlockNumber - 1;
-        this.connector.forkCleanup(b.nativeBlockNumber, b.evmBlockNumber);
+        this.prevHash = this.getOldHash(lastNonForked);
+        this.lastBlock = lastNonForkedEvm;
+        this.lastNativeBlock = lastNonForked;
+
+        this.connector.forkCleanup(
+            b.blockTimestamp,
+            b.evmBlockNumber,
+            b.nativeBlockNumber,
+            forkedAt
+        );
     }
 
     printIntroText() {
