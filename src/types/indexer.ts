@@ -8,6 +8,7 @@ export type ConnectorConfig = {
         username: string;
         password: string;
     },
+    requestTimeout: number,
     docsPerIndex: number,
     subfix: {
         delta: string;
@@ -66,6 +67,7 @@ export const DEFAULT_CONF = {
             "username": "elastic",
             "password": "password"
         },
+        "requestTimeout": 480000,
         "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",

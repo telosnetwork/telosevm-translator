@@ -163,6 +163,7 @@ export class Connector {
 
     async getFirstIndexedBlock() {
         const indices = await this.getOrderedDeltaIndices();
+
         if (indices.length == 0)
             return null;
 
@@ -191,47 +192,66 @@ export class Connector {
         if (indices.length == 0)
             return null;
 
-        const lastIndex = indices.pop().index;
-        try {
-            const result = await this.elastic.search({
-                index: lastIndex,
-                size: 1,
-                sort: [
-                    {"block_num": {"order": "desc"}}
-                ]
-            });
+        for (let i = indices.length - 1; i >= 0; i--) {
+            const lastIndex = indices[i].index;
+            try {
+                const result = await this.elastic.search({
+                    index: lastIndex,
+                    size: 1,
+                    sort: [
+                        {"block_num": {"order": "desc"}}
+                    ]
+                });
 
-            if (result?.hits?.hits?.length == 0)
-                return null;
+                logger.debug(`getLastIndexedBlock:\n${JSON.stringify(result, null, 4)}`);
 
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+                if (result?.hits?.hits?.length == 0)
+                    continue;
 
-        } catch (error) {
-            return null;
+                return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+
+            } catch (error) {
+                logger.error(error);
+                throw error;
+            }
         }
+
+        return null;
     }
 
-    async fullGapCheck(): Promise<number> {
-        const lowerBoundDoc = await this.getFirstIndexedBlock();
+    async findGapInIndices() {
+        const deltaIndices = await this.getOrderedDeltaIndices();
+        logger.debug('delta indices: ');
+        logger.debug(JSON.stringify(deltaIndices, null, 4))
+        for(let i = 1; i < deltaIndices.length; i++) {
+            const previousIndexSuffixNum = indexToSuffixNum(deltaIndices[i-1].index);
+            const currentIndexSuffixNum = indexToSuffixNum(deltaIndices[i].index);
 
-        if (lowerBoundDoc == null)
-            return null;
+            if(currentIndexSuffixNum - previousIndexSuffixNum > 1) {
+                return {
+                    gapStart: previousIndexSuffixNum,
+                    gapEnd: currentIndexSuffixNum
+                };
+            }
+        }
 
-        const lowerBound = lowerBoundDoc['@global'].block_num;
+        // Return null if no gaps found
+        return null;
+    }
 
-        const upperBoundDoc = await this.getLastIndexedBlock();
-        if (upperBoundDoc == null)
-            return null;
-
-        const upperBound = upperBoundDoc['@global'].block_num;
-
-        const gapCheck = async (
-            lowerBound: number,
-            upperBound: number,
-            interval: number
-        ) => {
-            const results = await this.elastic.search<any, any>({
-                index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+    async runHistogramGapCheck(lower: number, upper: number, interval: number): Promise<any> {
+        const results = await this.elastic.search<any, any>({
+            index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            size: 0,
+            body: {
+                query: {
+                    range: {
+                        "@global.block_num": {
+                            gte: lower,
+                            lte: upper
+                        }
+                    }
+                },
                 aggs: {
                     "block_histogram": {
                         "histogram": {
@@ -252,103 +272,189 @@ export class Connector {
                             }
                         }
                     }
-                },
-                size: 0,
-                query: {
-                    "bool": {
-                        "must": [
-                            {
-                                "range": {
-                                    "@global.block_num": {
-                                        "gte": lowerBound,
-                                        "lte": upperBound
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                }
-            });
-
-            logger.debug(`gap check result: \n${JSON.stringify(results, null, 4)}`)
-
-            const len = results.aggregations.block_histogram.buckets.length;
-
-            if (len == 1) {
-                const bucket = results.aggregations.block_histogram.buckets[0];
-                const total = bucket.doc_count;
-
-                const expectedRange = upperBound - lowerBound
-
-                if (total < expectedRange)
-                    return [lowerBound, lowerBound + interval]
-            } else {
-                for (let i = 0; i < len; i++) {
-
-                    const bucket = results.aggregations.block_histogram.buckets[i];
-                    const lower = bucket.min_block.value;
-                    const upper = bucket.max_block.value;
-                    const total = bucket.doc_count;
-                    const totalRange = (upper - lower) + 1;
-                    let hasGap = total < totalRange;
-
-                    // find gap between upper and next bucket start
-                    if (len > 1 && i < len && upper !== upperBound) {
-                        let nextBucketStart;
-                        if (i < (len - 1))
-                            nextBucketStart = results.aggregations.block_histogram.buckets[i + 1].key;
-                        else
-                            nextBucketStart = bucket.key + interval
-
-                        hasGap = hasGap || (nextBucketStart - upper) != 1;
-                    }
-
-                    if (hasGap)
-                        return [lower, lower + interval];
                 }
             }
+        });
+
+        const buckets = results.aggregations.block_histogram.buckets;
+
+        logger.debug(`runHistogramGapCheck: ${lower}-${upper}, interval: ${interval}`);
+        logger.debug(JSON.stringify(buckets, null, 4));
+
+        return buckets;
+    }
+
+    async findDuplicateDeltas(lower: number, upper: number): Promise<number[]> {
+        const results = await this.elastic.search<any, any>({
+            index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            size: 0,
+            body: {
+                query: {
+                    range: {
+                        "@global.block_num": {
+                            gte: lower,
+                            lte: upper
+                        }
+                    }
+                },
+                aggs: {
+                    "duplicate_blocks": {
+                        "terms": {
+                            "field": "@global.block_num",
+                            "min_doc_count": 2,
+                            "size": 100
+                        }
+                    }
+                }
+            }
+        });
+
+	if (results.aggregations) {
+
+            const buckets = results.aggregations.duplicate_blocks.buckets;
+
+            logger.debug(`findDuplicateDeltas: ${lower}-${upper}`);
+
+            return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+
+	} else {
+	    return [];
+	}
+    }
+
+    async findDuplicateActions(lower: number, upper: number): Promise<number[]> {
+        const results = await this.elastic.search<any, any>({
+            index: `${this.config.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            size: 0,
+            body: {
+                query: {
+                    range: {
+                        "@raw.block": {
+                            gte: lower,
+                            lte: upper
+                        }
+                    }
+                },
+                aggs: {
+                    "duplicate_txs": {
+                        "terms": {
+                            "field": "@raw.hash",
+                            "min_doc_count": 2,
+                            "size": 100
+                        }
+                    }
+                }
+            }
+        });
+
+	if (results.aggregations) {
+
+            const buckets = results.aggregations.duplicate_txs.buckets;
+
+            logger.debug(`findDuplicateActions: ${lower}-${upper}`);
+
+            return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
+
+	} else {
+	    return [];
+	}
+    }
+
+    async checkGaps(lowerBound: number, upperBound: number, interval: number): Promise<number> {
+        interval = Math.ceil(interval);
+
+        // Base case
+        if (interval == 1) {
+            return lowerBound;
+        }
+
+        const middle = Math.floor((upperBound + lowerBound) / 2);
+
+        logger.debug(`calculated middle ${middle}`);
+
+        logger.debug('first half');
+        // Recurse on the first half
+        const lowerBuckets = await this.runHistogramGapCheck(lowerBound, middle, interval / 2);
+        if (lowerBuckets.length === 0) {
+            return middle; // Gap detected
+        } else if (lowerBuckets[lowerBuckets.length - 1].max_block.value < middle) {
+            const lowerGap = await this.checkGaps(lowerBound, middle, interval / 2);
+            if (lowerGap)
+                return lowerGap;
+        }
+
+        logger.debug('second half');
+        // Recurse on the second half
+        const upperBuckets = await this.runHistogramGapCheck(middle + 1, upperBound, interval / 2);
+        if (upperBuckets.length === 0) {
+            return middle + 1; // Gap detected
+        } else if (upperBuckets[0].min_block.value > middle + 1) {
+            const upperGap = await this.checkGaps(middle + 1, upperBound, interval / 2);
+            if (upperGap)
+                return upperGap;
+        }
+
+        // Check for gap between the halves
+        if ((lowerBuckets[lowerBuckets.length - 1].max_block.value + 1) < upperBuckets[0].min_block.value) {
+            return lowerBuckets[lowerBuckets.length - 1].max_block.value;
+        }
+
+        // Find gaps inside bucket by doc_count
+        const buckets = [...lowerBuckets, ...upperBuckets];
+        for (let i = 0; i < buckets.length; i++) {
+            if (buckets[i].doc_count != (buckets[i].max_block.value - buckets[i].min_block.value) + 1) {
+                const insideGap = await this.checkGaps(buckets[i].min_block.value, buckets[i].max_block.value, interval / 2);
+                if (insideGap)
+                    return insideGap;
+            }
+        }
+
+        // No gap found
+        return null;
+    }
+
+    async fullIntegrityCheck(): Promise<number> {
+        const lowerBoundDoc = await this.getFirstIndexedBlock();
+        const upperBoundDoc = await this.getLastIndexedBlock();
+
+        if (!lowerBoundDoc || !upperBoundDoc) {
             return null;
         }
-        let interval = 10000000;
-        let gap: Array<number> = [lowerBound, upperBound];
 
-        // run gap check routine with smaller and smaller intervals each time
-        while (interval >= 10 && gap != null) {
-            gap = await gapCheck(gap[0], gap[1], interval);
-            console.log(`checked ${JSON.stringify(gap)} with interval ${interval}, ${gap}`);
-            interval /= 10;
+        const lowerBound = lowerBoundDoc['@global'].block_num;
+        const upperBound = upperBoundDoc['@global'].block_num;
+
+        // check duplicates
+        const deltaDuplicates = await this.findDuplicateDeltas(lowerBound, upperBound);
+        if (deltaDuplicates.length > 0)
+            logger.error(`block duplicates found: ${JSON.stringify(deltaDuplicates)}`);
+
+        const actionDuplicates = await this.findDuplicateActions(lowerBound, upperBound);
+        if (actionDuplicates.length > 0)
+            logger.error(`tx duplicates found: ${JSON.stringify(actionDuplicates)}`);
+
+        if (deltaDuplicates.length + actionDuplicates.length > 0)
+            throw new Error('Duplicates found!')
+
+	if (upperBound - lowerBound < 2)
+	    return null;
+
+        // first just check if whole indices are missing
+        const gap = await this.findGapInIndices();
+        if (gap) {
+            logger.debug(`whole index seems to be missing `);
+            const lower = gap.gapStart * this.config.elastic.docsPerIndex;
+            const upper = (gap.gapStart + 1) * this.config.elastic.docsPerIndex;
+            const agg = await this.runHistogramGapCheck(
+                lower, upper, this.config.elastic.docsPerIndex)
+            return agg[0].max_block.value;
         }
 
-        // if gap is null now there are no gaps
-        if (gap == null)
-            return null;
+        const initialInterval = upperBound - lowerBound;
 
-        // at this point we have the gap located between a range no more than 10
-        // blocks in length, plan is to move lower bound up until we miss the gap
-        // then we know gap starts from previous lower bound
-        let lower = gap[0];
-        let upper = gap[1];
-        gap = await gapCheck(lower, upper, 10);
-        while (gap != null) {
-            console.log(gap);
-            lower += 1;
-            gap = await gapCheck(lower, upper, 10);
-        }
-        lower -= 1;
+        logger.info(`starting full gap check from ${lowerBound} to ${upperBound}`);
 
-        // now do the same to find the correct upper bound, bring it down one at
-        // a time
-        gap = await gapCheck(lower, upper, 10);
-        while (gap != null) {
-            console.log(gap);
-            upper -= 1;
-            gap = await gapCheck(lower, upper, 10);
-        }
-        upper += 1;
-
-        console.log(`found gap at ${lower + 1}`);
-
-        return lower;
+        return this.checkGaps(lowerBound, upperBound, initialInterval);
     }
 
     async _purgeBlocksNewerThan(blockNum: number, evmBlockNum: number) {
@@ -470,7 +576,7 @@ export class Connector {
         this.totalPushed++;
 
         if (this.state == IndexerState.HEAD ||
-            this.blockDrain.length >= this.config.perf.elasticDumpSize) {
+            this.opDrain.length >= (this.config.perf.elasticDumpSize * 2)) {
 
             const ops = this.opDrain;
             const blocks = this.blockDrain;
@@ -482,7 +588,7 @@ export class Connector {
             if (this.state == IndexerState.HEAD)
                 await this.writeBlocks(ops, blocks);
             else
-                this.writeBlocks(ops, blocks).then();
+                void this.writeBlocks(ops, blocks);
         }
     }
 

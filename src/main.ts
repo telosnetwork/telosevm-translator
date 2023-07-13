@@ -2,11 +2,11 @@ import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
 
-import heapdump from 'heapdump';
-
-heapdump.writeSnapshot(function(err, filename) {
-  console.log('dump written to', filename);
-});
+// import heapdump from 'heapdump';
+// 
+// heapdump.writeSnapshot(function(err, filename) {
+//   console.log('dump written to', filename);
+// });
 
 
 let conf: IndexerConfig = DEFAULT_CONF;

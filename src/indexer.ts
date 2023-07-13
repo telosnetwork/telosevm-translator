@@ -87,7 +87,8 @@ export class TEVMIndexer {
     lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
 
     // debug status used to print statistics
-    private pushedLastSecond: number = 0;
+    private pushedLastUpdate: number = 0;
+    private timestampLastUpdate: number;
 
     private statsTaskId: NodeJS.Timer;
 
@@ -120,23 +121,29 @@ export class TEVMIndexer {
 
         setCommon(telosConfig.chainId);
 
-        setInterval(() => this.handleStateSwitch(), 10 * 1000);
+	this.timestampLastUpdate = Date.now() / 1000;
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${this.pushedLastSecond} blocks/sec`;
+	const now = Date.now() / 1000;
+	const timeElapsed = now - this.timestampLastUpdate;
+	const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+
+        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastNativeBlock;
 
         if (untilHead > 3) {
-            const hoursETA = `${((untilHead / this.pushedLastSecond) / (60 * 60)).toFixed(1)}hs`;
+            const hoursETA = `${((untilHead / blocksPerSecond) / (60 * 60)).toFixed(1)}hs`;
             statsString += `, ${untilHead} to reach head, aprox ${hoursETA}`;
         }
 
         logger.info(statsString);
-        this.pushedLastSecond = 0;
+
+        this.pushedLastUpdate = 0;
+	this.timestampLastUpdate = now;
     }
 
     /*
@@ -223,6 +230,7 @@ export class TEVMIndexer {
                     "signatures": evmTxData.signatures,
                     "@raw": evmTxData.evmTx
                 });
+
             }
         }
 
@@ -436,7 +444,7 @@ export class TEVMIndexer {
         this.lastNativeBlock = storableBlockInfo.delta.block_num;
 
         // For debug stats
-        this.pushedLastSecond++;
+        this.pushedLastUpdate++;
 
         this.reader.ack();
     }
@@ -463,21 +471,30 @@ export class TEVMIndexer {
 
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
+        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
         if (lastBlock != null &&
             lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
-            // if we find blocks on the db check for gaps...
-            const gap = await this.connector.fullGapCheck();
-            if (gap == null) {
-                // no gaps found
-                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-            } else {
-                if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                else {
-                    logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                    process.exit(1);
+
+            if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
+                // if we find blocks on the db check,
+                // integrity and return gap if present...
+                logger.debug('performing integrity check...');
+                const gap = await this.connector.fullIntegrityCheck();
+                if (gap == null) {
+                    // no gaps found
+                    logger.info('no gaps found.');
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                } else {
+                    if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
+                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                    else {
+                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                        process.exit(1);
+                    }
                 }
+            } else {
+                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             }
 
             // Init state tracking attributes
@@ -489,6 +506,17 @@ export class TEVMIndexer {
 
             this.started = true
         }
+
+        // check node actually contains first block
+        try {
+             await this.rpc.get_block(startBlock);
+        } catch(error) {
+            if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
+                throw new Error(
+                    'Looks like local node doesn\'t have start_block on blocks log');
+        }
+
+        setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
         this.reader = new HyperionSequentialReader({
             poolSize: this.config.perf.workerAmount,
@@ -511,6 +539,7 @@ export class TEVMIndexer {
         }
 
         this.reader.events.on('block', this.processBlock.bind(this));
+
         ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
             const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
             this.reader.addContract(c, abi);
@@ -519,7 +548,6 @@ export class TEVMIndexer {
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
-
     }
 
     async genesisBlockInitialization(evmGenesisBlock: number) {
