@@ -59,4 +59,7 @@ if (process.env.ELASTIC_USERNAME)
 if (process.env.ELASTIC_PASSWORD)
     conf.elastic.auth.password = process.env.ELASTIC_PASSWORD;
 
+if (process.env.ELASTIC_TIMEOUT)
+    conf.elastic.requestTimeout = parseInt(process.env.ELASTIC_TIMEOUT, 10);
+
 new TEVMIndexer(conf).launch();
