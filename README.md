@@ -82,12 +82,12 @@ responses.
 
 ### launch kibana (OPTIONAL):
 
-    docker run \
+    `docker run \
         -itd \
         --rm \
         --network=host \
         --env "ELASTICSEARCH_HOSTS=http://localhost:9200" \
         --env "ELASTICSEARCH_USERNAME=elastic" \
         --env "ELASTICSEARCH_PASSWORD=password" \
-        docker.elastic.co/kibana/kibana:7.17.4
+        docker.elastic.co/kibana/kibana:7.17.4`
 

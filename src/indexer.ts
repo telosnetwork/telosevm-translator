@@ -89,6 +89,7 @@ export class TEVMIndexer {
     // debug status used to print statistics
     private pushedLastUpdate: number = 0;
     private timestampLastUpdate: number;
+    private stallCounter: number = 0;
 
     private statsTaskId: NodeJS.Timer;
 
@@ -121,16 +122,27 @@ export class TEVMIndexer {
 
         setCommon(telosConfig.chainId);
 
-	this.timestampLastUpdate = Date.now() / 1000;
+	    this.timestampLastUpdate = Date.now() / 1000;
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-	const now = Date.now() / 1000;
-	const timeElapsed = now - this.timestampLastUpdate;
-	const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+	    const now = Date.now() / 1000;
+	    const timeElapsed = now - this.timestampLastUpdate;
+	    const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+
+        if (blocksPerSecond == 0)
+            this.stallCounter++;
+        else
+            this.stallCounter = 0;
+
+        if (this.stallCounter > 10) {
+            logger.warn("restarting SHIP reader!...");
+            this.reader.restart();
+            this.stallCounter = -10;  // reader restart takes about 5 seconds so give it margin
+        }
 
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastNativeBlock;
@@ -143,7 +155,7 @@ export class TEVMIndexer {
         logger.info(statsString);
 
         this.pushedLastUpdate = 0;
-	this.timestampLastUpdate = now;
+	    this.timestampLastUpdate = now;
     }
 
     /*
@@ -688,8 +700,12 @@ export class TEVMIndexer {
      */
     private async getBlockInfoFromGap(gap: number): Promise<StartBlockInfo> {
 
-        const firstBlock = await this.connector.getIndexedBlockEVM(gap);
-
+        let firstBlock: StorageEosioDelta;
+        let delta = 0;
+        while (!firstBlock || firstBlock.block_num === undefined) {
+            firstBlock = await this.connector.getIndexedBlockEVM(gap - delta);
+            delta++;
+        }
         // found blocks on the database
         logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
 
