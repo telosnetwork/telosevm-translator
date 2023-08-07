@@ -114,6 +114,7 @@ export class TEVMIndexer {
         this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
         process.on('SIGINT', async () => await this.stop());
+        process.on('SIGUSR1', () => this.resetReader());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
@@ -138,15 +139,8 @@ export class TEVMIndexer {
         else
             this.stallCounter = 0;
 
-        if (this.stallCounter > 10) {
-            logger.warn("restarting SHIP reader!...");
-            this.reader.stop();
-            logger.warn("reader stopped, waiting 4 seconds to restart.");
-            setTimeout(() => {
-                this.startReaderFrom(this.lastNativeBlock + 1);
-            }, 4000);
-            this.stallCounter = -15;
-        }
+        if (this.stallCounter > 10)
+            this.resetReader();
 
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastNativeBlock;
@@ -160,6 +154,18 @@ export class TEVMIndexer {
 
         this.pushedLastUpdate = 0;
 	    this.timestampLastUpdate = now;
+    }
+
+    resetReader() {
+        logger.warn("restarting SHIP reader!...");
+        this.reader.stop();
+        this.reader.mustReconnect = false;
+        logger.warn("reader stopped, waiting 4 seconds to restart.");
+        setTimeout(() => {
+            this.startReaderFrom(this.lastNativeBlock + 1);
+            this.reader.mustReconnect = true;
+        }, 4000);
+        this.stallCounter = -15;
     }
 
     /*
