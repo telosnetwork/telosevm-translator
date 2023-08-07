@@ -139,9 +139,11 @@ export class TEVMIndexer {
             this.stallCounter = 0;
 
         if (this.stallCounter > 10) {
-            logger.warn("restarting SHIP reader!...");
-            this.reader.restart();
-            this.stallCounter = -10;  // reader restart takes about 5 seconds so give it margin
+            // logger.warn("restarting SHIP reader!...");
+            // this.reader.restart();
+            logger.warn("forcing ack...")
+            this.reader.ack()
+            this.stallCounter = 0;
         }
 
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
