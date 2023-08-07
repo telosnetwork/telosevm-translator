@@ -139,11 +139,13 @@ export class TEVMIndexer {
             this.stallCounter = 0;
 
         if (this.stallCounter > 10) {
-            // logger.warn("restarting SHIP reader!...");
-            // this.reader.restart();
-            logger.warn("forcing ack...")
-            this.reader.ack()
-            this.stallCounter = 0;
+            logger.warn("restarting SHIP reader!...");
+            this.reader.stop();
+            logger.warn("reader stopped, waiting 4 seconds to restart.");
+            setTimeout(() => {
+                this.startReaderFrom(this.lastNativeBlock + 1);
+            }, 4000);
+            this.stallCounter = -15;
         }
 
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
@@ -471,6 +473,36 @@ export class TEVMIndexer {
         throw new Error('hash not found on cache!');
     }
 
+    startReaderFrom(blockNum: number) {
+        this.reader = new HyperionSequentialReader({
+            poolSize: this.config.perf.workerAmount,
+            shipApi: this.wsEndpoint,
+            chainApi: this.config.endpoint,
+            blockConcurrency: this.config.perf.workerAmount,
+            startBlock: blockNum,
+            irreversibleOnly: this.irreversibleOnly
+        });
+
+        this.reader.onConnected = () => {
+            logger.info('SHIP Reader connected.');
+        }
+        this.reader.onDisconnect = () => {
+            logger.warn('SHIP Reader disconnected.');
+            logger.warn(`Retrying in 5 seconds... attempt number ${this.reader.reconnectCount}.`)
+        }
+        this.reader.onError = (err) => {
+            logger.error(`SHIP Reader error: ${err}`);
+        }
+
+        this.reader.events.on('block', this.processBlock.bind(this));
+
+        ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
+            const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
+            this.reader.addContract(c, abi);
+        })
+        this.reader.start();
+    }
+
     /*
      * Entry point
      */
@@ -532,33 +564,7 @@ export class TEVMIndexer {
 
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
-        this.reader = new HyperionSequentialReader({
-            poolSize: this.config.perf.workerAmount,
-            shipApi: this.wsEndpoint,
-            chainApi: this.config.endpoint,
-            blockConcurrency: this.config.perf.workerAmount,
-            startBlock: startBlock,
-            irreversibleOnly: this.irreversibleOnly
-        });
-
-        this.reader.onConnected = () => {
-            logger.info('SHIP Reader connected.');
-        }
-        this.reader.onDisconnect = () => {
-            logger.warn('SHIP Reader disconnected.');
-            logger.warn(`Retrying in 5 seconds... attempt number ${this.reader.reconnectCount}.`)
-        }
-        this.reader.onError = (err) => {
-            logger.error(`SHIP Reader error: ${err}`);
-        }
-
-        this.reader.events.on('block', this.processBlock.bind(this));
-
-        ['eosio', 'eosio.token', 'eosio.msig', 'eosio.evm'].forEach(c => {
-            const abi = ABI.from(JSON.parse(readFileSync(`src/abis/${c}.json`).toString()));
-            this.reader.addContract(c, abi);
-        })
-        this.reader.start();
+        await this.startReaderFrom(startBlock);
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
