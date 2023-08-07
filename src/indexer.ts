@@ -54,6 +54,7 @@ process.on('unhandledRejection', error => {
 
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 interface InprogressBuffers {
     evmTransactions: Array<EVMTxWrapper>;
     errors: TxDeserializationError[];
@@ -96,7 +97,7 @@ export class TEVMIndexer {
     private limboBuffs: InprogressBuffers = null;
     private irreversibleOnly: boolean;
 
-    private latestBlockHashes: Array<{blockNum: number, hash: string}> = [];
+    private latestBlockHashes: Array<{ blockNum: number, hash: string }> = [];
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -123,16 +124,16 @@ export class TEVMIndexer {
 
         setCommon(telosConfig.chainId);
 
-	    this.timestampLastUpdate = Date.now() / 1000;
+        this.timestampLastUpdate = Date.now() / 1000;
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-	    const now = Date.now() / 1000;
-	    const timeElapsed = now - this.timestampLastUpdate;
-	    const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+        const now = Date.now() / 1000;
+        const timeElapsed = now - this.timestampLastUpdate;
+        const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
 
         if (blocksPerSecond == 0)
             this.stallCounter++;
@@ -153,7 +154,7 @@ export class TEVMIndexer {
         logger.info(statsString);
 
         this.pushedLastUpdate = 0;
-	    this.timestampLastUpdate = now;
+        this.timestampLastUpdate = now;
     }
 
     resetReader() {
@@ -177,7 +178,7 @@ export class TEVMIndexer {
 
         // generate valid ethereum hashes
         const transactionsRoot = await generateTxRootHash(evmTxs);
-        const receiptsRoot = await  generateReceiptRootHash(evmTxs);
+        const receiptsRoot = await generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
         const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
@@ -210,7 +211,6 @@ export class TEVMIndexer {
         //      blockHeaderSize += buf.length;
         //  }
         //  console.log(`total header size: ${blockHeaderSize}`);
-
 
 
         // generate storeable block info
@@ -279,7 +279,7 @@ export class TEVMIndexer {
                 logger.info(
                     'switched to HEAD mode! blocks will be written to db asap.');
             }
-        } catch(error) {
+        } catch (error) {
             logger.warn('get_info query to remote failed with error:');
             logger.warn(error);
         }
@@ -561,8 +561,8 @@ export class TEVMIndexer {
 
         // check node actually contains first block
         try {
-             await this.rpc.get_block(startBlock);
-        } catch(error) {
+            await this.rpc.get_block(startBlock);
+        } catch (error) {
             if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
                 throw new Error(
                     'Looks like local node doesn\'t have start_block on blocks log');
