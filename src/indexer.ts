@@ -521,42 +521,56 @@ export class TEVMIndexer {
 
         await this.connector.init();
 
-        logger.info('checking db for blocks...');
-        let lastBlock = await this.connector.getLastIndexedBlock();
-        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
+        if (this.config.evmPrevHash === '') {
 
-        if (lastBlock != null &&
-            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            logger.info('checking db for blocks...');
+            let lastBlock = await this.connector.getLastIndexedBlock();
+            logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
-            if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
-                // if we find blocks on the db check,
-                // integrity and return gap if present...
-                logger.debug('performing integrity check...');
-                const gap = await this.connector.fullIntegrityCheck();
-                if (gap == null) {
-                    // no gaps found
-                    logger.info('no gaps found.');
-                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-                } else {
-                    if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                    else {
-                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                        process.exit(1);
+            if (lastBlock != null &&
+                lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+
+                if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
+                    // if we find blocks on the db check,
+                    // integrity and return gap if present...
+                    logger.debug('performing integrity check...');
+                    const gap = await this.connector.fullIntegrityCheck();
+                    if (gap == null) {
+                        // no gaps found
+                        logger.info('no gaps found.');
+                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                    } else {
+                        if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
+                            ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                        else {
+                            logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                            process.exit(1);
+                        }
                     }
+                } else {
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
                 }
-            } else {
-                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+
+                // Init state tracking attributes
+                this.prevHash = prevHash;
+                this.startBlock = startBlock;
+                this.lastBlock = startEvmBlock - 1;
+                this.lastNativeBlock = startBlock - 1;
+                this.connector.lastPushed = this.lastBlock;
+
+                this.started = true
             }
 
-            // Init state tracking attributes
-            this.prevHash = prevHash;
-            this.startBlock = startBlock;
-            this.lastBlock = startEvmBlock - 1;
+        } else {
+
+            this.prevHash = this.config.evmPrevHash;
+            this.startBlock = this.config.startBlock;
+            this.lastBlock = this.config.evmStartBlock - 1;
             this.lastNativeBlock = startBlock - 1;
-            this.connector.lastPushed = startEvmBlock - 1;
+            this.connector.lastPushed = this.lastBlock;
 
             this.started = true
+
         }
 
         // check node actually contains first block

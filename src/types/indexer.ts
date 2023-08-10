@@ -31,6 +31,7 @@ export type IndexerConfig = {
     wsEndpoint: string;
     evmDeployBlock: number;
     evmPrevHash: string;
+    evmStartBlock: number;
     startBlock: number;
     stopBlock: number;
     irreversibleOnly: boolean;
@@ -52,6 +53,7 @@ export const DEFAULT_CONF = {
 
     "evmDeployBlock": 35,
     "evmPrevHash": "",
+    "evmStartBlock": -1,
 
     "startBlock": 35,
     "stopBlock": 4294967295,
