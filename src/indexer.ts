@@ -565,7 +565,7 @@ export class TEVMIndexer {
         } catch (error) {
             if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
                 throw new Error(
-                    'Looks like local node doesn\'t have start_block on blocks log');
+                    `Error when doing start block check: ${error.message}`);
         }
 
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
