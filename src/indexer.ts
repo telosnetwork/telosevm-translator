@@ -573,6 +573,11 @@ export class TEVMIndexer {
 
         }
 
+        if (prevHash)
+            logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
+        else
+            logger.info(`starting from genesis block ${startBlock}`);
+
         // check node actually contains first block
         try {
             await this.rpc.get_block(startBlock);
