@@ -65,4 +65,7 @@ if (process.env.ELASTIC_PASSWORD)
 if (process.env.ELASTIC_TIMEOUT)
     conf.elastic.requestTimeout = parseInt(process.env.ELASTIC_TIMEOUT, 10);
 
+if (process.env.WORKER_AMOUNT)
+    conf.perf.workerAmount = parseInt(process.env.WORKER_AMOUNT, 10);
+
 new TEVMIndexer(conf).launch();
