@@ -589,6 +589,8 @@ export class TEVMIndexer {
 
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
+        logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
+
         await this.startReaderFrom(startBlock);
 
         // Launch bg routines
