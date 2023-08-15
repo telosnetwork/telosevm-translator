@@ -616,6 +616,11 @@ export class TEVMIndexer {
 
         this.ethGenesisHash = header.hash().toString('hex');
 
+        if (this.config.evmValidateHash != "" &&
+            this.ethGenesisHash != this.config.evmValidateHash) {
+            throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
+        }
+
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
         this.lastBlock = evmGenesisBlock;

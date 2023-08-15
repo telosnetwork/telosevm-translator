@@ -11,7 +11,7 @@ import {readFileSync} from "node:fs";
 
 let conf: IndexerConfig = DEFAULT_CONF;
 try {
-    conf = JSON.parse(readFileSync('config.json').toString());
+    conf = { ...DEFAULT_CONF, ...JSON.parse(readFileSync('config.json').toString()) };
 } catch (e) { }
 
 if (process.env.CHAIN_NAME)
