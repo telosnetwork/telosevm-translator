@@ -523,7 +523,6 @@ export class TEVMIndexer {
 
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
-        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
 
         let gap = null;
         if ((!process.argv.includes('--skip-integrity-check'))) {

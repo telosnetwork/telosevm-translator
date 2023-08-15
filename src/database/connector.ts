@@ -203,12 +203,14 @@ export class Connector {
                     ]
                 });
 
-                logger.debug(`getLastIndexedBlock:\n${JSON.stringify(result, null, 4)}`);
+                const blockDoc = result?.hits?.hits[0]?._source;
+
+                logger.debug(`getLastIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
 
                 if (result?.hits?.hits?.length == 0)
                     continue;
 
-                return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+                return new StorageEosioDelta(blockDoc);
 
             } catch (error) {
                 logger.error(error);
