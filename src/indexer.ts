@@ -521,34 +521,46 @@ export class TEVMIndexer {
 
         await this.connector.init();
 
+        logger.info('checking db for blocks...');
+        let lastBlock = await this.connector.getLastIndexedBlock();
+        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
+
+        let gap = null;
+        if ((!process.argv.includes('--skip-integrity-check'))) {
+            if (lastBlock != null) {
+                logger.debug('performing integrity check...');
+                gap = await this.connector.fullIntegrityCheck();
+
+                if (gap == null) {
+                    logger.info('NO GAPS FOUND');
+                } else {
+                    logger.info('GAP INFO:');
+                    logger.info(JSON.stringify(gap, null, 4));
+                }
+            } else {
+                logger.warn('--only-db-check on empty database...');
+                process.exit(0);
+            }
+        }
+
+        if (process.argv.includes('--only-db-check')) {
+            logger.info('--only-db-check passed exiting...');
+            process.exit(0);
+        }
+
         if (this.config.evmPrevHash === '') {
-
-            logger.info('checking db for blocks...');
-            let lastBlock = await this.connector.getLastIndexedBlock();
-            logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
-
             if (lastBlock != null &&
                 lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
 
-                if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
-                    // if we find blocks on the db check,
-                    // integrity and return gap if present...
-                    logger.debug('performing integrity check...');
-                    const gap = await this.connector.fullIntegrityCheck();
-                    if (gap == null) {
-                        // no gaps found
-                        logger.info('no gaps found.');
-                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-                    } else {
-                        if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                            ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                        else {
-                            logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                            process.exit(1);
-                        }
-                    }
-                } else {
+                if (gap == null) {
                     ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                } else {
+                    if (process.argv.includes('--gaps-purge'))
+                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                    else {
+                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                        process.exit(1);
+                    }
                 }
 
                 // Init state tracking attributes
