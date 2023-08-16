@@ -537,8 +537,10 @@ export class TEVMIndexer {
                     logger.info(JSON.stringify(gap, null, 4));
                 }
             } else {
-                logger.warn('--only-db-check on empty database...');
-                process.exit(0);
+                if (process.argv.includes('--only-db-check')) {
+                    logger.warn('--only-db-check on empty database...');
+                    process.exit(0);
+                }
             }
         }
 
