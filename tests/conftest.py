@@ -2,105 +2,17 @@
 
 from datetime import datetime, timedelta
 import os
-import sys
 import logging
 import threading
 import subprocess
 
 import pytest
-import docker
 import logging
-import requests
-
-from shutil import copyfile
-from contextlib import contextmanager
 
 from elasticsearch import Elasticsearch
-from tevmc import TEVMController
-from tevmc.config import (
-    local,
-    build_docker_manifest,
-    randomize_conf_ports,
-    randomize_conf_creds,
-    add_virtual_networking
-)
-from tevmc.cmdline.init import touch_node_dir
-from tevmc.cmdline.build import perform_docker_build
-from tevmc.cmdline.clean import clean
-from tevmc.cmdline.cli import get_docker_client
 
-
-TEST_SERVICES = ['elastic', 'kibana']
-
-
-@contextmanager
-def bootstrap_test_stack(
-    tmp_path_factory, config,
-    randomize=True, services=TEST_SERVICES,
-    **kwargs
-):
-    if randomize:
-        config = randomize_conf_ports(config)
-        config = randomize_conf_creds(config)
-
-    if sys.platform == 'darwin':
-        config = add_virtual_networking(config)
-
-    client = get_docker_client()
-
-    chain_name = config['telos-evm-rpc']['elastic_prefix']
-
-    tmp_path = tmp_path_factory.getbasetemp() / chain_name
-    build_docker_manifest(config)
-
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    touch_node_dir(tmp_path, config, 'tevmc.json')
-
-    perform_docker_build(
-        tmp_path, config, logging, services)
-
-    containers = None
-
-    try:
-        with TEVMController(
-            config,
-            root_pwd=tmp_path,
-            services=services,
-            **kwargs
-        ) as _tevmc:
-            yield _tevmc
-            containers = _tevmc.containers
-
-    except BaseException:
-        if containers:
-            client = get_docker_client(timeout=10)
-
-            for val in containers:
-                while True:
-                    try:
-                        container = client.containers.get(val)
-                        container.stop()
-
-                    except docker.errors.APIError as err:
-                        if 'already in progress' in str(err):
-                            time.sleep(0.1)
-                            continue
-
-                    except requests.exceptions.ReadTimeout:
-                        print('timeout!')
-
-                    except docker.errors.NotFound:
-                        print(f'{val} not found!')
-
-                    break
-        raise
-
-
-@pytest.fixture(scope='session')
-def tevm_node(tmp_path_factory):
-    with bootstrap_test_stack(
-        tmp_path_factory, local.default_config, randomize=False) as tevmc:
-        yield tevmc
+from tevmc.config import local
+from tevmc.testing import bootstrap_test_stack
 
 
 def get_suffix(block_num: int, docs_per_index: int):
@@ -118,8 +30,18 @@ def stream_process_output(proc, message):
             return
 
 
+@pytest.fixture(scope='module')
+def elastic(request, tmp_path_factory):
+    request.applymarker(pytest.mark.config(**local.default_config))
+    request.applymarker(pytest.mark.services('elastic'))
+    request.applymarker(pytest.mark.randomize(False))
+    with bootstrap_test_stack(request, tmp_path_factory) as tevmc:
+        yield tevmc
+
 @pytest.fixture
-def init_db_and_run_translator(tevm_node, request):
+def init_db_and_run_translator(elastic, request):
+    tevmc = elastic
+
     docs_per_index = request.node.get_closest_marker("docs_per_index")
     if docs_per_index is None:
         docs_per_index = 10_000_000
@@ -169,9 +91,9 @@ def init_db_and_run_translator(tevm_node, request):
     else:
         message = message.args[0]
 
-    rpc_conf = tevm_node.config['telos-evm-rpc']
+    rpc_conf = tevmc.config['telos-evm-rpc']
 
-    es_config = tevm_node.config['elasticsearch']
+    es_config = tevmc.config['elasticsearch']
     es = Elasticsearch(
         f'{es_config["protocol"]}://{es_config["host"]}',
         basic_auth=(
@@ -215,7 +137,7 @@ def init_db_and_run_translator(tevm_node, request):
 
     env = {
         'LOG_LEVEL': 'debug',
-        'CHAIN_NAME': rpc_conf["elastic_prefix"] 
+        'CHAIN_NAME': rpc_conf["elastic_prefix"]
     }
 
     env.update(os.environ)
