@@ -311,7 +311,7 @@ export class Connector {
             }
         });
 
-	if (results.aggregations) {
+        if (results.aggregations) {
 
             const buckets = results.aggregations.duplicate_blocks.buckets;
 
@@ -319,9 +319,9 @@ export class Connector {
 
             return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
 
-	} else {
-	    return [];
-	}
+        } else {
+            return [];
+        }
     }
 
     async findDuplicateActions(lower: number, upper: number): Promise<number[]> {
@@ -349,7 +349,7 @@ export class Connector {
             }
         });
 
-	if (results.aggregations) {
+        if (results.aggregations) {
 
             const buckets = results.aggregations.duplicate_txs.buckets;
 
@@ -357,9 +357,9 @@ export class Connector {
 
             return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
 
-	} else {
-	    return [];
-	}
+        } else {
+            return [];
+        }
     }
 
     async checkGaps(lowerBound: number, upperBound: number, interval: number): Promise<number> {
