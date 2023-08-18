@@ -425,21 +425,33 @@ export class Connector {
 
         const lowerBound = lowerBoundDoc['@global'].block_num;
         const upperBound = upperBoundDoc['@global'].block_num;
+        const step = 10000000; // 10 million blocks
 
-        // check duplicates
-        const deltaDuplicates = await this.findDuplicateDeltas(lowerBound, upperBound);
-        if (deltaDuplicates.length > 0)
-            logger.error(`block duplicates found: ${JSON.stringify(deltaDuplicates)}`);
+        const deltaDups = [];
+        const actionDups = [];
 
-        const actionDuplicates = await this.findDuplicateActions(lowerBound, upperBound);
-        if (actionDuplicates.length > 0)
-            logger.error(`tx duplicates found: ${JSON.stringify(actionDuplicates)}`);
+        for (let currentLower = lowerBound; currentLower < upperBound; currentLower += step) {
+            const currentUpper = Math.min(currentLower + step, upperBound);
 
-        if (deltaDuplicates.length + actionDuplicates.length > 0)
-            throw new Error('Duplicates found!')
+            // check duplicates for the current range
+            deltaDups.push(...(await this.findDuplicateDeltas(currentLower, currentUpper)));
+            actionDups.push(...(await this.findDuplicateActions(currentLower, currentUpper)));
 
-	if (upperBound - lowerBound < 2)
-	    return null;
+            logger.info(
+                `checked range ${currentLower}-${currentUpper} for duplicates, found: ${deltaDups.length + actionDups.length}`);
+        }
+
+        if (deltaDups.length > 0)
+            logger.error(`block duplicates found: ${JSON.stringify(deltaDups)}`);
+
+        if (actionDups.length > 0)
+            logger.error(`tx duplicates found: ${JSON.stringify(actionDups)}`);
+
+        if (deltaDups.length + actionDups.length > 0)
+            throw new Error('Duplicates found!');
+
+        if (upperBound - lowerBound < 2)
+            return null;
 
         // first just check if whole indices are missing
         const gap = await this.findGapInIndices();
