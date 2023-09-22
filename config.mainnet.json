@@ -7,7 +7,7 @@
     "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
 
     "evmDeployBlock": 180698860,
-    "evmPrevHash": "",
+    "evmValidateHash": "9bd7e881e0903ea4fa161c7f00096c11346f122bff30a3a5122ef5c1f9c9f80c",
 
     "startBlock": 180698860,
     "stopBlock": 4294967295,

@@ -54,6 +54,7 @@ process.on('unhandledRejection', error => {
 
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 interface InprogressBuffers {
     evmTransactions: Array<EVMTxWrapper>;
     errors: TxDeserializationError[];
@@ -89,13 +90,14 @@ export class TEVMIndexer {
     // debug status used to print statistics
     private pushedLastUpdate: number = 0;
     private timestampLastUpdate: number;
+    private stallCounter: number = 0;
 
     private statsTaskId: NodeJS.Timer;
 
     private limboBuffs: InprogressBuffers = null;
     private irreversibleOnly: boolean;
 
-    private latestBlockHashes: Array<{blockNum: number, hash: string}> = [];
+    private latestBlockHashes: Array<{ blockNum: number, hash: string }> = [];
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -113,6 +115,7 @@ export class TEVMIndexer {
         this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
         process.on('SIGINT', async () => await this.stop());
+        process.on('SIGUSR1', () => this.resetReader());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
@@ -121,16 +124,24 @@ export class TEVMIndexer {
 
         setCommon(telosConfig.chainId);
 
-	this.timestampLastUpdate = Date.now() / 1000;
+        this.timestampLastUpdate = Date.now() / 1000;
     }
 
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
     updateDebugStats() {
-	const now = Date.now() / 1000;
-	const timeElapsed = now - this.timestampLastUpdate;
-	const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+        const now = Date.now() / 1000;
+        const timeElapsed = now - this.timestampLastUpdate;
+        const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+
+        if (blocksPerSecond == 0)
+            this.stallCounter++;
+        else
+            this.stallCounter = 0;
+
+        if (this.stallCounter > 10)
+            this.resetReader();
 
         let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastNativeBlock;
@@ -143,7 +154,19 @@ export class TEVMIndexer {
         logger.info(statsString);
 
         this.pushedLastUpdate = 0;
-	this.timestampLastUpdate = now;
+        this.timestampLastUpdate = now;
+    }
+
+    resetReader() {
+        logger.warn("restarting SHIP reader!...");
+        this.reader.stop();
+        this.reader.mustReconnect = false;
+        logger.warn("reader stopped, waiting 4 seconds to restart.");
+        setTimeout(() => {
+            this.startReaderFrom(this.lastNativeBlock + 1);
+            this.reader.mustReconnect = true;
+        }, 4000);
+        this.stallCounter = -15;
     }
 
     /*
@@ -155,7 +178,7 @@ export class TEVMIndexer {
 
         // generate valid ethereum hashes
         const transactionsRoot = await generateTxRootHash(evmTxs);
-        const receiptsRoot = await  generateReceiptRootHash(evmTxs);
+        const receiptsRoot = await generateReceiptRootHash(evmTxs);
         const bloom = generateBloom(evmTxs);
 
         const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
@@ -188,7 +211,6 @@ export class TEVMIndexer {
         //      blockHeaderSize += buf.length;
         //  }
         //  console.log(`total header size: ${blockHeaderSize}`);
-
 
 
         // generate storeable block info
@@ -257,7 +279,7 @@ export class TEVMIndexer {
                 logger.info(
                     'switched to HEAD mode! blocks will be written to db asap.');
             }
-        } catch(error) {
+        } catch (error) {
             logger.warn('get_info query to remote failed with error:');
             logger.warn(error);
         }
@@ -457,73 +479,13 @@ export class TEVMIndexer {
         throw new Error('hash not found on cache!');
     }
 
-    /*
-     * Entry point
-     */
-    async launch() {
-
-        this.printIntroText();
-
-        let startBlock = this.startBlock;
-        let prevHash, startEvmBlock;
-
-        await this.connector.init();
-
-        logger.info('checking db for blocks...');
-        let lastBlock = await this.connector.getLastIndexedBlock();
-        logger.debug(`lastBlock: \n${JSON.stringify(lastBlock, null, 4)}`);
-
-        if (lastBlock != null &&
-            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
-
-            if ((process.argv.length > 1) && (!process.argv.includes('--skip-integrity-check'))) {
-                // if we find blocks on the db check,
-                // integrity and return gap if present...
-                logger.debug('performing integrity check...');
-                const gap = await this.connector.fullIntegrityCheck();
-                if (gap == null) {
-                    // no gaps found
-                    logger.info('no gaps found.');
-                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-                } else {
-                    if ((process.argv.length > 1) && (process.argv.includes('--gaps-purge')))
-                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                    else {
-                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                        process.exit(1);
-                    }
-                }
-            } else {
-                ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-            }
-
-            // Init state tracking attributes
-            this.prevHash = prevHash;
-            this.startBlock = startBlock;
-            this.lastBlock = startEvmBlock - 1;
-            this.lastNativeBlock = startBlock - 1;
-            this.connector.lastPushed = startEvmBlock - 1;
-
-            this.started = true
-        }
-
-        // check node actually contains first block
-        try {
-             await this.rpc.get_block(startBlock);
-        } catch(error) {
-            if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
-                throw new Error(
-                    'Looks like local node doesn\'t have start_block on blocks log');
-        }
-
-        setInterval(() => this.handleStateSwitch(), 10 * 1000);
-
+    startReaderFrom(blockNum: number) {
         this.reader = new HyperionSequentialReader({
             poolSize: this.config.perf.workerAmount,
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
-            startBlock: startBlock,
+            startBlock: blockNum,
             irreversibleOnly: this.irreversibleOnly
         });
 
@@ -545,6 +507,104 @@ export class TEVMIndexer {
             this.reader.addContract(c, abi);
         })
         this.reader.start();
+    }
+
+    /*
+     * Entry point
+     */
+    async launch() {
+
+        this.printIntroText();
+
+        let startBlock = this.startBlock;
+        let prevHash, startEvmBlock;
+
+        await this.connector.init();
+
+        logger.info('checking db for blocks...');
+        let lastBlock = await this.connector.getLastIndexedBlock();
+
+        let gap = null;
+        if ((!process.argv.includes('--skip-integrity-check'))) {
+            if (lastBlock != null) {
+                logger.debug('performing integrity check...');
+                gap = await this.connector.fullIntegrityCheck();
+
+                if (gap == null) {
+                    logger.info('NO GAPS FOUND');
+                } else {
+                    logger.info('GAP INFO:');
+                    logger.info(JSON.stringify(gap, null, 4));
+                }
+            } else {
+                if (process.argv.includes('--only-db-check')) {
+                    logger.warn('--only-db-check on empty database...');
+                    process.exit(0);
+                }
+            }
+        }
+
+        if (process.argv.includes('--only-db-check')) {
+            logger.info('--only-db-check passed exiting...');
+            process.exit(0);
+        }
+
+        if (this.config.evmPrevHash === '') {
+            if (lastBlock != null &&
+                lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+
+                if (gap == null) {
+                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                } else {
+                    if (process.argv.includes('--gaps-purge'))
+                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                    else {
+                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                        process.exit(1);
+                    }
+                }
+
+                // Init state tracking attributes
+                this.prevHash = prevHash;
+                this.startBlock = startBlock;
+                this.lastBlock = startEvmBlock - 1;
+                this.lastNativeBlock = startBlock - 1;
+                this.connector.lastPushed = this.lastBlock;
+
+                this.started = true
+            }
+
+        } else {
+
+            this.prevHash = this.config.evmPrevHash;
+            this.startBlock = this.config.startBlock;
+            this.lastBlock = this.config.evmStartBlock - 1;
+            this.lastNativeBlock = startBlock - 1;
+            this.connector.lastPushed = this.lastBlock;
+
+            this.started = true
+
+        }
+
+        if (prevHash)
+            logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
+        else
+            logger.info(`starting from genesis block ${startBlock}`);
+
+        // check node actually contains first block
+        try {
+            await this.rpc.get_block(startBlock);
+        } catch (error) {
+            if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
+                throw new Error(
+                    `Error when doing start block check: ${error.message}`);
+        }
+
+        setInterval(() => this.handleStateSwitch(), 10 * 1000);
+
+        logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
+
+        await this.startReaderFrom(startBlock);
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
@@ -568,6 +628,11 @@ export class TEVMIndexer {
         })
 
         this.ethGenesisHash = header.hash().toString('hex');
+
+        if (this.config.evmValidateHash != "" &&
+            this.ethGenesisHash != this.config.evmValidateHash) {
+            throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
+        }
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
@@ -688,8 +753,12 @@ export class TEVMIndexer {
      */
     private async getBlockInfoFromGap(gap: number): Promise<StartBlockInfo> {
 
-        const firstBlock = await this.connector.getIndexedBlockEVM(gap);
-
+        let firstBlock: StorageEosioDelta;
+        let delta = 0;
+        while (!firstBlock || firstBlock.block_num === undefined) {
+            firstBlock = await this.connector.getIndexedBlockEVM(gap - delta);
+            delta++;
+        }
         // found blocks on the database
         logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
 

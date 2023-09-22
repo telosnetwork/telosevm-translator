@@ -13,7 +13,6 @@ export default class RPCBroadcaster {
 
     constructor(config: BroadcasterConfig) {
         this.config = config;
-        this.initUWS();
     }
 
     initUWS() {

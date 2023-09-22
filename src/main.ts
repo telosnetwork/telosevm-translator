@@ -11,7 +11,7 @@ import {readFileSync} from "node:fs";
 
 let conf: IndexerConfig = DEFAULT_CONF;
 try {
-    conf = JSON.parse(readFileSync('config.json').toString());
+    conf = { ...DEFAULT_CONF, ...JSON.parse(readFileSync('config.json').toString()) };
 } catch (e) { }
 
 if (process.env.CHAIN_NAME)
@@ -34,6 +34,12 @@ if (process.env.EVM_DEPLOY_BLOCK)
 
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
+
+if (process.env.EVM_START_BLOCK)
+    conf.evmStartBlock = parseInt(process.env.EVM_START_BLOCK, 10);
+
+if (process.env.EVM_VALIDATE_HASH)
+    conf.evmValidateHash = process.env.EVM_VALIDATE_HASH;
 
 if (process.env.INDEXER_START_BLOCK)
     conf.startBlock = parseInt(process.env.INDEXER_START_BLOCK, 10);
@@ -58,5 +64,11 @@ if (process.env.ELASTIC_USERNAME)
 
 if (process.env.ELASTIC_PASSWORD)
     conf.elastic.auth.password = process.env.ELASTIC_PASSWORD;
+
+if (process.env.ELASTIC_TIMEOUT)
+    conf.elastic.requestTimeout = parseInt(process.env.ELASTIC_TIMEOUT, 10);
+
+if (process.env.WORKER_AMOUNT)
+    conf.perf.workerAmount = parseInt(process.env.WORKER_AMOUNT, 10);
 
 new TEVMIndexer(conf).launch();

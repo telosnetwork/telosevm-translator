@@ -73,9 +73,14 @@ parentPort.on(
             };
             try {
                 receipt = JSON.parse(receiptLog);
-                // logger.info(`Receipt: ${JSON.stringify(receipt)}`);
-            } catch (e) {
-                logger.warn('Failed to parse receiptLog');
+            } catch (error) {
+                logger.error(`Failed to parse receiptLog:\n${receiptLog}`);
+                logger.error(JSON.stringify(error, null, 4));
+                // @ts-ignore
+                logger.error(error.message);
+                // @ts-ignore
+                logger.error(error.stack);
+                process.exit(1);
             }
 
             const txRaw = Buffer.from(arg.tx.tx, "hex");
