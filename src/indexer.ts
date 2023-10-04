@@ -40,6 +40,8 @@ import {
     setCommon,
     TxDeserializationError
 } from "./handlers.js";
+import * as EthereumUtil from 'ethereumjs-util';
+import rlp from 'rlp';
 
 
 process.on('unhandledRejection', error => {
@@ -65,6 +67,7 @@ export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
     wsEndpoint: string;  // nodoes ship ws endpoint
 
+    evmBlockDelta: number;  // number diference between evm and native blck
     evmDeployBlock: number;  // native block number where telos.evm was deployed
     startBlock: number;  // native block number to start indexer from as defined by env vars or config
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
@@ -105,6 +108,7 @@ export class TEVMIndexer {
         this.endpoint = telosConfig.endpoint;
         this.wsEndpoint = telosConfig.wsEndpoint;
 
+        this.evmBlockDelta = telosConfig.evmBlockDelta;
         this.evmDeployBlock = telosConfig.evmDeployBlock;
 
         this.startBlock = telosConfig.startBlock;
@@ -303,13 +307,6 @@ export class TEVMIndexer {
         if (globalDelta) {
             const currentEvmBlock = globalDelta.block_num;
 
-            // lazy initialization on genesis block case
-            if (!this.started) {
-                logger.info(`Got first evm block with num: ${currentEvmBlock}`);
-                await this.genesisBlockInitialization(currentEvmBlock - 1);
-                this.started = true;
-            }
-
             buffs = {
                 evmTransactions: [],
                 errors: [],
@@ -325,13 +322,6 @@ export class TEVMIndexer {
                 this.limboBuffs = null;
             }
         } else {
-            if (!this.started) {
-                this.reader.ack()
-                logger.warn(`no global delta and !started skip block ${currentBlock}...`);
-                return;
-            }
-
-
             logger.warn(`onblock failed at block ${currentBlock}`);
 
             if (this.limboBuffs == null) {
@@ -344,9 +334,6 @@ export class TEVMIndexer {
 
             buffs = this.limboBuffs;
         }
-
-        if (!this.started)
-            throw new Error(`Couldn't figure out genesis info before first block`);
 
         const evmBlockNum = buffs.evmBlockNum;
         const evmTransactions = buffs.evmTransactions;
@@ -586,8 +573,10 @@ export class TEVMIndexer {
 
         if (prevHash)
             logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
-        else
+        else {
             logger.info(`starting from genesis block ${startBlock}`);
+            await this.genesisBlockInitialization();
+        }
 
         // check node actually contains first block
         try {
@@ -608,24 +597,57 @@ export class TEVMIndexer {
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
     }
 
-    async genesisBlockInitialization(evmGenesisBlock: number) {
+    async genesisBlockInitialization() {
         this.genesisBlock = await this.getGenesisBlock();
 
         // number of seconds since epoch
         const genesisTimestamp = moment.utc(this.genesisBlock.timestamp).unix();
 
-        const header = BlockHeader.fromHeaderData({
-            'gasLimit': new BN(0),
-            'number': new BN(evmGenesisBlock),
-            'difficulty': new BN(0),
-            'timestamp': new BN(genesisTimestamp),
-            'extraData': Buffer.from(this.genesisBlock.id, 'hex'),
-            'stateRoot': EMPTY_TRIE_BUF,
-            'transactionsTrie': EMPTY_TRIE_BUF,
-            'receiptTrie': EMPTY_TRIE_BUF
-        })
+        const genesisParams = {
+            "alloc": {},
+            "config": {
+                "chainID": this.config.chainId,
+                "homesteadBlock": 0,
+                "eip155Block": 0,
+                "eip158Block": 0
+            },
+            "nonce": "0x0000000000000000",
+            "difficulty": "0x00",
+            "mixhash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "coinbase": "0x0000000000000000000000000000000000000000",
+            "timestamp": "0x" + genesisTimestamp.toString(16),
+            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "extraData": "0x" + this.genesisBlock.id,
+            "gasLimit": "0xffffffff",
+            "uncleHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "transactionsTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "receiptTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "logsBloom": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "number": "0x00",
+            "gasUsed": "0x00"
+        }
 
-        this.ethGenesisHash = header.hash().toString('hex');
+        const encodedGenesisParams = rlp.encode([
+            EthereumUtil.toBuffer(genesisParams['parentHash']),
+            EthereumUtil.toBuffer(genesisParams['uncleHash']),
+            EthereumUtil.toBuffer(genesisParams['coinbase']),
+            EthereumUtil.toBuffer(genesisParams['stateRoot']),
+            EthereumUtil.toBuffer(genesisParams['transactionsTrie']),
+            EthereumUtil.toBuffer(genesisParams['receiptTrie']),
+            EthereumUtil.toBuffer(genesisParams['logsBloom']),
+            EthereumUtil.toBuffer(genesisParams['difficulty']),
+            EthereumUtil.toBuffer(genesisParams['number']),
+            EthereumUtil.toBuffer(genesisParams['gasLimit']),
+            EthereumUtil.toBuffer(genesisParams['gasUsed']),
+            EthereumUtil.toBuffer(genesisParams['timestamp']),
+            EthereumUtil.toBuffer(genesisParams['extraData']),
+            EthereumUtil.toBuffer(genesisParams['mixhash']),
+            EthereumUtil.toBuffer(genesisParams['nonce'])
+        ]);
+        const genesisHash = EthereumUtil.keccak256(Buffer.from(encodedGenesisParams));
+
+        this.ethGenesisHash = genesisHash.toString('hex');
 
         if (this.config.evmValidateHash != "" &&
             this.ethGenesisHash != this.config.evmValidateHash) {
@@ -634,12 +656,12 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
-        this.lastBlock = evmGenesisBlock;
+        this.lastBlock = 0;
         this.lastNativeBlock = this.startBlock - 1;
-        this.connector.lastPushed = evmGenesisBlock;
+        this.connector.lastPushed = 0;
 
-        logger.info('ethereum genesis block header: ');
-        logger.info(JSON.stringify(header.toJSON(), null, 4));
+        logger.info('ethereum genesis params: ');
+        logger.info(JSON.stringify(genesisParams, null, 4));
 
         logger.info(`ethereum genesis hash: 0x${this.ethGenesisHash}`);
 
@@ -652,7 +674,7 @@ export class TEVMIndexer {
                 '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
                 block_num: this.genesisBlock.block_num,
                 '@global': {
-                    block_num: evmGenesisBlock
+                    block_num: 0
                 },
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
                 '@evmPrevBlockHash': NULL_HASH,
@@ -698,11 +720,11 @@ export class TEVMIndexer {
             try {
                 // get genesis information
                 genesisBlock = await this.rpc.get_block(
-                    this.evmDeployBlock - 1);
+                    this.startBlock - 1);
 
             } catch (e) {
                 logger.error(e);
-                logger.warn(`couldn\'t get genesis block ${this.evmDeployBlock - 1} retrying in 5 sec...`);
+                logger.warn(`couldn\'t get genesis block ${this.startBlock - 1} retrying in 5 sec...`);
                 await sleep(5000);
                 continue
             }
