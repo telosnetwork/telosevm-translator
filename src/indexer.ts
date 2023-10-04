@@ -563,7 +563,7 @@ export class TEVMIndexer {
 
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
-            this.lastBlock = this.config.evmStartBlock - 1;
+            this.lastBlock = this.config.startBlock - this.config.evmBlockDelta - 1;
             this.lastNativeBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
 
@@ -657,7 +657,7 @@ export class TEVMIndexer {
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
         this.lastBlock = 0;
-        this.lastNativeBlock = this.startBlock - 1;
+        this.lastNativeBlock = this.evmBlockDelta - 1;
         this.connector.lastPushed = 0;
 
         logger.info('ethereum genesis params: ');
