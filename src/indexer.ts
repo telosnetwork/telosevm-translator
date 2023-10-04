@@ -159,12 +159,10 @@ export class TEVMIndexer {
 
     resetReader() {
         logger.warn("restarting SHIP reader!...");
-        this.reader.stop();
-        this.reader.mustReconnect = false;
+        this.reader.ship.close();
         logger.warn("reader stopped, waiting 4 seconds to restart.");
         setTimeout(() => {
             this.startReaderFrom(this.lastNativeBlock + 1);
-            this.reader.mustReconnect = true;
         }, 4000);
         this.stallCounter = -15;
     }
