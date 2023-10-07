@@ -76,7 +76,6 @@ export class TEVMIndexer {
     genesisBlock: RpcInterfaces.GetBlockResult = null;
 
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
-    started: boolean = false;
 
     config: IndexerConfig;  // global indexer config as defined by envoinrment or config file
 
@@ -300,40 +299,26 @@ export class TEVMIndexer {
         }
 
         // process deltas to catch evm block num
-        const globalDelta = extractGlobalContractRow(block.deltas)?.value;
 
         let buffs: InprogressBuffers = null;
 
-        if (globalDelta) {
-            const currentEvmBlock = globalDelta.block_num;
+        const currentEvmBlock = currentBlock - this.config.evmBlockDelta + 1;
 
-            buffs = {
-                evmTransactions: [],
-                errors: [],
-                evmBlockNum: currentEvmBlock
-            };
+        buffs = {
+            evmTransactions: [],
+            errors: [],
+            evmBlockNum: currentEvmBlock
+        };
 
-            if (this.limboBuffs != null) {
-                for (const evmTx of this.limboBuffs.evmTransactions)
-                    evmTx.evmTx.block = currentEvmBlock;
-
-                buffs.evmTransactions = this.limboBuffs.evmTransactions
-                buffs.errors = this.limboBuffs.errors;
-                this.limboBuffs = null;
-            }
-        } else {
-            logger.warn(`onblock failed at block ${currentBlock}`);
-
-            if (this.limboBuffs == null) {
-                this.limboBuffs = {
-                    evmTransactions: [],
-                    errors: [],
-                    evmBlockNum: 0
-                };
-            }
-
-            buffs = this.limboBuffs;
-        }
+        // TODO: what happens when on block fails?
+        // if (this.limboBuffs != null) {
+        //     for (const evmTx of this.limboBuffs.evmTransactions)
+        //         evmTx.evmTx.block = currentEvmBlock;
+        //
+        //     buffs.evmTransactions = this.limboBuffs.evmTransactions
+        //     buffs.errors = this.limboBuffs.errors;
+        //     this.limboBuffs = null;
+        // }
 
         const evmBlockNum = buffs.evmBlockNum;
         const evmTransactions = buffs.evmTransactions;
@@ -418,11 +403,6 @@ export class TEVMIndexer {
                 evmTx: evmTx
             });
             actDigests.push(action.receipt.act_digest);
-        }
-
-        if (globalDelta == null) {
-            this.reader.ack();
-            return;
         }
 
         const newestBlock = new ProcessedBlock({
@@ -555,8 +535,6 @@ export class TEVMIndexer {
                 this.lastBlock = startEvmBlock - 1;
                 this.lastNativeBlock = startBlock - 1;
                 this.connector.lastPushed = this.lastBlock;
-
-                this.started = true
             }
 
         } else {
@@ -566,9 +544,6 @@ export class TEVMIndexer {
             this.lastBlock = this.config.startBlock - this.config.evmBlockDelta - 1;
             this.lastNativeBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
-
-            this.started = true
-
         }
 
         if (prevHash)
@@ -704,7 +679,7 @@ export class TEVMIndexer {
         // if (process.env.LOG_LEVEL == 'debug')
         //     logWhyIsNodeRunning();
 
-        clearInterval(this.statsTaskId);
+        clearInterval(this.statsTaskId as unknown as number);
 
         await this._waitWriteTasks();
 
