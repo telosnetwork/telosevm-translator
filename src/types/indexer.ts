@@ -32,7 +32,6 @@ export type IndexerConfig = {
     evmBlockDelta: number;
     evmDeployBlock: number;
     evmPrevHash: string;
-    evmStartBlock: number;
     evmValidateHash: string;
     startBlock: number;
     stopBlock: number;
@@ -56,7 +55,6 @@ export const DEFAULT_CONF = {
     "evmBlockDelta": 2,
     "evmDeployBlock": 35,
     "evmPrevHash": "",
-    "evmStartBlock": -1,
     "evmValidateHash": "",
 
     "startBlock": 35,

@@ -38,9 +38,6 @@ if (process.env.EVM_DEPLOY_BLOCK)
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
 
-if (process.env.EVM_START_BLOCK)
-    conf.evmStartBlock = parseInt(process.env.EVM_START_BLOCK, 10);
-
 if (process.env.EVM_VALIDATE_HASH)
     conf.evmValidateHash = process.env.EVM_VALIDATE_HASH;
 
