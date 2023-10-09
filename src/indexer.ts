@@ -15,7 +15,6 @@ import {
     BlockHeader,
     EMPTY_TRIE_BUF,
     EVMTxWrapper,
-    formatBlockNumbers,
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
@@ -28,7 +27,7 @@ import {
 import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {extractGlobalContractRow, getRPCClient} from './utils/eosio.js';
+import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
 
@@ -86,8 +85,7 @@ export class TEVMIndexer {
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
     headBlock: number;
-    lastBlock: number;  // last evm block number that was succesfully pushed to db in order
-    lastNativeBlock: number;  // last native block number that was succesfully pushed to db in order
+    lastBlock: number;  // last block number that was succesfully pushed to db in order
 
     // debug status used to print statistics
     private pushedLastUpdate: number = 0;
@@ -96,7 +94,6 @@ export class TEVMIndexer {
 
     private statsTaskId: NodeJS.Timer;
 
-    private limboBuffs: InprogressBuffers = null;
     private irreversibleOnly: boolean;
 
     private latestBlockHashes: Array<{ blockNum: number, hash: string }> = [];
@@ -146,8 +143,8 @@ export class TEVMIndexer {
         if (this.stallCounter > 10)
             this.resetReader();
 
-        let statsString = `${formatBlockNumbers(this.lastNativeBlock, this.lastBlock)} pushed, at ${blocksPerSecond} blocks/sec`;
-        const untilHead = this.headBlock - this.lastNativeBlock;
+        let statsString = `${this.lastBlock} pushed, at ${blocksPerSecond} blocks/sec`;
+        const untilHead = this.headBlock - this.lastBlock;
 
         if (untilHead > 3) {
             const hoursETA = `${((untilHead / blocksPerSecond) / (60 * 60)).toFixed(1)}hs`;
@@ -165,7 +162,7 @@ export class TEVMIndexer {
         this.reader.ship.close();
         logger.warn("reader stopped, waiting 4 seconds to restart.");
         setTimeout(() => {
-            this.startReaderFrom(this.lastNativeBlock + 1);
+            this.startReaderFrom(this.lastBlock + 1);
         }, 4000);
         this.stallCounter = -15;
     }
@@ -299,30 +296,9 @@ export class TEVMIndexer {
         }
 
         // process deltas to catch evm block num
-
-        let buffs: InprogressBuffers = null;
-
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta + 1;
-
-        buffs = {
-            evmTransactions: [],
-            errors: [],
-            evmBlockNum: currentEvmBlock
-        };
-
-        // TODO: what happens when on block fails?
-        // if (this.limboBuffs != null) {
-        //     for (const evmTx of this.limboBuffs.evmTransactions)
-        //         evmTx.evmTx.block = currentEvmBlock;
-        //
-        //     buffs.evmTransactions = this.limboBuffs.evmTransactions
-        //     buffs.errors = this.limboBuffs.errors;
-        //     this.limboBuffs = null;
-        // }
-
-        const evmBlockNum = buffs.evmBlockNum;
-        const evmTransactions = buffs.evmTransactions;
-        const errors = buffs.errors;
+        const evmTransactions = []
+        const errors = []
 
         // traces
         let gasUsedBlock = new BN(0);
@@ -360,7 +336,7 @@ export class TEVMIndexer {
                     evmTx = await handleEvmTx(
                         block.blockInfo.this_block.block_id,
                         evmTransactions.length,
-                        evmBlockNum,
+                        currentEvmBlock,
                         action.act.data,
                         action.console,  // tx.trace.console,
                         gasUsedBlock
@@ -369,7 +345,7 @@ export class TEVMIndexer {
                     evmTx = await handleEvmWithdraw(
                         block.blockInfo.this_block.block_id,
                         evmTransactions.length,
-                        evmBlockNum,
+                        currentEvmBlock,
                         action.act.data,
                         this.rpc,
                         gasUsedBlock
@@ -381,7 +357,7 @@ export class TEVMIndexer {
                 evmTx = await handleEvmDeposit(
                     block.blockInfo.this_block.block_id,
                     evmTransactions.length,
-                    evmBlockNum,
+                    currentEvmBlock,
                     action.act.data,
                     this.rpc,
                     gasUsedBlock
@@ -408,7 +384,7 @@ export class TEVMIndexer {
         const newestBlock = new ProcessedBlock({
             nativeBlockHash: block.blockInfo.this_block.block_id,
             nativeBlockNumber: currentBlock,
-            evmBlockNumber: evmBlockNum,
+            evmBlockNumber: currentEvmBlock,
             blockTimestamp: block.blockHeader.timestamp,
             evmTxs: evmTransactions,
             errors: errors
@@ -427,8 +403,7 @@ export class TEVMIndexer {
         await this.connector.pushBlock(storableBlockInfo);
 
         // Update block num state tracking attributes
-        this.lastBlock = evmBlockNum;
-        this.lastNativeBlock = storableBlockInfo.delta.block_num;
+        this.lastBlock = currentBlock;
 
         // For debug stats
         this.pushedLastUpdate++;
@@ -519,10 +494,10 @@ export class TEVMIndexer {
                 lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
 
                 if (gap == null) {
-                    ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+                    ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
                 } else {
                     if (process.argv.includes('--gaps-purge'))
-                        ({startBlock, startEvmBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                        ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                     else {
                         logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
                         process.exit(1);
@@ -532,8 +507,7 @@ export class TEVMIndexer {
                 // Init state tracking attributes
                 this.prevHash = prevHash;
                 this.startBlock = startBlock;
-                this.lastBlock = startEvmBlock - 1;
-                this.lastNativeBlock = startBlock - 1;
+                this.lastBlock = startBlock - 1;
                 this.connector.lastPushed = this.lastBlock;
             }
 
@@ -541,8 +515,7 @@ export class TEVMIndexer {
 
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
-            this.lastBlock = this.config.startBlock - this.config.evmBlockDelta - 1;
-            this.lastNativeBlock = startBlock - 1;
+            this.lastBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
         }
 
@@ -566,7 +539,7 @@ export class TEVMIndexer {
 
         logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
 
-        await this.startReaderFrom(startBlock);
+        this.startReaderFrom(startBlock);
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
@@ -631,9 +604,8 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
-        this.lastBlock = 0;
-        this.lastNativeBlock = this.evmBlockDelta - 1;
-        this.connector.lastPushed = 0;
+        this.lastBlock = this.evmBlockDelta - 1;
+        this.connector.lastPushed = this.lastBlock;
 
         logger.info('ethereum genesis params: ');
         logger.info(JSON.stringify(genesisParams, null, 4));
@@ -724,12 +696,10 @@ export class TEVMIndexer {
         }
 
         let startBlock = lastBlock.block_num;
-        let startEvmBlock = lastBlock['@global'].block_num;
 
-        const startStr = formatBlockNumbers(startBlock, startEvmBlock);
-        logger.info(`purge blocks newer than ${startStr}`);
+        logger.info(`purge blocks newer than ${startBlock}`);
 
-        await this.connector._purgeBlocksNewerThan(startBlock, startEvmBlock);
+        await this.connector._purgeBlocksNewerThan(startBlock);
 
         logger.info('done.');
 
@@ -740,7 +710,7 @@ export class TEVMIndexer {
         logger.info(
             `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return {startBlock, startEvmBlock, prevHash};
+        return {startBlock, prevHash};
     }
 
     /*
@@ -751,19 +721,17 @@ export class TEVMIndexer {
         let firstBlock: StorageEosioDelta;
         let delta = 0;
         while (!firstBlock || firstBlock.block_num === undefined) {
-            firstBlock = await this.connector.getIndexedBlockEVM(gap - delta);
+            firstBlock = await this.connector.getIndexedBlock(gap - delta);
             delta++;
         }
         // found blocks on the database
         logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
 
         let startBlock = firstBlock.block_num;
-        let startEvmBlock = firstBlock['@global'].block_num;
 
-        const startStr = formatBlockNumbers(startBlock, startEvmBlock);
-        logger.info(`purge blocks newer than ${startStr}`);
+        logger.info(`purge blocks newer than ${startBlock}`);
 
-        await this.connector.purgeNewerThan(startBlock, startEvmBlock);
+        await this.connector.purgeNewerThan(startBlock);
 
         logger.info('done.');
 
@@ -772,45 +740,39 @@ export class TEVMIndexer {
         let prevHash = lastBlock['@evmBlockHash'];
 
         if (lastBlock.block_num != (startBlock - 1))
-            throw new Error(`Last block: ${lastBlock.blockNumsToString()}, is not ${startStr} - 1`);
+            throw new Error(`Last block: ${lastBlock.block_num}, is not ${startBlock - 1} - 1`);
 
         logger.info(
-            `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
+            `found! ${lastBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
-        return {startBlock, startEvmBlock, prevHash};
+        return {startBlock, prevHash};
     }
 
     /*
      * Detect forks and handle them, leave every state tracking attribute in a healthy state
      */
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (b.nativeBlockNumber > this.lastNativeBlock ||
+        if (b.nativeBlockNumber == this.lastBlock + 1 ||
             b.nativeBlockNumber == this.startBlock)
             return;
 
-        const lastNonForkedEvm = b.evmBlockNumber - 1;
         const lastNonForked = b.nativeBlockNumber - 1;
-        const forkedAt = this.lastNativeBlock;
+        const forkedAt = this.lastBlock;
 
-        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastNativeBlock}, chain fork detected. reverse all blocks which were affected`);
+        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
         // finally purge db
-        await this.connector.purgeNewerThan(
-            lastNonForked + 1,
-            lastNonForkedEvm + 1
-        );
+        await this.connector.purgeNewerThan(lastNonForked + 1);
         logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
 
         // tweak variables used by ordering machinery
         this.prevHash = this.getOldHash(lastNonForked);
-        this.lastBlock = lastNonForkedEvm;
-        this.lastNativeBlock = lastNonForked;
+        this.lastBlock = lastNonForked;
 
         this.connector.forkCleanup(
             b.blockTimestamp,
-            b.evmBlockNumber,
             b.nativeBlockNumber,
             forkedAt
         );

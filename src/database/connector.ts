@@ -5,7 +5,7 @@ import {getTemplatesForChain} from './templates.js';
 import logger from '../utils/winston.js';
 import {Client, estypes} from '@elastic/elasticsearch';
 import {StorageEosioDelta} from '../utils/evm.js';
-import { StorageEosioAction } from '../types/evm.js';
+import {StorageEosioAction} from '../types/evm.js';
 
 interface ConfigInterface {
     [key: string]: any;
@@ -425,6 +425,19 @@ export class Connector {
 
         const lowerBound = lowerBoundDoc['@global'].block_num;
         const upperBound = upperBoundDoc['@global'].block_num;
+
+        const lowerBoundDelta = lowerBoundDoc.block_num - lowerBound;
+        if (lowerBoundDelta != this.config.evmBlockDelta) {
+            logger.error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
+            throw new Error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
+        }
+
+        const upperBoundDelta = upperBoundDoc.block_num - upperBound;
+        if (upperBoundDelta != this.config.evmBlockDelta) {
+            logger.error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
+            throw new Error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
+        }
+
         const step = 10000000; // 10 million blocks
 
         const deltaDups = [];
@@ -471,7 +484,7 @@ export class Connector {
         return this.checkGaps(lowerBound, upperBound, initialInterval);
     }
 
-    async _purgeBlocksNewerThan(blockNum: number, evmBlockNum: number) {
+    async _purgeBlocksNewerThan(blockNum: number) {
         const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
         const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
         const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
@@ -504,7 +517,7 @@ export class Connector {
                     query: {
                         range: {
                             '@raw.block': {
-                                gte: evmBlockNum
+                                gte: blockNum - this.config.evmBlockDelta
                             }
                         }
                     }
@@ -556,15 +569,15 @@ export class Connector {
         return deleteList;
     }
 
-    async purgeNewerThan(blockNum: number, evmBlockNum: number) {
+    async purgeNewerThan(blockNum: number) {
         await this._purgeIndicesNewerThan(blockNum);
-        await this._purgeBlocksNewerThan(blockNum, evmBlockNum);
+        await this._purgeBlocksNewerThan(blockNum);
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
-        const currentEvmBlock = blockInfo.delta['@global'].block_num;
-        if (this.totalPushed != 0 && currentEvmBlock != this.lastPushed + 1)
-            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentEvmBlock}`);
+        const currentBlock = blockInfo.delta.block_num;
+        if (this.totalPushed != 0 && currentBlock != this.lastPushed + 1)
+            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentBlock}`);
 
         const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
@@ -586,7 +599,7 @@ export class Connector {
         this.opDrain = [...this.opDrain, ...operations];
         this.blockDrain.push(blockInfo);
 
-        this.lastPushed = currentEvmBlock;
+        this.lastPushed = currentBlock;
         this.totalPushed++;
 
         if (this.state == IndexerState.HEAD ||
@@ -608,12 +621,11 @@ export class Connector {
 
     forkCleanup(
         timestamp: string,
-        lastNonForkedEvm: number,
         lastNonForked: number,
         lastForked: number
     ) {
         // fix state flag
-        this.lastPushed = lastNonForkedEvm - 1;
+        this.lastPushed = lastNonForked;
 
         // clear elastic operations drain
         let i = this.opDrain.length;
