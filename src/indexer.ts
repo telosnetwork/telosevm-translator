@@ -295,6 +295,10 @@ export class TEVMIndexer {
             return;
         }
 
+        if (currentBlock > this.lastBlock + 1)
+            throw new Error(
+                `Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`)
+
         // process deltas to catch evm block num
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
         const evmTransactions = []
@@ -752,7 +756,7 @@ export class TEVMIndexer {
      * Detect forks and handle them, leave every state tracking attribute in a healthy state
      */
     private async maybeHandleFork(b: ProcessedBlock) {
-        if (b.nativeBlockNumber == this.lastBlock + 1 ||
+        if (b.nativeBlockNumber >= this.lastBlock + 1 ||
             b.nativeBlockNumber == this.startBlock)
             return;
 
