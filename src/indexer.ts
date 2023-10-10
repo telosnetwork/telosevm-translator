@@ -296,7 +296,7 @@ export class TEVMIndexer {
         }
 
         // process deltas to catch evm block num
-        const currentEvmBlock = currentBlock - this.config.evmBlockDelta + 1;
+        const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
         const evmTransactions = []
         const errors = []
 
@@ -457,7 +457,7 @@ export class TEVMIndexer {
         this.printIntroText();
 
         let startBlock = this.startBlock;
-        let prevHash, startEvmBlock;
+        let prevHash;
 
         await this.connector.init();
 
