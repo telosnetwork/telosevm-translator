@@ -708,7 +708,7 @@ export class TEVMIndexer {
         let prevHash = lastBlock['@evmBlockHash'];
 
         logger.info(
-            `found! ${lastBlock.blockNumsToString()} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
+            `found! ${lastBlock.block_num} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
         return {startBlock, prevHash};
     }

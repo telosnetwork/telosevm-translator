@@ -1,8 +1,7 @@
 import { Serialize, RpcInterfaces } from 'eosjs';
 
-import { deserializeUInt, serializeUInt } from './binary.js';
-import { ShipTableDelta, ShipTransactionTrace } from '../types/ship.js';
-import { EosioActionTrace, EosioContractRow, EosioTransaction } from '../types/eosio.js';
+import { ShipTransactionTrace } from '../types/ship.js';
+import { EosioActionTrace, EosioTransaction } from '../types/eosio.js';
 
 function charToSymbol(c: any) {
     if (typeof c == 'string') c = c.charCodeAt(0);
@@ -110,17 +109,6 @@ export function extractShipTraces(data: ShipTransactionTrace[]): Array<{trace: E
     return result;
 }
 
-export function extractGlobalContractRow(contractRows: Array<any>): any {
-   for (const row of contractRows) {
-        if (row.code === 'eosio' &&
-            row.scope ==='eosio' &&
-            row.table === 'global')
-            return row
-   }
-
-    return null;
-}
-
 export function getTableAbiType(abi: RpcInterfaces.Abi, contract: string, table: string): string {
     for (const row of abi.tables) {
         if (row.name === table) {
@@ -181,7 +169,6 @@ export function parseAsset(s: string) {
 
 
 import { JsonRpc } from 'eosjs';
-import { IndexerConfig } from '../types/indexer.js';
 
 // @ts-ignore
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
