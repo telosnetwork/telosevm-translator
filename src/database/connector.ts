@@ -180,7 +180,10 @@ export class Connector {
             if (result?.hits?.hits?.length == 0)
                 return null;
 
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+            const blockDoc = result?.hits?.hits[0]?._source;
+            logger.debug(`getFirstIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
+
+            return new StorageEosioDelta(blockDoc);
 
         } catch (error) {
             return null;
