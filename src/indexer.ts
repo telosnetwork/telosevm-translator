@@ -554,6 +554,9 @@ export class TEVMIndexer {
         // number of seconds since epoch
         const genesisTimestamp = moment.utc(this.genesisBlock.timestamp).unix();
 
+        // genesis evm block num
+        const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
+
         const genesisParams = {
             "alloc": {},
             "config": {
@@ -575,7 +578,7 @@ export class TEVMIndexer {
             "transactionsTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "receiptTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "logsBloom": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "number": "0x00",
+            "number": "0x" + genesisEvmBlockNum.toString(16),
             "gasUsed": "0x00"
         }
 
@@ -607,7 +610,7 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
-        this.lastBlock = this.evmBlockDelta - 1;
+        this.lastBlock = this.genesisBlock.block_num;
         this.connector.lastPushed = this.lastBlock;
 
         logger.info('ethereum genesis params: ');
@@ -624,7 +627,7 @@ export class TEVMIndexer {
                 '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
                 block_num: this.genesisBlock.block_num,
                 '@global': {
-                    block_num: 0
+                    block_num: genesisEvmBlockNum
                 },
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
                 '@evmPrevBlockHash': NULL_HASH,
