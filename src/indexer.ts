@@ -780,14 +780,15 @@ export class TEVMIndexer {
                 nonForkIndex = i;
 
         if (nonForkIndex == -1)
-            throw new Error('Couldn\'t find lastNonForked in latestBlockHashes cache');
-
-        if (nonForkIndex + 1 < this.latestBlockHashes.length) {
-            const prevLength = this.latestBlockHashes.length;
-            this.latestBlockHashes.splice(nonForkIndex + 1);
-            const endLength = this.latestBlockHashes.length;
-            const deletedAmount = prevLength - endLength;
-            logger.info(`cleared latestBlockHashes cache, deleted ${deletedAmount} entries.`);
+            logger.error('Couldn\'t find lastNonForked in latestBlockHashes cache');
+        else {
+            if (nonForkIndex + 1 < this.latestBlockHashes.length) {
+                const prevLength = this.latestBlockHashes.length;
+                this.latestBlockHashes.splice(nonForkIndex + 1);
+                const endLength = this.latestBlockHashes.length;
+                const deletedAmount = prevLength - endLength;
+                logger.info(`cleared latestBlockHashes cache, deleted ${deletedAmount} entries.`);
+            }
         }
 
         // tweak variables used by ordering machinery
