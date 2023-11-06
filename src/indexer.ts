@@ -96,8 +96,6 @@ export class TEVMIndexer {
 
     private irreversibleOnly: boolean;
 
-    private latestBlockHashes: Array<{ blockNum: number, hash: string }> = [];
-
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -396,12 +394,6 @@ export class TEVMIndexer {
         await this.maybeHandleFork(newestBlock);
         const storableBlockInfo = await this.hashBlock(newestBlock);
 
-        this.latestBlockHashes.push(
-            {blockNum: currentBlock, hash: storableBlockInfo.delta["@evmBlockHash"]}
-        );
-        if (this.latestBlockHashes.length > 1000)
-            this.latestBlockHashes.shift()
-
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
 
@@ -414,12 +406,11 @@ export class TEVMIndexer {
         this.reader.ack();
     }
 
-    getOldHash(blockNum: number) {
-        for (const iterBlock of this.latestBlockHashes) {
-            if (iterBlock.blockNum == blockNum)
-                return iterBlock.hash;
-        }
-        throw new Error('hash not found on cache!');
+    async getOldHash(blockNum: number) {
+        const block = await this.connector.getIndexedBlock(blockNum);
+        if(!block)
+            throw new Error(`Block #${blockNum} not found in db`);
+        return block['@evmBlockHash'];
     }
 
     startReaderFrom(blockNum: number) {
@@ -773,26 +764,8 @@ export class TEVMIndexer {
         await this.connector.purgeNewerThan(lastNonForked + 1);
         logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
 
-        // fix block hash cache
-        let nonForkIndex: number = -1;
-        for(let i = this.latestBlockHashes.length - 1; i > 0; i--)
-            if (this.latestBlockHashes[i].blockNum == lastNonForked)
-                nonForkIndex = i;
-
-        if (nonForkIndex == -1)
-            logger.error('Couldn\'t find lastNonForked in latestBlockHashes cache');
-        else {
-            if (nonForkIndex + 1 < this.latestBlockHashes.length) {
-                const prevLength = this.latestBlockHashes.length;
-                this.latestBlockHashes.splice(nonForkIndex + 1);
-                const endLength = this.latestBlockHashes.length;
-                const deletedAmount = prevLength - endLength;
-                logger.info(`cleared latestBlockHashes cache, deleted ${deletedAmount} entries.`);
-            }
-        }
-
         // tweak variables used by ordering machinery
-        this.prevHash = this.getOldHash(lastNonForked);
+        this.prevHash = await this.getOldHash(lastNonForked);
         this.lastBlock = lastNonForked;
 
         this.connector.forkCleanup(
