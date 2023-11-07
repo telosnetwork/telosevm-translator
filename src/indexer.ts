@@ -284,8 +284,7 @@ export class TEVMIndexer {
     }
 
     /*
-     * State history on-block-deserialized call back, pushes blocks out of order
-     * will sleep if block received is too far from last stored block.
+     * HyperionSequentialReader emit block callback, gets blocks from ship in order.
      */
     async processBlock(block: any): Promise<void> {
         const currentBlock = block.blockInfo.this_block.block_num;
