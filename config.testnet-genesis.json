@@ -1,16 +1,16 @@
 {
-    "chainName": "telos-mainnet",
-    "chainId": 40,
+    "chainName": "telos-testnet",
+    "chainId": 41,
 
-    "endpoint": "http://127.0.0.1:8888",
-    "remoteEndpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
+    "endpoint": "http://testnet.telos.net",
+    "remoteEndpoint": "http://testnet.telos.net",
+    "wsEndpoint": "ws://141.193.240.11:18993",
 
-    "evmBlockDelta": 36,
-    "evmDeployBlock": 180698860,
-    "evmValidateHash": "9bd7e881e0903ea4fa161c7f00096c11346f122bff30a3a5122ef5c1f9c9f80c",
+    "evmBlockDelta": 57,
+    "evmDeployBlock": 136393814,
+    "evmValidateHash": "",
 
-    "startBlock": 180698860,
+    "startBlock": 57,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {

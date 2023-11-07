@@ -6,8 +6,9 @@
     "remoteEndpoint": "http://testnet.telos.net",
     "wsEndpoint": "ws://141.193.240.11:18993",
 
+    "evmBlockDelta": 57,
     "evmDeployBlock": 136393814,
-    "evmValidateHash": "3ba6f4ac4f5b74e8e62622b9d8c75d1e4ad10abb3b7e4770cbab7338a861a4f9",
+    "evmValidateHash": "",
 
     "startBlock": 136393814,
     "stopBlock": 4294967295,

@@ -1270,11 +1270,6 @@ export const DS_TYPES = [
     'contract_index_long_double'
 ];
 
-const nfObject = new Intl.NumberFormat('en-US');
-
-export function formatBlockNumbers(blockNum: number, evmBlockNum: number) {
-    return `[${nfObject.format(blockNum)}|${nfObject.format(evmBlockNum)}]`;
-}
 
 export class StorageEosioDelta {
     "@timestamp": string;
@@ -1297,10 +1292,6 @@ export class StorageEosioDelta {
     constructor(obj: Partial<StorageEosioDelta>) {
         Object.assign(this, obj);
     }
-
-    blockNumsToString() {
-        return formatBlockNumbers(this.block_num, this['@global'].block_num);
-    }
 }
 
 export class ProcessedBlock {
@@ -1313,10 +1304,6 @@ export class ProcessedBlock {
 
     constructor(obj: Partial<ProcessedBlock>) {
         Object.assign(this, obj);
-    }
-
-    toString() {
-        return formatBlockNumbers(this.nativeBlockNumber, this.evmBlockNumber);
     }
 }
 

@@ -29,14 +29,14 @@ if (process.env.TELOS_REMOTE_ENDPOINT)
 if (process.env.TELOS_WS_ENDPOINT)
     conf.wsEndpoint = process.env.TELOS_WS_ENDPOINT;
 
+if (process.env.EVM_BLOCK_DELTA)
+    conf.evmBlockDelta = parseInt(process.env.EVM_BLOCK_DELTA, 10);
+
 if (process.env.EVM_DEPLOY_BLOCK)
     conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
 
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
-
-if (process.env.EVM_START_BLOCK)
-    conf.evmStartBlock = parseInt(process.env.EVM_START_BLOCK, 10);
 
 if (process.env.EVM_VALIDATE_HASH)
     conf.evmValidateHash = process.env.EVM_VALIDATE_HASH;
