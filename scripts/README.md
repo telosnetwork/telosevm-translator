@@ -5,7 +5,7 @@
 
     pip install -r scripts/requirements.txt
 
-    pytohn find_double_fork.py  # will use localhost:9200, telos-mainnet-fork-* and telos-mainnet-delta-* as defaults
+    python find_double_fork.py  # will use localhost:9200, telos-mainnet-fork-* and telos-mainnet-delta-* as defaults
 
     python find_double_fork.py \
         --es-host 'http://your-es-host:port' \

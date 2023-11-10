@@ -5,13 +5,13 @@ from elasticsearch import Elasticsearch
 from utils import check_hashes_around_block
 
 
-def find_double_forks(es, index_name) -> List[Tuple[str, int]]:
+def verify_forks(es, block_index, fork_index) -> List[Tuple[str, int]]:
     # Define the scroll time
     scroll = '2m'  # Scroll time
 
     # Initialize the scroll
     response = es.search(
-        index=index_name,
+        index=fork_index,
         scroll=scroll,
         size=1000,
         body={
@@ -19,11 +19,6 @@ def find_double_forks(es, index_name) -> List[Tuple[str, int]]:
             'sort': [{'timestamp': {'order': 'asc'}}]
         }
     )
-
-    # Use a set to track the lastNonForked values
-    old_lastNonForked = None
-
-    double_forks = []
 
     # Start scrolling
     while True:
@@ -33,25 +28,15 @@ def find_double_forks(es, index_name) -> List[Tuple[str, int]]:
 
         # Process hits
         for doc in response['hits']['hits']:
-            # Extract the lastNonForked value
-            current_lastNonForked = doc['_source']['lastNonForked']
-
-            # Compare with the previous lastNonForked if it exists
-            if old_lastNonForked is not None:
-                diff = current_lastNonForked - old_lastNonForked
-                if diff < 1000:
-                    double_forks.append((doc['_id'], current_lastNonForked))
-
-            # Update the lastNonForked
-            old_lastNonForked = current_lastNonForked
-
+            block_num = doc['_source']['lastNonForked']
+            ok, msg = check_hashes_around_block(es, block_index, block_num)
+            if not ok:
+                print(msg)
         # Get the next batch of documents
         response = es.scroll(scroll_id=response['_scroll_id'], scroll=scroll)
 
     # Clear the scroll when done
     es.clear_scroll(scroll_id=response['_scroll_id'])
-
-    return double_forks
 
 
 @click.command()
@@ -60,9 +45,7 @@ def find_double_forks(es, index_name) -> List[Tuple[str, int]]:
 @click.option('--block-index', default='telos-mainnet-delta-*', help='Block index pattern.')
 def main(es_host, fork_index, block_index):
     es = Elasticsearch(es_host)
-    for doc_id, block_num in find_double_forks(es, fork_index):
-        result = check_hashes_around_block(es, block_index, block_num)
-        print(f'Fork doc {doc_id} at block {block_num}: {result}')
+    verify_forks(es, block_index, fork_index)
 
 if __name__ == '__main__':
     main()
