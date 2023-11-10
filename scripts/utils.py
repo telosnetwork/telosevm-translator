@@ -1,3 +1,4 @@
+from typing import Tuple
 from elasticsearch.helpers import scan
 
 # Assume es is an instance of Elasticsearch client already configured
