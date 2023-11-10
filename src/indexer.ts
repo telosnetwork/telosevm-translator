@@ -397,11 +397,11 @@ export class TEVMIndexer {
 
         const storableBlockInfo = await this.hashBlock(newestBlock);
 
-        // Push to db
-        await this.connector.pushBlock(storableBlockInfo);
-
         // Update block num state tracking attributes
         this.lastBlock = currentBlock;
+
+        // Push to db
+        await this.connector.pushBlock(storableBlockInfo);
 
         // For debug stats
         this.pushedLastUpdate++;
