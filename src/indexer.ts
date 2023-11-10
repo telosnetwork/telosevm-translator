@@ -391,7 +391,10 @@ export class TEVMIndexer {
             errors: errors
         });
 
-        await this.maybeHandleFork(newestBlock);
+        // fork handling
+        if (currentBlock != this.lastBlock + 1)
+            await this.handleFork(newestBlock);
+
         const storableBlockInfo = await this.hashBlock(newestBlock);
 
         // Push to db
@@ -746,13 +749,9 @@ export class TEVMIndexer {
     }
 
     /*
-     * Detect forks and handle them, leave every state tracking attribute in a healthy state
+     * Handle fork, leave every state tracking attribute in a healthy state
      */
-    private async maybeHandleFork(b: ProcessedBlock) {
-        if (b.nativeBlockNumber >= this.lastBlock + 1 ||
-            b.nativeBlockNumber == this.startBlock)
-            return;
-
+    private async handleFork(b: ProcessedBlock) {
         const lastNonForked = b.nativeBlockNumber - 1;
         const forkedAt = this.lastBlock;
 
