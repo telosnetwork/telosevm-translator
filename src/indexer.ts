@@ -135,8 +135,6 @@ export class TEVMIndexer {
 
         if (blocksPerSecond == 0)
             this.stallCounter++;
-        else
-            this.stallCounter = 0;
 
         if (this.stallCounter > 10)
             this.resetReader();
@@ -158,10 +156,10 @@ export class TEVMIndexer {
     resetReader() {
         logger.warn("restarting SHIP reader!...");
         this.reader.ship.close();
-        logger.warn("reader stopped, waiting 4 seconds to restart.");
+        logger.warn("reader stopped, waiting 2 seconds to restart.");
         setTimeout(() => {
-            this.startReaderFrom(this.lastBlock + 1);
-        }, 4000);
+            this.reader.restart();
+        }, 2000);
         this.stallCounter = -15;
     }
 
@@ -295,6 +293,8 @@ export class TEVMIndexer {
         if (currentBlock > this.lastBlock + 1)
             throw new Error(
                 `Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`)
+
+        this.stallCounter = 0;
 
         // process deltas to catch evm block num
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
@@ -755,7 +755,7 @@ export class TEVMIndexer {
         const lastNonForked = b.nativeBlockNumber - 1;
         const forkedAt = this.lastBlock;
 
-        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock}, chain fork detected. reverse all blocks which were affected`);
+        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock + 1}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
