@@ -136,8 +136,10 @@ export class TEVMIndexer {
         if (blocksPerSecond == 0)
             this.stallCounter++;
 
-        if (this.stallCounter > 10)
+        if (this.stallCounter > 10) {
+            logger.info('stall detected... restarting ship reader.');
             this.resetReader();
+        }
 
         let statsString = `${this.lastBlock} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastBlock;
@@ -431,7 +433,6 @@ export class TEVMIndexer {
         }
         this.reader.onDisconnect = () => {
             logger.warn('SHIP Reader disconnected.');
-            logger.warn(`Retrying in 5 seconds... attempt number ${this.reader.reconnectCount}.`)
         }
         this.reader.onError = (err) => {
             logger.error(`SHIP Reader error: ${err}`);
