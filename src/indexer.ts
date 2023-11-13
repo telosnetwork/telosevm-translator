@@ -96,8 +96,6 @@ export class TEVMIndexer {
 
     private irreversibleOnly: boolean;
 
-    private latestBlockHashes: Array<{ blockNum: number, hash: string }> = [];
-
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -137,11 +135,11 @@ export class TEVMIndexer {
 
         if (blocksPerSecond == 0)
             this.stallCounter++;
-        else
-            this.stallCounter = 0;
 
-        if (this.stallCounter > 10)
+        if (this.stallCounter > 60) {
+            logger.info('stall detected... restarting ship reader.');
             this.resetReader();
+        }
 
         let statsString = `${this.lastBlock} pushed, at ${blocksPerSecond} blocks/sec`;
         const untilHead = this.headBlock - this.lastBlock;
@@ -160,10 +158,10 @@ export class TEVMIndexer {
     resetReader() {
         logger.warn("restarting SHIP reader!...");
         this.reader.ship.close();
-        logger.warn("reader stopped, waiting 4 seconds to restart.");
+        logger.warn("reader stopped, waiting 2 seconds to restart.");
         setTimeout(() => {
-            this.startReaderFrom(this.lastBlock + 1);
-        }, 4000);
+            this.reader.restart();
+        }, 2000);
         this.stallCounter = -15;
     }
 
@@ -298,6 +296,8 @@ export class TEVMIndexer {
             throw new Error(
                 `Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`)
 
+        this.stallCounter = 0;
+
         // process deltas to catch evm block num
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
         const evmTransactions = []
@@ -393,20 +393,17 @@ export class TEVMIndexer {
             errors: errors
         });
 
-        await this.maybeHandleFork(newestBlock);
+        // fork handling
+        if (currentBlock != this.lastBlock + 1)
+            await this.handleFork(newestBlock);
+
         const storableBlockInfo = await this.hashBlock(newestBlock);
-
-        this.latestBlockHashes.push(
-            {blockNum: currentBlock, hash: storableBlockInfo.delta["@evmBlockHash"]}
-        );
-        if (this.latestBlockHashes.length > 1000)
-            this.latestBlockHashes.shift()
-
-        // Push to db
-        await this.connector.pushBlock(storableBlockInfo);
 
         // Update block num state tracking attributes
         this.lastBlock = currentBlock;
+
+        // Push to db
+        await this.connector.pushBlock(storableBlockInfo);
 
         // For debug stats
         this.pushedLastUpdate++;
@@ -414,12 +411,11 @@ export class TEVMIndexer {
         this.reader.ack();
     }
 
-    getOldHash(blockNum: number) {
-        for (const iterBlock of this.latestBlockHashes) {
-            if (iterBlock.blockNum == blockNum)
-                return iterBlock.hash;
-        }
-        throw new Error('hash not found on cache!');
+    async getOldHash(blockNum: number) {
+        const block = await this.connector.getIndexedBlock(blockNum);
+        if(!block)
+            throw new Error(`Block #${blockNum} not found in db`);
+        return block['@evmBlockHash'];
     }
 
     startReaderFrom(blockNum: number) {
@@ -437,7 +433,6 @@ export class TEVMIndexer {
         }
         this.reader.onDisconnect = () => {
             logger.warn('SHIP Reader disconnected.');
-            logger.warn(`Retrying in 5 seconds... attempt number ${this.reader.reconnectCount}.`)
         }
         this.reader.onError = (err) => {
             logger.error(`SHIP Reader error: ${err}`);
@@ -554,6 +549,9 @@ export class TEVMIndexer {
         // number of seconds since epoch
         const genesisTimestamp = moment.utc(this.genesisBlock.timestamp).unix();
 
+        // genesis evm block num
+        const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
+
         const genesisParams = {
             "alloc": {},
             "config": {
@@ -575,7 +573,7 @@ export class TEVMIndexer {
             "transactionsTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "receiptTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "logsBloom": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "number": "0x00",
+            "number": "0x" + genesisEvmBlockNum.toString(16),
             "gasUsed": "0x00"
         }
 
@@ -607,7 +605,7 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
-        this.lastBlock = this.evmBlockDelta - 1;
+        this.lastBlock = this.genesisBlock.block_num;
         this.connector.lastPushed = this.lastBlock;
 
         logger.info('ethereum genesis params: ');
@@ -624,7 +622,7 @@ export class TEVMIndexer {
                 '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
                 block_num: this.genesisBlock.block_num,
                 '@global': {
-                    block_num: 0
+                    block_num: genesisEvmBlockNum
                 },
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
                 '@evmPrevBlockHash': NULL_HASH,
@@ -752,17 +750,13 @@ export class TEVMIndexer {
     }
 
     /*
-     * Detect forks and handle them, leave every state tracking attribute in a healthy state
+     * Handle fork, leave every state tracking attribute in a healthy state
      */
-    private async maybeHandleFork(b: ProcessedBlock) {
-        if (b.nativeBlockNumber >= this.lastBlock + 1 ||
-            b.nativeBlockNumber == this.startBlock)
-            return;
-
+    private async handleFork(b: ProcessedBlock) {
         const lastNonForked = b.nativeBlockNumber - 1;
         const forkedAt = this.lastBlock;
 
-        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock}, chain fork detected. reverse all blocks which were affected`);
+        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock + 1}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
@@ -771,12 +765,12 @@ export class TEVMIndexer {
         logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
 
         // tweak variables used by ordering machinery
-        this.prevHash = this.getOldHash(lastNonForked);
+        this.prevHash = await this.getOldHash(lastNonForked);
         this.lastBlock = lastNonForked;
 
         this.connector.forkCleanup(
             b.blockTimestamp,
-            b.nativeBlockNumber,
+            lastNonForked,
             forkedAt
         );
     }
