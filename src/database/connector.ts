@@ -523,13 +523,26 @@ export class Connector {
     }
 
     async _purgeBlocksNewerThan(blockNum: number) {
-        const batchSize = 10000; // Define the size of each batch
-        const upperBoundDoc = await this.getLastIndexedBlock();
-        const maxBlockNum = upperBoundDoc.block_num;
-        for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize) {
-            const endBlock = Math.min(startBlock + batchSize - 1, maxBlockNum);
-            await this._deleteBlocksInRange(startBlock, endBlock);
-            logger.info(`deleted blocks from ${startBlock} to ${endBlock}`);
+        const maxBlockNum = (await this.getLastIndexedBlock()).block_num;
+        const batchSize = 20000; // Batch size set to 20,000
+        const maxConcurrentDeletions = 4; // Maximum of 4 deletions in parallel
+
+        for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize * maxConcurrentDeletions) {
+            const deletionTasks = [];
+
+            for (let i = 0; i < maxConcurrentDeletions && (startBlock + i * batchSize) <= maxBlockNum; i++) {
+                const batchStart = startBlock + i * batchSize;
+                const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
+                deletionTasks.push(this._deleteBlocksInRange(batchStart, batchEnd));
+            }
+
+            await Promise.all(deletionTasks).then((results) => {
+                results.forEach((result, index) => {
+                    const batchStart = startBlock + index * batchSize;
+                    const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
+                    logger.info(`deleted blocks from ${batchStart} to ${batchEnd}`);
+                });
+            });
         }
     }
 
