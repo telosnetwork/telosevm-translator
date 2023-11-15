@@ -8,9 +8,9 @@
 
     "evmBlockDelta": 57,
     "evmDeployBlock": 136393814,
-    "evmValidateHash": "",
+    "evmPrevHash": "",
 
-    "startBlock": 57,
+    "startBlock": 58,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
