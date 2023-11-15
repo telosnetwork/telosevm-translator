@@ -462,9 +462,7 @@ export class TEVMIndexer {
         if (process.argv.includes('--trim-from')) {
             const trimFromIndex = process.argv.indexOf('--trim-from');
             const trimBlockNum = parseInt(process.argv[trimFromIndex + 1], 10);
-            logger.info(`triming db from block ${trimBlockNum}...`);
             await this.connector.purgeNewerThan(trimBlockNum);
-            logger.info('done db trim.');
         }
 
         logger.info('checking db for blocks...');
@@ -784,9 +782,7 @@ export class TEVMIndexer {
     }
 
     printIntroText() {
-        logger.info('Telos EVM Indexer 1.5');
-        logger.info(
-            'Blocks will be shown in the following format: [native block num|evm block num]');
+        logger.info('Telos EVM Translator v1.0.0-rc4');
         logger.info('Happy indexing!');
     }
 };
