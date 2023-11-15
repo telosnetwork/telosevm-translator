@@ -8,7 +8,7 @@
 
     "evmBlockDelta": 57,
     "evmDeployBlock": 136393814,
-    "evmValidateHash": "",
+    "evmPrevHash": "",
 
     "startBlock": 58,
     "stopBlock": 4294967295,
