@@ -10,7 +10,7 @@
     "evmDeployBlock": 136393814,
     "evmValidateHash": "",
 
-    "startBlock": 57,
+    "startBlock": 58,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
