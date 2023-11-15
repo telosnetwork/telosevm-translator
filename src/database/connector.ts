@@ -529,7 +529,7 @@ export class Connector {
         for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize) {
             const endBlock = Math.min(startBlock + batchSize - 1, maxBlockNum);
             await this._deleteBlocksInRange(startBlock, endBlock);
-            logger.debug(`Deleted blocks from ${startBlock} to ${endBlock}`);
+            logger.info(`deleted blocks from ${startBlock} to ${endBlock}`);
         }
     }
 
