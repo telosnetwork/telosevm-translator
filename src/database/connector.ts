@@ -540,7 +540,7 @@ export class Connector {
                 results.forEach((result, index) => {
                     const batchStart = startBlock + index * batchSize;
                     const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
-                    logger.info(`deleted blocks from ${batchStart} to ${batchEnd}`);
+                    logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
                 });
             });
         }
