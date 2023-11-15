@@ -487,53 +487,62 @@ export class Connector {
         return this.checkGaps(lowerBound, upperBound, initialInterval);
     }
 
-    async _purgeBlocksNewerThan(blockNum: number) {
-        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+    async _deleteBlocksInRange(startBlock: number, endBlock: number) {
+        const targetSuffix = getSuffix(endBlock, this.config.elastic.docsPerIndex);
         const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
         const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
+
         try {
-            const deltaResult = await this.elastic.deleteByQuery({
-                index: deltaIndex,
-                body: {
-                    query: {
-                        range: {
-                            block_num: {
-                                gte: blockNum
-                            }
-                        }
-                    }
-                },
-                conflicts: 'proceed',
-                refresh: true,
-                error_trace: true
-            });
-            logger.debug(`delta delete result: ${JSON.stringify(deltaResult, null, 4)}`);
+            await this._deleteFromIndex(deltaIndex, 'block_num', startBlock, endBlock);
+            await this._deleteFromIndex(actionIndex, '@raw.block', startBlock - this.config.evmBlockDelta, endBlock);
         } catch (e) {
-            if (e.name != 'ResponseError' ||
-                e.meta.body.error.type != 'index_not_found_exception')
+            if (e.name != 'ResponseError' || e.meta.body.error.type != 'index_not_found_exception') {
                 throw e;
+            }
         }
-        try {
-            const actionResult = await this.elastic.deleteByQuery({
-                index: actionIndex,
-                body: {
-                    query: {
-                        range: {
-                            '@raw.block': {
-                                gte: blockNum - this.config.evmBlockDelta
-                            }
+    }
+
+    async _deleteFromIndex(index: string, blockField: string, startBlock: number, endBlock: number) {
+        const result = await this.elastic.deleteByQuery({
+            index: index,
+            body: {
+                query: {
+                    range: {
+                        [blockField]: {
+                            gte: startBlock,
+                            lte: endBlock
                         }
                     }
-                },
-                conflicts: 'proceed',
-                refresh: true,
-                error_trace: true
+                }
+            },
+            conflicts: 'proceed',
+            refresh: true,
+            error_trace: true
+        });
+        logger.debug(`${index} delete result: ${JSON.stringify(result, null, 4)}`);
+    }
+
+    async _purgeBlocksNewerThan(blockNum: number) {
+        const maxBlockNum = (await this.getLastIndexedBlock()).block_num;
+        const batchSize = 20000; // Batch size set to 20,000
+        const maxConcurrentDeletions = 4; // Maximum of 4 deletions in parallel
+
+        for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize * maxConcurrentDeletions) {
+            const deletionTasks = [];
+
+            for (let i = 0; i < maxConcurrentDeletions && (startBlock + i * batchSize) <= maxBlockNum; i++) {
+                const batchStart = startBlock + i * batchSize;
+                const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
+                deletionTasks.push(this._deleteBlocksInRange(batchStart, batchEnd));
+            }
+
+            await Promise.all(deletionTasks).then((results) => {
+                results.forEach((result, index) => {
+                    const batchStart = startBlock + index * batchSize;
+                    const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
+                    logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
+                });
             });
-            logger.debug(`action delete result: ${JSON.stringify(actionResult, null, 4)}`);
-        } catch (e) {
-            if (e.name != 'ResponseError' ||
-                e.meta.body.error.type != 'index_not_found_exception')
-                throw e;
         }
     }
 
