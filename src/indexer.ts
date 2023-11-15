@@ -459,6 +459,14 @@ export class TEVMIndexer {
 
         await this.connector.init();
 
+        if (process.argv.includes('--trim-from')) {
+            const trimFromIndex = process.argv.indexOf('--trim-from');
+            const trimBlockNum = parseInt(process.argv[trimFromIndex + 1], 10);
+            logger.info(`triming db from block ${trimBlockNum}...`);
+            await this.connector.purgeNewerThan(trimBlockNum);
+            logger.info('done db trim.');
+        }
+
         logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
 
