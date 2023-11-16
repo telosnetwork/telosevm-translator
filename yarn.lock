@@ -71,9 +71,9 @@
     tslib "^2.4.0"
     undici "^5.22.1"
 
-"@eosrio/hyperion-sequential-reader@file:eosrio-hyperion-sequential-reader-1.2.2.tgz":
-  version "1.2.2"
-  resolved "file:eosrio-hyperion-sequential-reader-1.2.2.tgz#b2e4db84f696af63eebf91407791e5cfa2c4a3a7"
+"@eosrio/hyperion-sequential-reader@file:eosrio-hyperion-sequential-reader-1.2.3.tgz":
+  version "1.2.3"
+  resolved "file:eosrio-hyperion-sequential-reader-1.2.3.tgz#2bab8ca4e17dc48e5e1f5ded165da5cbd3bfe869"
   dependencies:
     "@greymass/eosio" "0.6.11"
     async "^3.2.4"
