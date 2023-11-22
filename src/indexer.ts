@@ -425,7 +425,8 @@ export class TEVMIndexer {
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
             startBlock: blockNum,
-            irreversibleOnly: this.irreversibleOnly
+            irreversibleOnly: this.irreversibleOnly,
+            logLevel: 'debug'
         });
 
         this.reader.onConnected = () => {
