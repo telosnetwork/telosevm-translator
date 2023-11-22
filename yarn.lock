@@ -73,7 +73,7 @@
 
 "@eosrio/hyperion-sequential-reader@file:eosrio-hyperion-sequential-reader-1.2.3.tgz":
   version "1.2.3"
-  resolved "file:eosrio-hyperion-sequential-reader-1.2.3.tgz#5232656733d925652717339c1733102a706b0546"
+  resolved "file:eosrio-hyperion-sequential-reader-1.2.3.tgz#5811d97a7a4a632bc7a3132779df8dac35014a00"
   dependencies:
     "@greymass/eosio" "0.6.11"
     async "^3.2.4"
