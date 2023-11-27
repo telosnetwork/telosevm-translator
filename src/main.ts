@@ -14,6 +14,12 @@ try {
     conf = { ...DEFAULT_CONF, ...JSON.parse(readFileSync('config.json').toString()) };
 } catch (e) { }
 
+if (process.env.LOG_LEVEL)
+    conf.logLevel = process.env.LOG_LEVEL;
+
+if (process.env.READER_LOG_LEVEL)
+    conf.readerLogLevel = process.env.READER_LOG_LEVEL;
+
 if (process.env.CHAIN_NAME)
     conf.chainName = process.env.CHAIN_NAME;
 

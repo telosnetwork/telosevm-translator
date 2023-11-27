@@ -1,4 +1,7 @@
 {
+    "logLevel": "debug",
+    "readerLogLevel": "info",
+
     "chainName": "telos-testnet",
     "chainId": 41,
 

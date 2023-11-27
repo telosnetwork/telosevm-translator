@@ -2,10 +2,10 @@ import RPCBroadcaster from '../publisher.js';
 import {IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js';
 import {getTemplatesForChain} from './templates.js';
 
-import logger from '../utils/winston.js';
 import {Client, estypes} from '@elastic/elasticsearch';
 import {StorageEosioDelta} from '../utils/evm.js';
 import {StorageEosioAction} from '../types/evm.js';
+import {Logger} from "winston";
 
 interface ConfigInterface {
     [key: string]: any;
@@ -23,6 +23,7 @@ function indexToSuffixNum(index: string) {
 
 export class Connector {
     config: IndexerConfig;
+    logger: Logger;
     elastic: Client;
     broadcast: RPCBroadcaster;
     chainName: string;
@@ -37,12 +38,13 @@ export class Connector {
 
     writeCounter: number = 0;
 
-    constructor(config: IndexerConfig) {
+    constructor(config: IndexerConfig, logger: Logger) {
         this.config = config;
+        this.logger = logger;
         this.chainName = config.chainName;
         this.elastic = new Client(config.elastic);
 
-        this.broadcast = new RPCBroadcaster(config.broadcast);
+        this.broadcast = new RPCBroadcaster(config.broadcast, logger);
 
         this.opDrain = [];
         this.blockDrain = [];
@@ -63,7 +65,7 @@ export class Connector {
             {name: "error", type: "error"}
         ];
 
-        logger.info(`Updating index templates for ${this.chainName}...`);
+        this.logger.info(`Updating index templates for ${this.chainName}...`);
         let updateCounter = 0;
         for (const index of indicesList) {
             try {
@@ -73,25 +75,25 @@ export class Connector {
                         body: indexConfig[index.name]
                     });
                     if (!creation_status || !creation_status['acknowledged']) {
-                        logger.error(`Failed to create template: ${this.chainName}-${index}`);
+                        this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
                     } else {
                         updateCounter++;
-                        logger.info(`${this.chainName}-${index.type} template updated!`);
+                        this.logger.info(`${this.chainName}-${index.type} template updated!`);
                     }
                 } else {
-                    logger.warn(`${index.name} template not found!`);
+                    this.logger.warn(`${index.name} template not found!`);
                 }
             } catch (e) {
-                logger.error(`[FATAL] ${e.message}`);
+                this.logger.error(`[FATAL] ${e.message}`);
                 if (e.meta) {
-                    logger.error(e.meta.body);
+                    this.logger.error(e.meta.body);
                 }
                 process.exit(1);
             }
         }
-        logger.info(`${updateCounter} index templates updated`);
+        this.logger.info(`${updateCounter} index templates updated`);
 
-        logger.info('Initializing ws broadcaster...');
+        this.logger.info('Initializing ws broadcaster...');
 
         this.broadcast.initUWS();
     }
@@ -181,7 +183,7 @@ export class Connector {
                 return null;
 
             const blockDoc = result?.hits?.hits[0]?._source;
-            logger.debug(`getFirstIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
+            this.logger.debug(`getFirstIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
 
             return new StorageEosioDelta(blockDoc);
 
@@ -208,7 +210,7 @@ export class Connector {
 
                 const blockDoc = result?.hits?.hits[0]?._source;
 
-                logger.debug(`getLastIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
+                this.logger.debug(`getLastIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
 
                 if (result?.hits?.hits?.length == 0)
                     continue;
@@ -216,7 +218,7 @@ export class Connector {
                 return new StorageEosioDelta(blockDoc);
 
             } catch (error) {
-                logger.error(error);
+                this.logger.error(error);
                 throw error;
             }
         }
@@ -226,8 +228,8 @@ export class Connector {
 
     async findGapInIndices() {
         const deltaIndices = await this.getOrderedDeltaIndices();
-        logger.debug('delta indices: ');
-        logger.debug(JSON.stringify(deltaIndices, null, 4))
+        this.logger.debug('delta indices: ');
+        this.logger.debug(JSON.stringify(deltaIndices, null, 4))
         for(let i = 1; i < deltaIndices.length; i++) {
             const previousIndexSuffixNum = indexToSuffixNum(deltaIndices[i-1].index);
             const currentIndexSuffixNum = indexToSuffixNum(deltaIndices[i].index);
@@ -283,8 +285,8 @@ export class Connector {
 
         const buckets = results.aggregations.block_histogram.buckets;
 
-        logger.debug(`runHistogramGapCheck: ${lower}-${upper}, interval: ${interval}`);
-        logger.debug(JSON.stringify(buckets, null, 4));
+        this.logger.debug(`runHistogramGapCheck: ${lower}-${upper}, interval: ${interval}`);
+        this.logger.debug(JSON.stringify(buckets, null, 4));
 
         return buckets;
     }
@@ -318,7 +320,7 @@ export class Connector {
 
             const buckets = results.aggregations.duplicate_blocks.buckets;
 
-            logger.debug(`findDuplicateDeltas: ${lower}-${upper}`);
+            this.logger.debug(`findDuplicateDeltas: ${lower}-${upper}`);
 
             return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
 
@@ -356,7 +358,7 @@ export class Connector {
 
             const buckets = results.aggregations.duplicate_txs.buckets;
 
-            logger.debug(`findDuplicateActions: ${lower}-${upper}`);
+            this.logger.debug(`findDuplicateActions: ${lower}-${upper}`);
 
             return buckets.map(bucket => bucket.key); // Return the block numbers with duplicates
 
@@ -375,9 +377,9 @@ export class Connector {
 
         const middle = Math.floor((upperBound + lowerBound) / 2);
 
-        logger.debug(`calculated middle ${middle}`);
+        this.logger.debug(`calculated middle ${middle}`);
 
-        logger.debug('first half');
+        this.logger.debug('first half');
         // Recurse on the first half
         const lowerBuckets = await this.runHistogramGapCheck(lowerBound, middle, interval / 2);
         if (lowerBuckets.length === 0) {
@@ -388,7 +390,7 @@ export class Connector {
                 return lowerGap;
         }
 
-        logger.debug('second half');
+        this.logger.debug('second half');
         // Recurse on the second half
         const upperBuckets = await this.runHistogramGapCheck(middle + 1, upperBound, interval / 2);
         if (upperBuckets.length === 0) {
@@ -431,13 +433,13 @@ export class Connector {
 
         const lowerBoundDelta = lowerBoundDoc.block_num - lowerBound;
         if (lowerBoundDelta != this.config.evmBlockDelta) {
-            logger.error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
+            this.logger.error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
             throw new Error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
         }
 
         const upperBoundDelta = upperBoundDoc.block_num - upperBound;
         if (upperBoundDelta != this.config.evmBlockDelta) {
-            logger.error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
+            this.logger.error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
             throw new Error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
         }
 
@@ -453,15 +455,15 @@ export class Connector {
             deltaDups.push(...(await this.findDuplicateDeltas(currentLower, currentUpper)));
             actionDups.push(...(await this.findDuplicateActions(currentLower, currentUpper)));
 
-            logger.info(
+            this.logger.info(
                 `checked range ${currentLower}-${currentUpper} for duplicates, found: ${deltaDups.length + actionDups.length}`);
         }
 
         if (deltaDups.length > 0)
-            logger.error(`block duplicates found: ${JSON.stringify(deltaDups)}`);
+            this.logger.error(`block duplicates found: ${JSON.stringify(deltaDups)}`);
 
         if (actionDups.length > 0)
-            logger.error(`tx duplicates found: ${JSON.stringify(actionDups)}`);
+            this.logger.error(`tx duplicates found: ${JSON.stringify(actionDups)}`);
 
         if (deltaDups.length + actionDups.length > 0)
             throw new Error('Duplicates found!');
@@ -472,7 +474,7 @@ export class Connector {
         // first just check if whole indices are missing
         const gap = await this.findGapInIndices();
         if (gap) {
-            logger.debug(`whole index seems to be missing `);
+            this.logger.debug(`whole index seems to be missing `);
             const lower = gap.gapStart * this.config.elastic.docsPerIndex;
             const upper = (gap.gapStart + 1) * this.config.elastic.docsPerIndex;
             const agg = await this.runHistogramGapCheck(
@@ -482,7 +484,7 @@ export class Connector {
 
         const initialInterval = upperBound - lowerBound;
 
-        logger.info(`starting full gap check from ${lowerBound} to ${upperBound}`);
+        this.logger.info(`starting full gap check from ${lowerBound} to ${upperBound}`);
 
         return this.checkGaps(lowerBound, upperBound, initialInterval);
     }
@@ -519,7 +521,7 @@ export class Connector {
             refresh: true,
             error_trace: true
         });
-        logger.debug(`${index} delete result: ${JSON.stringify(result, null, 4)}`);
+        this.logger.debug(`${index} delete result: ${JSON.stringify(result, null, 4)}`);
     }
 
     async _purgeBlocksNewerThan(blockNum: number) {
@@ -540,14 +542,14 @@ export class Connector {
                 results.forEach((result, index) => {
                     const batchStart = startBlock + index * batchSize;
                     const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
-                    logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
+                    this.logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
                 });
             });
         }
     }
 
     async _purgeIndicesNewerThan(blockNum: number) {
-        logger.info(`purging indices in db from block ${blockNum}...`);
+        this.logger.info(`purging indices in db from block ${blockNum}...`);
         const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
         const targetNum = parseInt(targetSuffix);
 
@@ -575,7 +577,7 @@ export class Connector {
             const deleteResult = await this.elastic.indices.delete({
                 index: deleteList
             });
-            logger.info(`deleted indices result: ${JSON.stringify(deleteResult, null, 4)}`);
+            this.logger.info(`deleted indices result: ${JSON.stringify(deleteResult, null, 4)}`);
         }
 
         return deleteList;
@@ -702,13 +704,13 @@ export class Connector {
 
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
-        logger.info(`drained ${ops.length} operations.`);
-        logger.info(`broadcasting ${blocks.length} blocks...`)
+        this.logger.info(`drained ${ops.length} operations.`);
+        this.logger.info(`broadcasting ${blocks.length} blocks...`)
 
         for (const block of blocks)
             this.broadcast.broadcastBlock(block);
 
-        logger.info('done.');
+        this.logger.info('done.');
 
         this.writeCounter--;
 

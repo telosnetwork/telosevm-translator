@@ -6,7 +6,6 @@ import {generateUniqueVRS, removeHexPrefix, ZERO_ADDR} from './utils/evm.js';
 
 import {nameToUint64, parseAsset} from './utils/eosio.js';
 
-import logger from './utils/winston.js';
 import {JsonRpc} from 'eosjs';
 import {StaticPool} from 'node-worker-threads-pool';
 import {isValidAddress} from '@ethereumjs/util';
@@ -15,6 +14,7 @@ import Common, {Chain, Hardfork} from '@ethereumjs/common';
 
 // ethereum tools
 import BN from "bn.js";
+import {Logger} from "winston";
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -96,7 +96,7 @@ export async function handleEvmTx(
 const stdGasPrice = "0x0";
 const stdGasLimit = `0x${(21000).toString(16)}`;
 
-async function queryAddress(accountName: string, rpc: JsonRpc) {
+async function queryAddress(accountName: string, rpc: JsonRpc, logger: Logger) {
     const acctInt = nameToUint64(accountName);
     let retry = 5;
     let result = null;
@@ -134,6 +134,7 @@ async function queryAddress(accountName: string, rpc: JsonRpc) {
 }
 
 export async function handleEvmDeposit(
+    logger: Logger,
     nativeBlockHash: string,
     trx_index: number,
     blockNum: number,
@@ -145,7 +146,7 @@ export async function handleEvmDeposit(
 
     let toAddr = null;
     if (!tx.memo.startsWith('0x')) {
-        const address = await queryAddress(tx.from, rpc);
+        const address = await queryAddress(tx.from, rpc, logger);
 
         if (address) {
             toAddr = `0x${address}`;
@@ -163,7 +164,7 @@ export async function handleEvmDeposit(
             toAddr = tx.memo;
 
         else {
-            const address = await queryAddress(tx.from, rpc);
+            const address = await queryAddress(tx.from, rpc, logger);
 
             if (!address) {
                 return new TxDeserializationError(
@@ -241,6 +242,7 @@ export async function handleEvmDeposit(
 }
 
 export async function handleEvmWithdraw(
+    logger: Logger,
     nativeBlockHash: string,
     trx_index: number,
     blockNum: number,
@@ -248,7 +250,7 @@ export async function handleEvmWithdraw(
     rpc: JsonRpc,
     gasUsedBlock: BN
 ): Promise<StorageEvmTransaction | TxDeserializationError> {
-    const address = await queryAddress(tx.to, rpc);
+    const address = await queryAddress(tx.to, rpc, logger);
 
     const quantity = parseAsset(tx.quantity);
 

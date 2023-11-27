@@ -1,12 +1,9 @@
 import { parentPort, workerData } from 'worker_threads';
 import { Serialize } from 'eosjs';
 
-import logger from '../utils/winston.js';
 import { deserializeEosioType } from '../utils/eosio.js';
 
 const args: {abi: string} = workerData;
-
-logger.info('Launching deserialization worker...');
 
 const eosjsTypes: any = Serialize.getTypesFromAbi(Serialize.createInitialTypes(), JSON.parse(args.abi));
 
