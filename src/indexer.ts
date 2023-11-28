@@ -103,9 +103,9 @@ export class TEVMIndexer {
             this.logger.error('Unhandled Rejection');
             this.logger.error(JSON.stringify(error, null, 4));
             // @ts-ignore
-            logger.error(error.message);
+            this.logger.error(error.message);
             // @ts-ignore
-            logger.error(error.stack);
+            this.logger.error(error.stack);
             process.exit(1);
         });
 

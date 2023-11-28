@@ -1,0 +1,44 @@
+{
+    "logLevel": "debug",
+    "readerLogLevel": "info",
+
+    "chainName": "telos-mainnet",
+    "chainId": 40,
+
+    "endpoint": "http://mainnet.telos.net",
+    "remoteEndpoint": "http://mainnet.telos.net",
+    "wsEndpoint": "ws://127.0.0.1:18999",
+
+    "evmBlockDelta": 36,
+    "evmDeployBlock": 180698860,
+    "evmPrevHash": "",
+
+    "startBlock": 37,
+    "stopBlock": 4294967295,
+    "irreversibleOnly": false,
+    "perf": {
+        "workerAmount": 4,
+        "elasticDumpSize": 256
+    },
+
+    "elastic": {
+        "node": "http://127.0.0.1:9200",
+        "auth": {
+            "username": "elastic",
+            "password": "password"
+        },
+        "requestTimeout": 480000,
+        "docsPerIndex": 10000000,
+        "subfix": {
+            "delta": "delta-v1.5",
+            "transaction": "action-v1.5",
+            "error": "error-v1.5",
+            "fork": "fork-v1.5"
+        }
+    },
+
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7300
+    }
+}
