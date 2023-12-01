@@ -13,12 +13,27 @@ import BN from 'bn.js';
 
 import { parentPort, workerData } from 'worker_threads';
 
-import logger from '../utils/winston.js';
 import { addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString } from '@ethereumjs/util';
+import {createLogger, format, transports} from "winston";
 
-const args: {chainId: number} = workerData;
+const args: {chainId: number, logLevel: string} = workerData;
 
-logger.info('Launching evm tx deserialization worker...');
+const logOptions = {
+    exitOnError: false,
+    level: args.logLevel,
+    format: format.combine(
+        format.metadata(),
+        format.colorize(),
+        format.timestamp(),
+        format.printf((info: any) => {
+            return `${info.timestamp} [PID:${process.pid}] [${info.level}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
+        })
+    )
+}
+const logger = createLogger(logOptions);
+logger.add(new transports.Console({
+    level: args.logLevel
+}));
 
 const common: Common.default = Common.default.custom({
     chainId: args.chainId,

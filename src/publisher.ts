@@ -2,17 +2,18 @@ import uWS, {TemplatedApp} from "uWebSockets.js";
 
 import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer.js";
 import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm.js";
-
-import logger from './utils/winston.js';
+import {Logger} from "winston";
 
 
 export default class RPCBroadcaster {
 
     config: BroadcasterConfig;
+    logger: Logger;
     broadcastServer: TemplatedApp
 
-    constructor(config: BroadcasterConfig) {
+    constructor(config: BroadcasterConfig, logger: Logger) {
         this.config = config;
+        this.logger = logger;
     }
 
     initUWS() {
@@ -34,9 +35,9 @@ export default class RPCBroadcaster {
                 },
             }).listen(host, port, (token) => {
             if (token) {
-                logger.info('Listening to port ' + port);
+                this.logger.info('Listening to port ' + port);
             } else {
-                logger.error('Failed to listen to port ' + port);
+                this.logger.error('Failed to listen to port ' + port);
             }
         });
     }

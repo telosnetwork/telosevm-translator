@@ -1,11 +1,10 @@
 import {readFileSync} from "node:fs";
 
-
 import {HyperionSequentialReader} from "@eosrio/hyperion-sequential-reader";
 
 import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
 
-import logger from './utils/winston.js';
+import {createLogger, format, Logger, transports} from 'winston';
 
 import {StorageEosioAction, StorageEvmTransaction} from './types/evm.js';
 
@@ -42,25 +41,7 @@ import {
 import * as EthereumUtil from 'ethereumjs-util';
 import rlp from 'rlp';
 
-
-process.on('unhandledRejection', error => {
-    logger.error('Unhandled Rejection');
-    logger.error(JSON.stringify(error, null, 4));
-    // @ts-ignore
-    logger.error(error.message);
-    // @ts-ignore
-    logger.error(error.stack);
-    process.exit(1);
-});
-
-
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
-
-interface InprogressBuffers {
-    evmTransactions: Array<EVMTxWrapper>;
-    errors: TxDeserializationError[];
-    evmBlockNum: number;
-};
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -96,6 +77,8 @@ export class TEVMIndexer {
 
     private irreversibleOnly: boolean;
 
+    private logger: Logger;
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
 
@@ -109,13 +92,22 @@ export class TEVMIndexer {
         this.stopBlock = telosConfig.stopBlock;
         this.rpc = getRPCClient(telosConfig.endpoint);
         this.remoteRpc = getRPCClient(telosConfig.remoteEndpoint);
-        this.connector = new Connector(telosConfig);
         this.irreversibleOnly = telosConfig.irreversibleOnly || false;
 
         process.on('SIGINT', async () => await this.stop());
         process.on('SIGUSR1', () => this.resetReader());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
+
+        process.on('unhandledRejection', error => {
+            this.logger.error('Unhandled Rejection');
+            this.logger.error(JSON.stringify(error, null, 4));
+            // @ts-ignore
+            this.logger.error(error.message);
+            // @ts-ignore
+            this.logger.error(error.stack);
+            process.exit(1);
+        });
 
         // if (process.env.LOG_LEVEL == 'debug')
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
@@ -137,7 +129,7 @@ export class TEVMIndexer {
             this.stallCounter++;
 
         if (this.stallCounter > 60) {
-            logger.info('stall detected... restarting ship reader.');
+            this.logger.info('stall detected... restarting ship reader.');
             this.resetReader();
         }
 
@@ -149,16 +141,16 @@ export class TEVMIndexer {
             statsString += `, ${untilHead} to reach head, aprox ${hoursETA}`;
         }
 
-        logger.info(statsString);
+        this.logger.info(statsString);
 
         this.pushedLastUpdate = 0;
         this.timestampLastUpdate = now;
     }
 
     resetReader() {
-        logger.warn("restarting SHIP reader!...");
+        this.logger.warn("restarting SHIP reader!...");
         this.reader.ship.close();
-        logger.warn("reader stopped, waiting 2 seconds to restart.");
+        this.logger.warn("reader stopped, waiting 2 seconds to restart.");
         setTimeout(() => {
             this.reader.restart();
         }, 2000);
@@ -266,18 +258,18 @@ export class TEVMIndexer {
             const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
             const blocksUntilHead = remoteHead - this.lastBlock;
 
-            logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
+            this.logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
 
             if (blocksUntilHead <= 100) {
                 this.state = IndexerState.HEAD;
                 this.connector.state = IndexerState.HEAD;
 
-                logger.info(
+                this.logger.info(
                     'switched to HEAD mode! blocks will be written to db asap.');
             }
         } catch (error) {
-            logger.warn('get_info query to remote failed with error:');
-            logger.warn(error);
+            this.logger.warn('get_info query to remote failed with error:');
+            this.logger.warn(error);
         }
     }
 
@@ -346,6 +338,7 @@ export class TEVMIndexer {
                     );
                 } else if (action.act.name == "withdraw") {
                     evmTx = await handleEvmWithdraw(
+                        this.logger,
                         block.blockInfo.this_block.block_id,
                         evmTransactions.length,
                         currentEvmBlock,
@@ -358,6 +351,7 @@ export class TEVMIndexer {
                 action.act.name == "transfer" &&
                 action.act.data.to == "eosio.evm") {
                 evmTx = await handleEvmDeposit(
+                    this.logger,
                     block.blockInfo.this_block.block_id,
                     evmTransactions.length,
                     currentEvmBlock,
@@ -369,7 +363,7 @@ export class TEVMIndexer {
                 continue;
 
             if (isTxDeserializationError(evmTx)) {
-                logger.error(evmTx.info.error);
+                this.logger.error(evmTx.info.error);
                 throw new Error(JSON.stringify(evmTx));
             }
 
@@ -425,17 +419,18 @@ export class TEVMIndexer {
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
             startBlock: blockNum,
-            irreversibleOnly: this.irreversibleOnly
+            irreversibleOnly: this.irreversibleOnly,
+            logLevel: (this.config.readerLogLevel || 'info').toLowerCase()
         });
 
         this.reader.onConnected = () => {
-            logger.info('SHIP Reader connected.');
+            this.logger.info('SHIP Reader connected.');
         }
         this.reader.onDisconnect = () => {
-            logger.warn('SHIP Reader disconnected.');
+            this.logger.warn('SHIP Reader disconnected.');
         }
         this.reader.onError = (err) => {
-            logger.error(`SHIP Reader error: ${err}`);
+            this.logger.error(`SHIP Reader error: ${err}`);
         }
 
         this.reader.events.on('block', this.processBlock.bind(this));
@@ -451,12 +446,30 @@ export class TEVMIndexer {
      * Entry point
      */
     async launch() {
+        const options = {
+            exitOnError: false,
+            level: this.config.logLevel,
+            format: format.combine(
+                format.metadata(),
+                format.colorize(),
+                format.timestamp(),
+                format.printf((info: any) => {
+                    return `${info.timestamp} [PID:${process.pid}] [${info.level}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
+                })
+            )
+        }
+        this.logger = createLogger(options);
+        this.logger.add(new transports.Console({
+            level: this.config.logLevel
+        }));
+        this.logger.debug('Logger initialized with level ' + this.config.logLevel);
 
         this.printIntroText();
 
         let startBlock = this.startBlock;
         let prevHash;
 
+        this.connector = new Connector(this.config, this.logger);
         await this.connector.init();
 
         if (process.argv.includes('--trim-from')) {
@@ -465,31 +478,31 @@ export class TEVMIndexer {
             await this.connector.purgeNewerThan(trimBlockNum);
         }
 
-        logger.info('checking db for blocks...');
+        this.logger.info('checking db for blocks...');
         let lastBlock = await this.connector.getLastIndexedBlock();
 
         let gap = null;
         if ((!process.argv.includes('--skip-integrity-check'))) {
             if (lastBlock != null) {
-                logger.debug('performing integrity check...');
+                this.logger.debug('performing integrity check...');
                 gap = await this.connector.fullIntegrityCheck();
 
                 if (gap == null) {
-                    logger.info('NO GAPS FOUND');
+                    this.logger.info('NO GAPS FOUND');
                 } else {
-                    logger.info('GAP INFO:');
-                    logger.info(JSON.stringify(gap, null, 4));
+                    this.logger.info('GAP INFO:');
+                    this.logger.info(JSON.stringify(gap, null, 4));
                 }
             } else {
                 if (process.argv.includes('--only-db-check')) {
-                    logger.warn('--only-db-check on empty database...');
+                    this.logger.warn('--only-db-check on empty database...');
                     process.exit(0);
                 }
             }
         }
 
         if (process.argv.includes('--only-db-check')) {
-            logger.info('--only-db-check passed exiting...');
+            this.logger.info('--only-db-check passed exiting...');
             process.exit(0);
         }
 
@@ -503,7 +516,7 @@ export class TEVMIndexer {
                     if (process.argv.includes('--gaps-purge'))
                         ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                     else {
-                        logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
+                        this.logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
                         process.exit(1);
                     }
                 }
@@ -524,9 +537,9 @@ export class TEVMIndexer {
         }
 
         if (prevHash)
-            logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
+            this.logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
         else {
-            logger.info(`starting from genesis block ${startBlock}`);
+            this.logger.info(`starting from genesis block ${startBlock}`);
             await this.genesisBlockInitialization();
         }
 
@@ -541,7 +554,7 @@ export class TEVMIndexer {
 
         setInterval(() => this.handleStateSwitch(), 10 * 1000);
 
-        logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
+        this.logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
 
         this.startReaderFrom(startBlock);
 
@@ -614,10 +627,10 @@ export class TEVMIndexer {
         this.lastBlock = this.genesisBlock.block_num;
         this.connector.lastPushed = this.lastBlock;
 
-        logger.info('ethereum genesis params: ');
-        logger.info(JSON.stringify(genesisParams, null, 4));
+        this.logger.info('ethereum genesis params: ');
+        this.logger.info(JSON.stringify(genesisParams, null, 4));
 
-        logger.info(`ethereum genesis hash: 0x${this.ethGenesisHash}`);
+        this.logger.info(`ethereum genesis hash: 0x${this.ethGenesisHash}`);
 
         // if we are starting from genesis store block skeleton doc
         // for rpc to be able to find parent hash for fist block
@@ -646,7 +659,7 @@ export class TEVMIndexer {
      */
     async _waitWriteTasks() {
         while (this.connector.writeCounter > 0) {
-            logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
+            this.logger.debug(`waiting for ${this.connector.writeCounter} write operations to finish...`);
             await sleep(200);
         }
     }
@@ -677,8 +690,8 @@ export class TEVMIndexer {
                     this.startBlock - 1);
 
             } catch (e) {
-                logger.error(e);
-                logger.warn(`couldn\'t get genesis block ${this.startBlock - 1} retrying in 5 sec...`);
+                this.logger.error(e);
+                this.logger.warn(`couldn\'t get genesis block ${this.startBlock - 1} retrying in 5 sec...`);
                 await sleep(5000);
                 continue
             }
@@ -696,7 +709,7 @@ export class TEVMIndexer {
         await sleep(3000);
         const newlastBlock = await this.connector.getLastIndexedBlock();
         if (lastBlock.block_num != newlastBlock.block_num) {
-            logger.error(
+            this.logger.error(
                 'New last block check failed probably another indexer is running, abort...');
 
             process.exit(2);
@@ -704,17 +717,17 @@ export class TEVMIndexer {
 
         let startBlock = lastBlock.block_num;
 
-        logger.info(`purge blocks newer than ${startBlock}`);
+        this.logger.info(`purge blocks newer than ${startBlock}`);
 
         await this.connector._purgeBlocksNewerThan(startBlock);
 
-        logger.info('done.');
+        this.logger.info('done.');
 
         lastBlock = await this.connector.getLastIndexedBlock();
 
         let prevHash = lastBlock['@evmBlockHash'];
 
-        logger.info(
+        this.logger.info(
             `found! ${lastBlock.block_num} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
         return {startBlock, prevHash};
@@ -732,15 +745,15 @@ export class TEVMIndexer {
             delta++;
         }
         // found blocks on the database
-        logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
+        this.logger.info(`Last block of continuous range found: ${JSON.stringify(firstBlock, null, 4)}`);
 
         let startBlock = firstBlock.block_num;
 
-        logger.info(`purge blocks newer than ${startBlock}`);
+        this.logger.info(`purge blocks newer than ${startBlock}`);
 
         await this.connector.purgeNewerThan(startBlock);
 
-        logger.info('done.');
+        this.logger.info('done.');
 
         const lastBlock = await this.connector.getLastIndexedBlock();
 
@@ -749,7 +762,7 @@ export class TEVMIndexer {
         if (lastBlock.block_num != (startBlock - 1))
             throw new Error(`Last block: ${lastBlock.block_num}, is not ${startBlock - 1} - 1`);
 
-        logger.info(
+        this.logger.info(
             `found! ${lastBlock} produced on ${lastBlock['@timestamp']} with hash 0x${prevHash}`)
 
         return {startBlock, prevHash};
@@ -762,13 +775,13 @@ export class TEVMIndexer {
         const lastNonForked = b.nativeBlockNumber - 1;
         const forkedAt = this.lastBlock;
 
-        logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock + 1}, chain fork detected. reverse all blocks which were affected`);
+        this.logger.info(`got ${b.nativeBlockNumber} and expected ${this.lastBlock + 1}, chain fork detected. reverse all blocks which were affected`);
 
         await this._waitWriteTasks();
 
         // finally purge db
         await this.connector.purgeNewerThan(lastNonForked + 1);
-        logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
+        this.logger.debug(`purged db of blocks newer than ${lastNonForked}, continue...`);
 
         // tweak variables used by ordering machinery
         this.prevHash = await this.getOldHash(lastNonForked);
@@ -782,7 +795,7 @@ export class TEVMIndexer {
     }
 
     printIntroText() {
-        logger.info('Telos EVM Translator v1.0.0-rc4');
-        logger.info('Happy indexing!');
+        this.logger.info('Telos EVM Translator v1.0.0-rc4');
+        this.logger.info('Happy indexing!');
     }
 };

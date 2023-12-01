@@ -24,6 +24,8 @@ export type BroadcasterConfig = {
 };
 
 export type IndexerConfig = {
+    logLevel: string;
+    readerLogLevel: string;
     chainName: string;
     chainId: number;
     endpoint: string;
@@ -45,6 +47,8 @@ export type IndexerConfig = {
 };
 
 export const DEFAULT_CONF = {
+    "logLevel": "debug",
+    "readerLogLevel": "info",
     "chainName": "telos-local",
     "chainId": 41,
 
