@@ -38,6 +38,7 @@ export type IndexerConfig = {
     startBlock: number;
     stopBlock: number;
     irreversibleOnly: boolean;
+    blockHistorySize: number;
     perf: {
         workerAmount: number;
         elasticDumpSize: number;
@@ -64,6 +65,7 @@ export const DEFAULT_CONF = {
     "startBlock": 35,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
+    "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
     "perf": {
         "workerAmount": 4,
         "elasticDumpSize": 2048
