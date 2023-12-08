@@ -418,6 +418,7 @@ export class TEVMIndexer {
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
             blockConcurrency: this.config.perf.workerAmount,
+            blockHistorySize: this.config.blockHistorySize,
             startBlock: blockNum,
             irreversibleOnly: this.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase()
@@ -795,7 +796,7 @@ export class TEVMIndexer {
     }
 
     printIntroText() {
-        this.logger.info('Telos EVM Translator v1.0.0-rc4');
+        this.logger.info('Telos EVM Translator v1.0.0-rc6');
         this.logger.info('Happy indexing!');
     }
 };
