@@ -6,42 +6,59 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './t
 
 import {createLogger, format, Logger, transports} from 'winston';
 
-import {StorageEosioAction, StorageEvmTransaction} from './types/evm.js';
+import {
+    EosioEvmDeposit,
+    EosioEvmRaw,
+    EosioEvmWithdraw,
+    StorageEosioAction,
+    StorageEvmTransaction
+} from './types/evm.js';
 
 import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
+    Bloom,
     EMPTY_TRIE_BUF,
-    EVMTxWrapper,
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
+    generateUniqueVRS,
     getBlockGas,
+    isTxDeserializationError,
+    KEYWORD_STRING_TRIM_SIZE,
     NULL_HASH,
     ProcessedBlock,
-    StorageEosioDelta
+    queryAddress,
+    RECEIPT_LOG_END,
+    RECEIPT_LOG_START,
+    removeHexPrefix,
+    stdGasLimit,
+    stdGasPrice,
+    StorageEosioDelta,
+    TxDeserializationError,
+    ZERO_ADDR
 } from './utils/evm.js'
 
 import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {getRPCClient} from './utils/eosio.js';
+import {getRPCClient, parseAsset} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
-
-import {
-    handleEvmDeposit,
-    handleEvmTx,
-    handleEvmWithdraw,
-    isTxDeserializationError,
-    setCommon,
-    TxDeserializationError
-} from "./handlers.js";
 import * as EthereumUtil from 'ethereumjs-util';
 import rlp from 'rlp';
+import EventEmitter from "events";
+import Common, {Chain, Hardfork} from "@ethereumjs/common";
+import {addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString} from "@ethereumjs/util";
+import {TEVMTransaction} from "./utils/evm-tx.js";
 
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+import SegfaultHandler from 'segfault-handler';
+import {sleep} from "./utils/indexer.js";
+
+import workerpool from 'workerpool';
+
+class TEVMEvents extends EventEmitter {};
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -74,10 +91,17 @@ export class TEVMIndexer {
     private stallCounter: number = 0;
 
     private statsTaskId: NodeJS.Timer;
+    private stateSwitchTaskId: NodeJS.Timer;
 
     private irreversibleOnly: boolean;
 
     private logger: Logger;
+
+    events = new TEVMEvents();
+
+    private evmCommon: Common.default;
+    private evmDeserializationPool;
+        // StaticPool<(x: any) => any>;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -99,6 +123,9 @@ export class TEVMIndexer {
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
+        SegfaultHandler.registerHandler(
+            `translator-segfault-${process.pid}.log`);
+
         process.on('unhandledRejection', error => {
             this.logger.error('Unhandled Rejection');
             this.logger.error(JSON.stringify(error, null, 4));
@@ -106,13 +133,11 @@ export class TEVMIndexer {
             this.logger.error(error.message);
             // @ts-ignore
             this.logger.error(error.stack);
-            process.exit(1);
+            throw error;
         });
 
         // if (process.env.LOG_LEVEL == 'debug')
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
-
-        setCommon(telosConfig.chainId);
 
         this.timestampLastUpdate = Date.now() / 1000;
     }
@@ -128,7 +153,7 @@ export class TEVMIndexer {
         if (blocksPerSecond == 0)
             this.stallCounter++;
 
-        if (this.stallCounter > 60) {
+        if (this.stallCounter > this.config.perf.stallCounter) {
             this.logger.info('stall detected... restarting ship reader.');
             this.resetReader();
         }
@@ -149,12 +174,8 @@ export class TEVMIndexer {
 
     resetReader() {
         this.logger.warn("restarting SHIP reader!...");
-        this.reader.ship.close();
-        this.logger.warn("reader stopped, waiting 2 seconds to restart.");
-        setTimeout(() => {
-            this.reader.restart();
-        }, 2000);
-        this.stallCounter = -15;
+        this.reader.restart(0);
+        this.stallCounter = -2;
     }
 
     /*
@@ -250,10 +271,7 @@ export class TEVMIndexer {
     }
 
     private async handleStateSwitch() {
-        if (this.state == IndexerState.HEAD)
-            return;
-
-        // SYNC & HEAD mode swtich detection
+        // SYNC & HEAD mode switch detection
         try {
             const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
             const blocksUntilHead = remoteHead - this.lastBlock;
@@ -261,12 +279,26 @@ export class TEVMIndexer {
             this.logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
 
             if (blocksUntilHead <= 100) {
+                if (this.state == IndexerState.HEAD)
+                    return;
+
                 this.state = IndexerState.HEAD;
                 this.connector.state = IndexerState.HEAD;
 
                 this.logger.info(
                     'switched to HEAD mode! blocks will be written to db asap.');
+
+            } else {
+                if (this.state == IndexerState.SYNC)
+                    return;
+
+                this.state = IndexerState.SYNC;
+                this.connector.state = IndexerState.SYNC;
+
+                this.logger.info(
+                    'switched to SYNC mode! blocks will be written to db in batches.');
             }
+
         } catch (error) {
             this.logger.warn('get_info query to remote failed with error:');
             this.logger.warn(error);
@@ -296,7 +328,6 @@ export class TEVMIndexer {
         const errors = []
 
         // traces
-        let gasUsedBlock = new BN(0);
         const systemAccounts = ['eosio', 'eosio.stake', 'eosio.ram'];
         const contractWhitelist = [
             "eosio.evm", "eosio.token",  // evm
@@ -306,10 +337,11 @@ export class TEVMIndexer {
             "raw", "withdraw", "transfer",  // evm
             "exec" // msig deferred sig catch
         ]
-        const actDigests = [];
+        const actions = [];
+        const txTasks = [];
         for (const action of block.actions) {
-            const aDuplicate = actDigests.find(digest => {
-                return digest === action.receipt.act_digest
+            const aDuplicate = actions.find(other => {
+                return other.receipt.act_digest === action.receipt.act_digest
             })
             if (aDuplicate)
                 continue;
@@ -324,58 +356,71 @@ export class TEVMIndexer {
                 (action.act.name == "transfer" && action.act.data.from in systemAccounts))
                 continue;
 
-
-            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
             if (action.act.account == "eosio.evm") {
                 if (action.act.name == "raw") {
-                    evmTx = await handleEvmTx(
-                        block.blockInfo.this_block.block_id,
-                        evmTransactions.length,
-                        currentEvmBlock,
-                        action.act.data,
-                        action.console,  // tx.trace.console,
-                        gasUsedBlock
+                    txTasks.push(
+                        this.evmDeserializationPool.exec(
+                            this.handleEvmTx, [
+                                block.blockInfo.this_block.block_id,
+                                evmTransactions.length,
+                                currentEvmBlock,
+                                action.act.data,
+                                action.console,  // tx.trace.console
+                            ]
+                        )
                     );
                 } else if (action.act.name == "withdraw") {
-                    evmTx = await handleEvmWithdraw(
-                        this.logger,
-                        block.blockInfo.this_block.block_id,
-                        evmTransactions.length,
-                        currentEvmBlock,
-                        action.act.data,
-                        this.rpc,
-                        gasUsedBlock
+                    txTasks.push(
+                        this.evmDeserializationPool.exec(
+                            this.handleEvmWithdraw, [
+                                block.blockInfo.this_block.block_id,
+                                evmTransactions.length,
+                                currentEvmBlock,
+                                action.act.data
+                            ]
+                        )
                     );
                 }
             } else if (action.act.account == "eosio.token" &&
                 action.act.name == "transfer" &&
                 action.act.data.to == "eosio.evm") {
-                evmTx = await handleEvmDeposit(
-                    this.logger,
-                    block.blockInfo.this_block.block_id,
-                    evmTransactions.length,
-                    currentEvmBlock,
-                    action.act.data,
-                    this.rpc,
-                    gasUsedBlock
+                txTasks.push(
+                    this.evmDeserializationPool.exec(
+                        this.handleEvmDeposit, [
+                            block.blockInfo.this_block.block_id,
+                            evmTransactions.length,
+                            currentEvmBlock,
+                            action.act.data
+                        ]
+                    )
                 );
             } else
                 continue;
 
+            actions.push(action);
+        }
+
+        const evmTxs = await Promise.all(txTasks);
+
+        const gasUsedBlock = new BN(0);
+        let i = 0;
+        for (const evmTx of evmTxs) {
             if (isTxDeserializationError(evmTx)) {
                 this.logger.error(evmTx.info.error);
                 throw new Error(JSON.stringify(evmTx));
             }
 
             gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
+            evmTx.gasusedblock = gasUsedBlock.toString();
 
+            const action = actions[i];
             evmTransactions.push({
                 trx_id: action.trxId,
                 action_ordinal: action.actionOrdinal,
                 signatures: [],
                 evmTx: evmTx
             });
-            actDigests.push(action.receipt.act_digest);
+            i++;
         }
 
         const newestBlock = new ProcessedBlock({
@@ -398,6 +443,7 @@ export class TEVMIndexer {
 
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
+        this.events.emit('push-block', storableBlockInfo);
 
         // For debug stats
         this.pushedLastUpdate++;
@@ -414,10 +460,10 @@ export class TEVMIndexer {
 
     startReaderFrom(blockNum: number) {
         this.reader = new HyperionSequentialReader({
-            poolSize: this.config.perf.workerAmount,
+            poolSize: this.config.perf.readerWorkerAmount,
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
-            blockConcurrency: this.config.perf.workerAmount,
+            blockConcurrency: this.config.perf.readerWorkerAmount,
             blockHistorySize: this.config.blockHistorySize,
             startBlock: blockNum,
             irreversibleOnly: this.irreversibleOnly,
@@ -497,14 +543,16 @@ export class TEVMIndexer {
             } else {
                 if (process.argv.includes('--only-db-check')) {
                     this.logger.warn('--only-db-check on empty database...');
-                    process.exit(0);
+                    await this.connector.deinit();
+                    return;
                 }
             }
         }
 
         if (process.argv.includes('--only-db-check')) {
             this.logger.info('--only-db-check passed exiting...');
-            process.exit(0);
+            await this.connector.deinit();
+            return;
         }
 
         if (this.config.evmPrevHash === '') {
@@ -516,10 +564,9 @@ export class TEVMIndexer {
                 } else {
                     if (process.argv.includes('--gaps-purge'))
                         ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                    else {
-                        this.logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                        process.exit(1);
-                    }
+                    else
+                        throw new Error(
+                            `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
                 }
 
                 // Init state tracking attributes
@@ -553,14 +600,31 @@ export class TEVMIndexer {
                     `Error when doing start block check: ${error.message}`);
         }
 
-        setInterval(() => this.handleStateSwitch(), 10 * 1000);
+        this.evmCommon = Common.default.custom({
+            chainId: this.config.chainId,
+            defaultHardfork: Hardfork.Istanbul
+        }, {baseChain: Chain.Mainnet});
 
-        this.logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
+        // this.evmDeserializationPool = new StaticPool({
+        //     size: this.config.perf.evmWorkerAmount,
+        //     task: './build/workers/evm.js',
+        //     workerData: {chainId: this.config.chainId, logLevel: this.config.logLevel}
+        // });
+
+        this.evmDeserializationPool = workerpool.pool({
+            minWorkers: this.config.perf.evmWorkerAmount,
+            maxWorkers: this.config.perf.evmWorkerAmount,
+            workerType: 'thread'
+        });
+
+        this.logger.info('Initializing ws broadcast...')
+        this.connector.startBroadcast();
 
         this.startReaderFrom(startBlock);
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
+        this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
     async genesisBlockInitialization() {
@@ -669,14 +733,17 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
-        // if (process.env.LOG_LEVEL == 'debug')
-        //     logWhyIsNodeRunning();
-
         clearInterval(this.statsTaskId as unknown as number);
+        clearInterval(this.stateSwitchTaskId as unknown as number);
 
         await this._waitWriteTasks();
 
-        process.exit(0);
+        this.reader.stop();
+        await this.connector.deinit();
+        await this.evmDeserializationPool.terminate(true);
+
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     logWhyIsNodeRunning();
     }
 
     /*
@@ -709,12 +776,9 @@ export class TEVMIndexer {
         // another indexer is running
         await sleep(3000);
         const newlastBlock = await this.connector.getLastIndexedBlock();
-        if (lastBlock.block_num != newlastBlock.block_num) {
-            this.logger.error(
+        if (lastBlock.block_num != newlastBlock.block_num)
+            throw new Error(
                 'New last block check failed probably another indexer is running, abort...');
-
-            process.exit(2);
-        }
 
         let startBlock = lastBlock.block_num;
 
@@ -798,5 +862,372 @@ export class TEVMIndexer {
     printIntroText() {
         this.logger.info('Telos EVM Translator v1.0.0-rc6');
         this.logger.info('Happy indexing!');
+    }
+
+    // Transaction Handlers:
+    async handleEvmTx(
+        nativeBlockHash: string,
+        trx_index: number,
+        blockNum: number,
+        tx: EosioEvmRaw,
+        consoleLog: string
+    ): Promise<StorageEvmTransaction | TxDeserializationError> {
+        try {
+            let receiptLog = consoleLog.slice(
+                consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
+                consoleLog.indexOf(RECEIPT_LOG_END)
+            );
+
+            let receipt: {
+                status: number,
+                epoch: number,
+                itxs: any[],
+                logs: any[],
+                errors?: any[],
+                output: string,
+                gasused: string,
+                gasusedblock: string,
+                charged_gas: string,
+                createdaddr: string
+            } = {
+                status: 1,
+                epoch: 0,
+                itxs: [],
+                logs: [],
+                errors: [],
+                output: '',
+                gasused: '',
+                gasusedblock: '',
+                charged_gas: '',
+                createdaddr: ''
+            };
+            try {
+                receipt = JSON.parse(receiptLog);
+            } catch (error) {
+                this.logger.error(`Failed to parse receiptLog:\n${receiptLog}`);
+                this.logger.error(JSON.stringify(error, null, 4));
+                // @ts-ignore
+                this.logger.error(error.message);
+                // @ts-ignore
+                this.logger.error(error.stack);
+                return new TxDeserializationError(
+                    'Raw EVM deserialization error',
+                    {
+                        'nativeBlockHash': nativeBlockHash,
+                        'tx': tx,
+                        'block_num': blockNum,
+                        'error': error.message
+                    }
+                );
+            }
+
+            const txRaw = Buffer.from(tx.tx, "hex");
+
+            let evmTx = TEVMTransaction.fromSerializedTx(
+                txRaw, {common: this.evmCommon});
+
+            const isSigned = evmTx.isSigned();
+
+            const evmTxParams = evmTx.toJSON();
+
+            let fromAddr = null;
+            let v, r, s;
+
+            if (!isSigned) {
+
+                let senderAddr = tx.sender.toLowerCase();
+
+                if (!isHexPrefixed(senderAddr))
+                    senderAddr = `0x${senderAddr}`;
+
+                [v, r, s] = generateUniqueVRS(
+                    nativeBlockHash, senderAddr, trx_index);
+
+                evmTxParams.v = addHexPrefix(v.toString(16));
+                evmTxParams.r = r;
+                evmTxParams.s = s;
+
+                evmTx = TEVMTransaction.fromTxData(
+                    evmTxParams, {common: this.evmCommon});
+
+                if (isValidAddress(senderAddr)) {
+                    fromAddr = senderAddr;
+
+                } else {
+                    return new TxDeserializationError(
+                        'Raw EVM deserialization error',
+                        {
+                            'nativeBlockHash': nativeBlockHash,
+                            'tx': tx,
+                            'block_num': blockNum,
+                            'error': `error deserializing address \'${tx.sender}\'`
+                        }
+                    );
+                }
+            } else
+                [v, r, s] = [
+                    evmTx.v.toNumber(),
+                    unpadHexString(addHexPrefix(evmTx.r.toString('hex'))),
+                    unpadHexString(addHexPrefix(evmTx.s.toString('hex')))
+                ];
+
+            if (receipt.itxs) {
+                // @ts-ignore
+                receipt.itxs.forEach((itx) => {
+                    if (itx.input)
+                        itx.input_trimmed = itx.input.substring(0, KEYWORD_STRING_TRIM_SIZE);
+                    else
+                        itx.input_trimmed = itx.input;
+                });
+            }
+
+            const txBody: StorageEvmTransaction = {
+                hash: '0x' + evmTx.hash().toString('hex'),
+                trx_index: trx_index,
+                block: blockNum,
+                block_hash: "",
+                to: evmTx.to?.toString(),
+                input_data: '0x' + evmTx.data?.toString('hex'),
+                input_trimmed: '0x' + evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
+                value: evmTx.value?.toString('hex'),
+                value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
+                nonce: evmTx.nonce?.toString(),
+                gas_price: evmTx.gasPrice?.toString(),
+                gas_limit: evmTx.gasLimit?.toString(),
+                status: receipt.status,
+                itxs: receipt.itxs,
+                epoch: receipt.epoch,
+                createdaddr: receipt.createdaddr.toLowerCase(),
+                gasused: new BN(receipt.gasused, 16).toString(),
+                gasusedblock: '',
+                charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
+                output: receipt.output,
+                raw: evmTx.serialize(),
+                v: v,
+                r: r,
+                s: s
+            };
+
+            if (!isSigned)
+                txBody['from'] = fromAddr;
+
+            else
+                txBody['from'] = evmTx.getSenderAddress().toString().toLowerCase();
+
+            if (receipt.logs) {
+                txBody.logs = receipt.logs;
+                if (txBody.logs.length === 0) {
+                    delete txBody['logs'];
+                } else {
+                    //console.log('------- LOGS -----------');
+                    //console.log(txBody['logs']);
+                    const bloom = new Bloom();
+                    for (const log of txBody['logs']) {
+                        bloom.add(Buffer.from(log['address'].padStart(40, '0'), 'hex'));
+                        for (const topic of log.topics)
+                            bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
+                    }
+
+                    txBody['logsBloom'] = bloom.bitvector.toString('hex');
+                }
+            }
+
+            if (receipt.errors) {
+                txBody['errors'] = receipt.errors;
+                if (txBody['errors'].length === 0) {
+                    delete txBody['errors'];
+                } else {
+                    //console.log('------- ERRORS -----------');
+                    //console.log(txBody['errors'])
+                }
+            }
+
+            return txBody;
+        } catch (error) {
+            return new TxDeserializationError(
+                'Raw EVM deserialization error',
+                {
+                    'nativeBlockHash': nativeBlockHash,
+                    'tx': tx,
+                    'block_num': blockNum,
+                    'error': error.message
+                }
+            );
+        }
+    }
+
+    async handleEvmDeposit(
+        nativeBlockHash: string,
+        trx_index: number,
+        blockNum: number,
+        tx: EosioEvmDeposit
+    ): Promise<StorageEvmTransaction | TxDeserializationError> {
+        const quantity = parseAsset(tx.quantity);
+
+        let toAddr = null;
+        if (!tx.memo.startsWith('0x')) {
+            const address = await queryAddress(tx.from, this.rpc, this.logger);
+
+            if (address) {
+                toAddr = `0x${address}`;
+            } else {
+                return new TxDeserializationError(
+                    "User deposited without registering",
+                    {
+                        'nativeBlockHash': nativeBlockHash,
+                        'tx': tx,
+                        'block_num': blockNum
+                    });
+            }
+        } else {
+            if (isValidAddress(tx.memo))
+                toAddr = tx.memo;
+
+            else {
+                const address = await queryAddress(tx.from, this.rpc, this.logger);
+
+                if (!address) {
+                    return new TxDeserializationError(
+                        "User deposited to an invalid address",
+                        {
+                            'nativeBlockHash': nativeBlockHash,
+                            'tx': tx,
+                            'block_num': blockNum
+                        });
+                }
+
+                toAddr = `0x${address}`;
+            }
+        }
+
+        const [v, r, s] = generateUniqueVRS(
+            nativeBlockHash, ZERO_ADDR, trx_index);
+
+        const txParams = {
+            nonce: 0,
+            gasPrice: stdGasPrice,
+            gasLimit: stdGasLimit,
+            to: toAddr,
+            value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
+            data: "0x",
+            v: v,
+            r: r,
+            s: s
+        };
+
+        try {
+            const evmTx = TEVMTransaction.fromTxData(
+                txParams, {common: this.evmCommon});
+            const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
+            const inputData = '0x' + evmTx.data?.toString('hex');
+            const txBody: StorageEvmTransaction = {
+                hash: '0x' + evmTx.hash()?.toString('hex'),
+                from: ZERO_ADDR,
+                trx_index: trx_index,
+                block: blockNum,
+                block_hash: "",
+                to: evmTx.to?.toString(),
+                input_data: inputData,
+                input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
+                value: evmTx.value?.toString(16),
+                value_d: tx.quantity,
+                nonce: evmTx.nonce?.toString(),
+                gas_price: evmTx.gasPrice?.toString(),
+                gas_limit: evmTx.gasLimit.toString(),
+                status: 1,
+                itxs: new Array(),
+                epoch: 0,
+                createdaddr: "",
+                gasused: gasUsed.toString(),
+                gasusedblock: '',
+                charged_gas_price: '0',
+                output: "",
+                raw: evmTx.serialize(),
+                v: v,
+                r: r,
+                s: s
+            };
+
+            return txBody;
+
+        } catch (error) {
+            return new TxDeserializationError(
+                error.message,
+                {
+                    'nativeBlockHash': nativeBlockHash,
+                    'tx': tx,
+                    'block_num': blockNum
+                });
+        }
+    }
+
+    async handleEvmWithdraw(
+        nativeBlockHash: string,
+        trx_index: number,
+        blockNum: number,
+        tx: EosioEvmWithdraw
+    ): Promise<StorageEvmTransaction | TxDeserializationError> {
+        const address = await queryAddress(tx.to, this.rpc, this.logger);
+
+        const quantity = parseAsset(tx.quantity);
+
+        const [v, r, s] = generateUniqueVRS(
+            nativeBlockHash, address, trx_index);
+
+        const txParams = {
+            nonce: 0,
+            gasPrice: stdGasPrice,
+            gasLimit: stdGasLimit,
+            to: ZERO_ADDR,
+            value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
+            data: "0x",
+            v: v,
+            r: r,
+            s: s
+        };
+        try {
+            const evmTx = new TEVMTransaction(
+                txParams, {common: this.evmCommon});
+            const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
+            const inputData = '0x' + evmTx.data?.toString('hex');
+            const txBody: StorageEvmTransaction = {
+                hash: '0x' + evmTx.hash()?.toString('hex'),
+                from: '0x' + address.toLowerCase(),
+                trx_index: trx_index,
+                block: blockNum,
+                block_hash: "",
+                to: evmTx.to?.toString(),
+                input_data: inputData,
+                input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
+                value: evmTx.value?.toString(16),
+                value_d: tx.quantity,
+                nonce: evmTx.nonce?.toString(),
+                gas_price: evmTx.gasPrice?.toString(),
+                gas_limit: evmTx.gasLimit?.toString(),
+                status: 1,
+                itxs: new Array(),
+                epoch: 0,
+                createdaddr: "",
+                gasused: gasUsed.toString(),
+                gasusedblock: '',
+                charged_gas_price: '0',
+                output: "",
+                raw: evmTx.serialize(),
+                v: v,
+                r: r,
+                s: s
+            };
+
+            return txBody;
+
+        } catch (error) {
+            return new TxDeserializationError(
+                error.message,
+                {
+                    'nativeBlockHash': nativeBlockHash,
+                    'tx': tx,
+                    'block_num': blockNum
+                });
+        }
     }
 };

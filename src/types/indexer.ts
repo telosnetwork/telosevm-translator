@@ -1,6 +1,5 @@
-import {TxDeserializationError} from '../handlers.js';
 import {StorageEosioAction} from './evm.js';
-import {StorageEosioDelta} from '../utils/evm.js';
+import {StorageEosioDelta, TxDeserializationError} from '../utils/evm.js';
 
 export type ConnectorConfig = {
     node: string;
@@ -40,7 +39,9 @@ export type IndexerConfig = {
     irreversibleOnly: boolean;
     blockHistorySize: number;
     perf: {
-        workerAmount: number;
+        stallCounter: number;
+        readerWorkerAmount: number;
+        evmWorkerAmount: number;
         elasticDumpSize: number;
     },
     elastic: ConnectorConfig;
@@ -67,7 +68,9 @@ export const DEFAULT_CONF = {
     "irreversibleOnly": false,
     "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
     "perf": {
-        "workerAmount": 4,
+        "stallCounter": 5,
+        "readerWorkerAmount": 4,
+        "evmWorkerAmount": 4,
         "elasticDumpSize": 2048
     },
 
@@ -77,7 +80,7 @@ export const DEFAULT_CONF = {
             "username": "elastic",
             "password": "password"
         },
-        "requestTimeout": 480000,
+        "requestTimeout": 5 * 1000,
         "docsPerIndex": 10000000,
         "subfix": {
             "delta": "delta-v1.5",

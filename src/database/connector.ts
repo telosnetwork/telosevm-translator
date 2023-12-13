@@ -25,7 +25,6 @@ export class Connector {
     config: IndexerConfig;
     logger: Logger;
     elastic: Client;
-    broadcast: RPCBroadcaster;
     chainName: string;
 
     state: IndexerState;
@@ -37,6 +36,9 @@ export class Connector {
     lastPushed: number = 0;
 
     writeCounter: number = 0;
+
+    broadcast: RPCBroadcaster;
+    isBroadcasting: boolean = false;
 
     constructor(config: IndexerConfig, logger: Logger) {
         this.config = config;
@@ -52,10 +54,6 @@ export class Connector {
         this.state = IndexerState.SYNC;
     }
 
-    setState(state: IndexerState) {
-        this.state = state;
-    }
-
     async init() {
         const indexConfig: ConfigInterface = getTemplatesForChain(this.chainName);
 
@@ -67,35 +65,52 @@ export class Connector {
 
         this.logger.info(`Updating index templates for ${this.chainName}...`);
         let updateCounter = 0;
+        const indexTasks = [];
         for (const index of indicesList) {
-            try {
-                if (indexConfig[index.name]) {
-                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic['indices'].putTemplate({
-                        name: `${this.chainName}-${index.type}`,
-                        body: indexConfig[index.name]
-                    });
-                    if (!creation_status || !creation_status['acknowledged']) {
-                        this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
+            indexTasks.push(async () => {
+                try {
+                    if (indexConfig[index.name]) {
+                        const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
+                            name: `${this.chainName}-${index.type}`,
+                            body: indexConfig[index.name]
+                        });
+                        if (!creation_status || !creation_status['acknowledged']) {
+                            this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
+                        } else {
+                            updateCounter++;
+                            this.logger.info(`${this.chainName}-${index.type} template updated!`);
+                        }
                     } else {
-                        updateCounter++;
-                        this.logger.info(`${this.chainName}-${index.type} template updated!`);
+                        this.logger.warn(`${index.name} template not found!`);
                     }
-                } else {
-                    this.logger.warn(`${index.name} template not found!`);
+                } catch (e) {
+                    this.logger.error(`[FATAL] ${e.message}`);
+                    if (e.meta) {
+                        this.logger.error(e.meta.body);
+                    }
+                    process.exit(1);
                 }
-            } catch (e) {
-                this.logger.error(`[FATAL] ${e.message}`);
-                if (e.meta) {
-                    this.logger.error(e.meta.body);
-                }
-                process.exit(1);
-            }
+            });
         }
+        await Promise.all(indexTasks);
         this.logger.info(`${updateCounter} index templates updated`);
+    }
 
-        this.logger.info('Initializing ws broadcaster...');
-
+    startBroadcast() {
         this.broadcast.initUWS();
+        this.isBroadcasting = true;
+    }
+
+    stopBroadcast() {
+        this.broadcast.close();
+        this.isBroadcasting = false;
+    }
+
+    async deinit() {
+        if (this.isBroadcasting)
+            this.stopBroadcast();
+
+        await this.elastic.close();
     }
 
     async getOrderedDeltaIndices() {
@@ -496,7 +511,8 @@ export class Connector {
 
         try {
             await this._deleteFromIndex(deltaIndex, 'block_num', startBlock, endBlock);
-            await this._deleteFromIndex(actionIndex, '@raw.block', startBlock - this.config.evmBlockDelta, endBlock);
+            await this._deleteFromIndex(
+                actionIndex, '@raw.block', startBlock - this.config.evmBlockDelta, endBlock - this.config.evmBlockDelta);
         } catch (e) {
             if (e.name != 'ResponseError' || e.meta.body.error.type != 'index_not_found_exception') {
                 throw e;
@@ -525,8 +541,11 @@ export class Connector {
     }
 
     async _purgeBlocksNewerThan(blockNum: number) {
-        const maxBlockNum = (await this.getLastIndexedBlock()).block_num;
-        const batchSize = 20000; // Batch size set to 20,000
+        const lastBlock = await this.getLastIndexedBlock();
+        if (lastBlock == null)
+            return;
+        const maxBlockNum = lastBlock.block_num;
+        const batchSize = Math.min(maxBlockNum, 20000); // Batch size set to 20,000
         const maxConcurrentDeletions = 4; // Maximum of 4 deletions in parallel
 
         for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize * maxConcurrentDeletions) {
@@ -538,13 +557,9 @@ export class Connector {
                 deletionTasks.push(this._deleteBlocksInRange(batchStart, batchEnd));
             }
 
-            await Promise.all(deletionTasks).then((results) => {
-                results.forEach((result, index) => {
-                    const batchStart = startBlock + index * batchSize;
-                    const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
-                    this.logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
-                });
-            });
+            await Promise.all(deletionTasks);
+            const batchEnd = Math.min(startBlock + (batchSize * maxConcurrentDeletions), maxBlockNum);
+            this.logger.info(`deleted blocks from ${startBlock} to ${batchEnd}`);
         }
     }
 

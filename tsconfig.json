@@ -5,13 +5,17 @@
     "target": "ESNext",
     "sourceMap": true,
     "outDir": "build",
+    "rootDir": "./src",
     "esModuleInterop": true,
     "strict": false
   },
   "include": [
-    "src/**/*"
+    "src/**/*.ts"
   ],
   "exclude": [
+    "build",
+    "docker",
+    "python-tools",
     "node_modules"
   ]
 }

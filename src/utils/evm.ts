@@ -1226,11 +1226,15 @@ export class BlockHeader {
 }
 
 import {StorageEvmTransaction} from '../types/evm.js';
-import {TxDeserializationError} from "../handlers.js";
 import {Trie} from "@ethereumjs/trie";
 import RLP from "rlp";
 import {Log} from "@ethereumjs/vm/dist/evm/types.js";
 import {bufArrToArr} from '@ethereumjs/util';
+import moment from "moment/moment.js";
+import {JsonRpc} from "eosjs";
+import {Logger} from "winston";
+import {nameToUint64} from "./eosio.js";
+import {sleep} from "./indexer.js";
 
 export function getErrorMessage(error: unknown) {
     if (error instanceof Error) return error.message
@@ -1403,4 +1407,78 @@ export function generateBloom(evmTxs: Array<EVMTxWrapper>): Buffer {
                 new Bloom(Buffer.from(evmTx.evmTx.logsBloom, 'hex')));
 
     return blockBloom.bitvector;
+}
+
+export const KEYWORD_STRING_TRIM_SIZE = 32000;
+export const RECEIPT_LOG_START = "RCPT{{";
+export const RECEIPT_LOG_END = "}}RCPT";
+
+export const stdGasPrice = "0x0";
+export const stdGasLimit = `0x${(21000).toString(16)}`;
+
+export class TxDeserializationError {
+    info: { [key: string]: string };
+    timestamp: string;
+    stack: string;
+    message: string;
+
+    constructor(
+        message: string,
+        info: { [key: string]: any }
+    ) {
+        this.info = info;
+        this.stack = (<any>new Error()).stack;
+        this.timestamp = moment.utc().format();
+        this.message = message;
+    }
+}
+
+export function isTxDeserializationError(obj: any): obj is TxDeserializationError {
+    return (
+        obj.info !== undefined &&
+        obj.timestamp !== undefined &&
+        obj.stack !== undefined &&
+        obj.message !== undefined
+    );
+}
+
+export async function queryAddress(
+    accountName: string,
+    rpc: JsonRpc,
+    logger: Logger
+) {
+    const acctInt = nameToUint64(accountName);
+    let retry = 5;
+    let result = null;
+    while (retry > 0) {
+        retry--;
+        try {
+            result = await rpc.get_table_rows({
+                code: 'eosio.evm',
+                scope: 'eosio.evm',
+                table: 'account',
+                key_type: 'i64',
+                index_position: 3,
+                lower_bound: acctInt,
+                upper_bound: acctInt,
+                limit: 1
+            });
+            if (result.rows.length == 1)
+                return result.rows[0].address;
+
+            if (result.rows.length > 1)
+                throw new Error('multi address for one account, shouldn\'t happen.');
+
+        } catch (error) {
+            logger.error(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
+            logger.error(error);
+            if (retry == 0)
+                throw error;
+        }
+
+        logger.warn(`queryAddress returned null for account ${accountName}, int: ${acctInt}, retrying...`);
+        await sleep(500);
+    }
+
+    throw new Error(`failed to get eth addr for ${accountName}, int: ${acctInt}`);
 }
