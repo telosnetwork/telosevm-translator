@@ -18,7 +18,13 @@ jobs:
     - name: Build
       run: npm run build
 
+    - name: Launch elastic
+      run: npm run elastic-start
+
     - name: Tests
       run: npm run test
       env:
         LOG_LEVEL: debug
+
+    - name: Stop elastic
+      run: npm run elastic-stop
