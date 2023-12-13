@@ -5,6 +5,19 @@ on: [push]
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: elasticsearch:7.17.4
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl http://localhost:9200"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Checkout Repository
@@ -18,13 +31,7 @@ jobs:
     - name: Build
       run: npm run build
 
-    - name: Launch elastic
-      run: npm run elastic-start
-
     - name: Tests
       run: npm run test
       env:
         LOG_LEVEL: debug
-
-    - name: Stop elastic
-      run: npm run elastic-stop
