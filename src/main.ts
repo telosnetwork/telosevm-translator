@@ -2,7 +2,7 @@ import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
 import cloneDeep from "lodash.clonedeep";
-import {mergeDeep} from "./utils/misc";
+import {mergeDeep} from "./utils/misc.js";
 
 // import heapdump from 'heapdump';
 // 

@@ -11,9 +11,6 @@ import {validateNoLeadingZeroes} from "@ethereumjs/util";
 type TxValuesArray = AllTypesTxValuesArray[TransactionType.Legacy]
 
 export class TEVMTransaction extends LegacyTransaction {
-    public constructor(txData: LegacyTxData, opts: TxOptions = {}) {
-        super(txData, opts);
-    }
 
     /**
      * Instantiate a transaction from a data dictionary.

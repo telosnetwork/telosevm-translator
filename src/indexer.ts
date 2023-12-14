@@ -12,21 +12,19 @@ import {Connector} from './database/connector.js';
 
 import {
     EMPTY_TRIE_BUF,
-    generateTxApplyInfo,
-    getBlockGas, hexStringToUint8Array,
+    generateBlockApplyInfo,
+    hexStringToUint8Array,
     isTxDeserializationError,
     NULL_HASH,
     ProcessedBlock,
     StorageEosioDelta, TEVMBlockHeader,
 } from './utils/evm.js'
 
-import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
 import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
-import * as EthereumUtil from 'ethereumjs-util';
 import rlp from 'rlp';
 import EventEmitter from "events";
 
@@ -35,6 +33,7 @@ import {sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
 import {arrayToHex} from "eosjs/dist/eosjs-serialize.js";
+import {keccak256} from "@ethereumjs/devp2p";
 
 
 class TEVMEvents extends EventEmitter {}
@@ -169,31 +168,28 @@ export class TEVMIndexer {
     async hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
-        // generate valid ethereum hashes
-        const txApplyInfo = await generateTxApplyInfo(evmTxs);
-
-        const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
-
+        // generate block info derived from applying the transactions to the vm state
+        const blockApplyInfo = await generateBlockApplyInfo(evmTxs);
         const blockTimestamp = moment.utc(block.blockTimestamp);
 
         // generate 'valid' block header
         const blockHeader = TEVMBlockHeader.fromHeaderData({
             'parentHash': hexStringToUint8Array(this.prevHash),
-            'transactionsTrie': txApplyInfo.txsRootHash.root(),
-            'receiptTrie': txApplyInfo.receiptsTrie.root(),
+            'transactionsTrie': blockApplyInfo.txsRootHash.root(),
+            'receiptTrie': blockApplyInfo.receiptsTrie.root(),
             'stateRoot': EMPTY_TRIE_BUF,
-            'logsBloom': txApplyInfo.blockBloom.bitvector,
+            'logsBloom': blockApplyInfo.blockBloom.bitvector,
             'number': BigInt(block.evmBlockNumber),
-            'gasLimit': gasLimit,
-            'gasUsed': gasUsed,
+            'gasLimit': blockApplyInfo.gasLimit,
+            'gasUsed': blockApplyInfo.gasUsed,
             'difficulty': BigInt(0),
             'timestamp': BigInt(blockTimestamp.unix()),
             'extraData': hexStringToUint8Array(block.nativeBlockHash)
         })
 
         const currentBlockHash = arrayToHex(blockHeader.hash());
-        const receiptsHash = arrayToHex(txApplyInfo.receiptsTrie.root());
-        const txsHash = arrayToHex(txApplyInfo.txsRootHash.root());
+        const receiptsHash = arrayToHex(blockApplyInfo.receiptsTrie.root());
+        const txsHash = arrayToHex(blockApplyInfo.txsRootHash.root());
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -213,14 +209,14 @@ export class TEVMIndexer {
                 "@blockHash": block.nativeBlockHash,
                 "@receiptsRootHash": receiptsHash,
                 "@transactionsRoot": txsHash,
-                "gasUsed": gasUsed.toString(),
-                "gasLimit": gasLimit.toString(),
-                "size": size.toString()
+                "gasUsed": blockApplyInfo.gasUsed.toString(),
+                "gasLimit": blockApplyInfo.gasLimit.toString(),
+                "size": blockApplyInfo.size.toString()
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
             "receiptsRoot": receiptsHash,
-            "blockBloom": arrayToHex(txApplyInfo.blockBloom.bitvector)
+            "blockBloom": arrayToHex(blockApplyInfo.blockBloom.bitvector)
         };
 
         if (evmTxs.length > 0) {
@@ -375,7 +371,7 @@ export class TEVMIndexer {
 
         const evmTxs = await Promise.all(txTasks);
 
-        const gasUsedBlock = new BN(0);
+        let gasUsedBlock = BigInt(0);
         let i = 0;
         for (const evmTx of evmTxs) {
             if (isTxDeserializationError(evmTx)) {
@@ -383,7 +379,7 @@ export class TEVMIndexer {
                 throw new Error(JSON.stringify(evmTx));
             }
 
-            gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
+            gasUsedBlock += evmTx.gasused;
             evmTx.gasusedblock = gasUsedBlock.toString();
 
             const action = actions[i];
@@ -635,25 +631,25 @@ export class TEVMIndexer {
         }
 
         const encodedGenesisParams = rlp.encode([
-            EthereumUtil.toBuffer(genesisParams['parentHash']),
-            EthereumUtil.toBuffer(genesisParams['uncleHash']),
-            EthereumUtil.toBuffer(genesisParams['coinbase']),
-            EthereumUtil.toBuffer(genesisParams['stateRoot']),
-            EthereumUtil.toBuffer(genesisParams['transactionsTrie']),
-            EthereumUtil.toBuffer(genesisParams['receiptTrie']),
-            EthereumUtil.toBuffer(genesisParams['logsBloom']),
-            EthereumUtil.toBuffer(genesisParams['difficulty']),
-            EthereumUtil.toBuffer(genesisParams['number']),
-            EthereumUtil.toBuffer(genesisParams['gasLimit']),
-            EthereumUtil.toBuffer(genesisParams['gasUsed']),
-            EthereumUtil.toBuffer(genesisParams['timestamp']),
-            EthereumUtil.toBuffer(genesisParams['extraData']),
-            EthereumUtil.toBuffer(genesisParams['mixhash']),
-            EthereumUtil.toBuffer(genesisParams['nonce'])
+            hexStringToUint8Array(genesisParams['parentHash']),
+            hexStringToUint8Array(genesisParams['uncleHash']),
+            hexStringToUint8Array(genesisParams['coinbase']),
+            hexStringToUint8Array(genesisParams['stateRoot']),
+            hexStringToUint8Array(genesisParams['transactionsTrie']),
+            hexStringToUint8Array(genesisParams['receiptTrie']),
+            hexStringToUint8Array(genesisParams['logsBloom']),
+            hexStringToUint8Array(genesisParams['difficulty']),
+            hexStringToUint8Array(genesisParams['number']),
+            hexStringToUint8Array(genesisParams['gasLimit']),
+            hexStringToUint8Array(genesisParams['gasUsed']),
+            hexStringToUint8Array(genesisParams['timestamp']),
+            hexStringToUint8Array(genesisParams['extraData']),
+            hexStringToUint8Array(genesisParams['mixhash']),
+            hexStringToUint8Array(genesisParams['nonce'])
         ]);
-        const genesisHash = EthereumUtil.keccak256(Buffer.from(encodedGenesisParams));
+        const genesisHash = keccak256(encodedGenesisParams);
 
-        this.ethGenesisHash = genesisHash.toString('hex');
+        this.ethGenesisHash = arrayToHex(genesisHash);
 
         if (this.config.evmValidateHash != "" &&
             this.ethGenesisHash != this.config.evmValidateHash) {

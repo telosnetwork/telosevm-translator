@@ -178,11 +178,18 @@ export class ProcessedBlock {
     }
 }
 
-export async function generateTxApplyInfo(evmTxs: Array<EVMTxWrapper>) {
+export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
+    let gasUsed = BigInt(0);
+    let gasLimit = BigInt(0);
+    let size = BigInt(0);
     const txsRootHash = new Trie();
     const receiptsTrie = new Trie();
     const blockBloom = new Bloom();
     for (const [i, tx] of evmTxs.entries()) {
+        gasUsed += BigInt(tx.evmTx.gasused);
+        gasLimit += BigInt(tx.evmTx.gas_limit);
+        size += BigInt(tx.evmTx.raw.length);
+
         const logs: Log[] = [];
 
         await txsRootHash.put(RLP.encode(i), tx.evmTx.raw);
@@ -218,22 +225,10 @@ export async function generateTxApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         const encodedReceipt = encodeReceipt(receipt, TransactionType.Legacy);
         await receiptsTrie.put(RLP.encode(i), encodedReceipt);
     }
-    return {txsRootHash, receiptsTrie, blockBloom};
-}
-
-export function getBlockGas(evmTxs: Array<EVMTxWrapper>) {
-
-    let gasUsed = BigInt(0);
-    let gasLimit = BigInt(0);
-    let size = BigInt(0);
-
-    for (const evmTx of evmTxs) {
-        gasUsed += BigInt(evmTx.evmTx.gasused);
-        gasLimit += BigInt(evmTx.evmTx.gas_limit);
-        size += BigInt(evmTx.evmTx.raw.length);
-    }
-
-    return {gasUsed, gasLimit, size};
+    return {
+        gasUsed, gasLimit, size,
+        txsRootHash, receiptsTrie, blockBloom
+    };
 }
 
 export const KEYWORD_STRING_TRIM_SIZE = 32000;
