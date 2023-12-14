@@ -11,16 +11,13 @@ import {StorageEosioAction} from './types/evm.js';
 import {Connector} from './database/connector.js';
 
 import {
-    BlockHeader,
     EMPTY_TRIE_BUF,
-    generateBloom,
-    generateReceiptRootHash,
-    generateTxRootHash,
-    getBlockGas,
+    generateTxApplyInfo,
+    getBlockGas, hexStringToUint8Array,
     isTxDeserializationError,
     NULL_HASH,
     ProcessedBlock,
-    StorageEosioDelta,
+    StorageEosioDelta, TEVMBlockHeader,
 } from './utils/evm.js'
 
 import BN from 'bn.js';
@@ -37,6 +34,7 @@ import SegfaultHandler from 'segfault-handler';
 import {sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
+import {arrayToHex} from "eosjs/dist/eosjs-serialize.js";
 
 
 class TEVMEvents extends EventEmitter {}
@@ -130,7 +128,7 @@ export class TEVMIndexer {
     updateDebugStats() {
         const now = Date.now() / 1000;
         const timeElapsed = now - this.timestampLastUpdate;
-        const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+        const blocksPerSecond = parseFloat((this.pushedLastUpdate / timeElapsed).toFixed(1));
 
         if (blocksPerSecond == 0)
             this.stallCounter++;
@@ -168,41 +166,30 @@ export class TEVMIndexer {
         const evmTxs = block.evmTxs;
 
         // generate valid ethereum hashes
-        const transactionsRoot = await generateTxRootHash(evmTxs);
-        const receiptsRoot = await generateReceiptRootHash(evmTxs);
-        const bloom = generateBloom(evmTxs);
+        const txApplyInfo = await generateTxApplyInfo(evmTxs);
 
         const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
 
         const blockTimestamp = moment.utc(block.blockTimestamp);
 
         // generate 'valid' block header
-        const blockHeader = BlockHeader.fromHeaderData({
-            'parentHash': Buffer.from(this.prevHash, 'hex'),
-            'transactionsTrie': transactionsRoot,
-            'receiptTrie': receiptsRoot,
+        const blockHeader = TEVMBlockHeader.fromHeaderData({
+            'parentHash': hexStringToUint8Array(this.prevHash),
+            'transactionsTrie': txApplyInfo.txsRootHash.root(),
+            'receiptTrie': txApplyInfo.receiptsTrie.root(),
             'stateRoot': EMPTY_TRIE_BUF,
-            'bloom': bloom,
-            'number': new BN(block.evmBlockNumber),
+            'logsBloom': txApplyInfo.blockBloom.bitvector,
+            'number': BigInt(block.evmBlockNumber),
             'gasLimit': gasLimit,
             'gasUsed': gasUsed,
-            'difficulty': new BN(0),
-            'timestamp': new BN(blockTimestamp.unix()),
-            'extraData': Buffer.from(block.nativeBlockHash, 'hex')
+            'difficulty': BigInt(0),
+            'timestamp': BigInt(blockTimestamp.unix()),
+            'extraData': hexStringToUint8Array(block.nativeBlockHash)
         })
 
-        const currentBlockHash = blockHeader.hash().toString('hex');
-
-        // debug stuff for hash match with 2.0
-        //  const buffs = blockHeader.raw();
-        //  let blockHeaderSize = 0;
-        //  console.log(`raw buffs for block header with hash: \"${currentBlockHash}\"`);
-        //  for (const [i, buf] of buffs.entries()) {
-        //      console.log(`[${i}]: size ${buf.length}, \"${buf.toString('hex')}\"`);
-        //      blockHeaderSize += buf.length;
-        //  }
-        //  console.log(`total header size: ${blockHeaderSize}`);
-
+        const currentBlockHash = arrayToHex(blockHeader.hash());
+        const receiptsHash = arrayToHex(txApplyInfo.receiptsTrie.root());
+        const txsHash = arrayToHex(txApplyInfo.txsRootHash.root());
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -220,16 +207,16 @@ export class TEVMIndexer {
                 "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
                 "@blockHash": block.nativeBlockHash,
-                "@receiptsRootHash": receiptsRoot.toString('hex'),
-                "@transactionsRoot": transactionsRoot.toString('hex'),
+                "@receiptsRootHash": receiptsHash,
+                "@transactionsRoot": txsHash,
                 "gasUsed": gasUsed.toString(),
                 "gasLimit": gasLimit.toString(),
                 "size": size.toString()
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
-            "receiptsRoot": receiptsRoot.toString('hex'),
-            "blockBloom": bloom.toString('hex')
+            "receiptsRoot": receiptsHash,
+            "blockBloom": arrayToHex(txApplyInfo.blockBloom.bitvector)
         };
 
         if (evmTxs.length > 0) {

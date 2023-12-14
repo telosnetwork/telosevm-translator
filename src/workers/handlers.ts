@@ -1,9 +1,8 @@
 import workerpool from 'workerpool';
-import Common, {Chain, Hardfork} from "@ethereumjs/common";
 import {EosioEvmDeposit, EosioEvmRaw, EosioEvmWithdraw, StorageEvmTransaction} from "../types/evm.js";
 import {
-    Bloom,
-    generateUniqueVRS, KEYWORD_STRING_TRIM_SIZE,
+    arrayToHex,
+    generateUniqueVRS, hexStringToUint8Array, KEYWORD_STRING_TRIM_SIZE,
     queryAddress, RECEIPT_LOG_END, RECEIPT_LOG_START, removeHexPrefix,
     stdGasLimit,
     stdGasPrice,
@@ -11,15 +10,16 @@ import {
     ZERO_ADDR
 } from "../utils/evm.js";
 import {getRPCClient, parseAsset} from "../utils/eosio.js";
-import BN from "bn.js";
-import {TEVMTransaction} from "../utils/evm-tx.js";
+import {TEVMTransaction} from "../utils/tevm-tx.js";
 import {createLogger, format, transports} from "winston";
-import {addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString} from "@ethereumjs/util";
+import {bigIntToHex, isHexPrefixed, isValidAddress} from "@ethereumjs/util";
+import * as evm from "@ethereumjs/common";
+import {Bloom} from "@ethereumjs/vm";
 
-const common = Common.default.custom({
+const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
-    defaultHardfork: Hardfork.Istanbul
-}, {baseChain: Chain.Mainnet});
+    defaultHardfork: evm.Hardfork.Istanbul
+}, {baseChain: evm.Chain.Mainnet});
 
 const rpc = getRPCClient(process.env.ENDPOINT);
 const logOptions = {
@@ -95,7 +95,7 @@ async function createEvm(
             );
         }
 
-        const txRaw = Buffer.from(tx.tx, "hex");
+        const txRaw = hexStringToUint8Array(tx.tx);
 
         let evmTx = TEVMTransaction.fromSerializedTx(txRaw, {common});
 
@@ -116,7 +116,7 @@ async function createEvm(
             [v, r, s] = generateUniqueVRS(
                 nativeBlockHash, senderAddr, trx_index);
 
-            evmTxParams.v = addHexPrefix(v.toString(16));
+            evmTxParams.v = v;
             evmTxParams.r = r;
             evmTxParams.s = s;
 
@@ -138,9 +138,7 @@ async function createEvm(
             }
         } else
             [v, r, s] = [
-                evmTx.v.toNumber(),
-                unpadHexString(addHexPrefix(evmTx.r.toString('hex'))),
-                unpadHexString(addHexPrefix(evmTx.s.toString('hex')))
+                evmTx.v, evmTx.r, evmTx.s
             ];
 
         if (receipt.itxs) {
@@ -153,16 +151,18 @@ async function createEvm(
             });
         }
 
+        const inputData = arrayToHex(evmTx.data);
+
         const txBody: StorageEvmTransaction = {
-            hash: '0x' + evmTx.hash().toString('hex'),
+            hash: '0x' + arrayToHex(evmTx.hash()),
             trx_index: trx_index,
             block: blockNum,
             block_hash: "",
             to: evmTx.to?.toString(),
-            input_data: '0x' + evmTx.data?.toString('hex'),
-            input_trimmed: '0x' + evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
-            value: evmTx.value?.toString('hex'),
-            value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
+            input_data: '0x' + inputData,
+            input_trimmed: '0x' + inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
+            value: bigIntToHex(evmTx.value),
+            value_d: (evmTx.value / BigInt('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit?.toString(),
@@ -170,9 +170,9 @@ async function createEvm(
             itxs: receipt.itxs,
             epoch: receipt.epoch,
             createdaddr: receipt.createdaddr.toLowerCase(),
-            gasused: new BN(receipt.gasused, 16).toString(),
+            gasused: receipt.gasused.toString(),
             gasusedblock: '',
-            charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
+            charged_gas_price: BigInt(receipt.charged_gas).toString(),
             output: receipt.output,
             raw: evmTx.serialize(),
             v: v,
@@ -195,12 +195,12 @@ async function createEvm(
                 //console.log(txBody['logs']);
                 const bloom = new Bloom();
                 for (const log of txBody['logs']) {
-                    bloom.add(Buffer.from(log['address'].padStart(40, '0'), 'hex'));
+                    bloom.add(hexStringToUint8Array(log['address'].padStart(40, '0')));
                     for (const topic of log.topics)
-                        bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
+                        bloom.add(hexStringToUint8Array(topic.padStart(64, '0')));
                 }
 
-                txBody['logsBloom'] = bloom.bitvector.toString('hex');
+                txBody['logsBloom'] = arrayToHex(bloom.bitvector);
             }
         }
 
@@ -280,7 +280,7 @@ async function createDeposit(
         gasPrice: stdGasPrice,
         gasLimit: stdGasLimit,
         to: toAddr,
-        value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
+        value: BigInt(quantity.amount) * BigInt('100000000000000'),
         data: "0x",
         v: v,
         r: r,
@@ -289,10 +289,9 @@ async function createDeposit(
 
     try {
         const evmTx = TEVMTransaction.fromTxData(txParams, {common});
-        const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
-        const inputData = '0x' + evmTx.data?.toString('hex');
+        const inputData = '0x' + arrayToHex(evmTx.data);
         const txBody: StorageEvmTransaction = {
-            hash: '0x' + evmTx.hash()?.toString('hex'),
+            hash: '0x' + arrayToHex(evmTx.hash()),
             from: ZERO_ADDR,
             trx_index: trx_index,
             block: blockNum,
@@ -309,14 +308,14 @@ async function createDeposit(
             itxs: new Array(),
             epoch: 0,
             createdaddr: "",
-            gasused: gasUsed.toString(),
+            gasused: stdGasLimit.toString(),
             gasusedblock: '',
             charged_gas_price: '0',
             output: "",
             raw: evmTx.serialize(),
-            v: v,
-            r: r,
-            s: s
+            v: v.toString(),
+            r: r.toString(),
+            s: s.toString()
         };
 
         return txBody;
@@ -350,7 +349,7 @@ async function createWithdraw(
             gasPrice: stdGasPrice,
             gasLimit: stdGasLimit,
             to: ZERO_ADDR,
-            value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
+            value: BigInt(quantity.amount) * BigInt('100000000000000'),
             data: "0x",
             v: v,
             r: r,
@@ -358,10 +357,9 @@ async function createWithdraw(
         };
         try {
             const evmTx = new TEVMTransaction(txParams, {common});
-            const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
-            const inputData = '0x' + evmTx.data?.toString('hex');
+            const inputData = '0x' + arrayToHex(evmTx.data);
             const txBody: StorageEvmTransaction = {
-                hash: '0x' + evmTx.hash()?.toString('hex'),
+                hash: '0x' + arrayToHex(evmTx.hash()),
                 from: '0x' + address.toLowerCase(),
                 trx_index: trx_index,
                 block: blockNum,
@@ -378,14 +376,14 @@ async function createWithdraw(
                 itxs: new Array(),
                 epoch: 0,
                 createdaddr: "",
-                gasused: gasUsed.toString(),
+                gasused: stdGasLimit.toString(),
                 gasusedblock: '',
                 charged_gas_price: '0',
                 output: "",
                 raw: evmTx.serialize(),
-                v: v,
-                r: r,
-                s: s
+                v: v.toString(),
+                r: r.toString(),
+                s: s.toString()
             };
 
             return txBody;

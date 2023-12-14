@@ -1,10 +1,11 @@
-import {ControllerContext} from "leap-mock/controllerUtils.js";
-import {ControllerConfig} from "leap-mock/controller.js";
-import {getRandomPort} from "leap-mock/utils.js";
+import {ControllerContext} from "leap-mock";
+import {ControllerConfig} from "leap-mock";
+import {getRandomPort} from "leap-mock";
+import cloneDeep from 'lodash.clonedeep';
+
 import {DEFAULT_CONF} from "../types/indexer.js";
 import {portFromEndpoint} from "../utils/misc.js";
 import {expectTranslatorSequence} from "./utils.js";
-import cloneDeep from 'lodash.clonedeep';
 
 
 describe('Leap Mock', async function () {
