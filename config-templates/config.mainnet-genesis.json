@@ -17,7 +17,8 @@
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
-        "workerAmount": 4,
+        "readerWorkerAmount": 4,
+        "evmWorkerAmount": 4,
         "elasticDumpSize": 256
     },
 

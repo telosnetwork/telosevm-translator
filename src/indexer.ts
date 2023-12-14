@@ -717,9 +717,22 @@ export class TEVMIndexer {
 
         await this._waitWriteTasks();
 
-        this.reader.stop();
-        await this.connector.deinit();
-        await this.evmDeserializationPool.terminate(true);
+        try {
+            this.reader.stop();
+        } catch(e) {
+            this.logger.warn(`error stopping reader: ${e.message}`);
+        }
+        try {
+            await this.connector.deinit();
+        } catch (e) {
+            this.logger.warn(`error stopping connector: ${e.message}`);
+        }
+
+        try {
+            await this.evmDeserializationPool.terminate(true);
+        } catch (e) {
+            this.logger.warn(`error stopping thread pool: ${e.message}`);
+        }
 
         // if (process.env.LOG_LEVEL == 'debug')
         //     logWhyIsNodeRunning();
