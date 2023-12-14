@@ -11,7 +11,7 @@ export default class RPCBroadcaster {
     logger: Logger;
     broadcastServer: TemplatedApp;
 
-    private sockets: {[key: string]: uWS.WebSocket};
+    private sockets: {[key: string]: uWS.WebSocket} = {};
     private listenSocket: uWS.us_listen_socket;
 
     constructor(config: BroadcasterConfig, logger: Logger) {

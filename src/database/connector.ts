@@ -67,7 +67,7 @@ export class Connector {
         let updateCounter = 0;
         const indexTasks = [];
         for (const index of indicesList) {
-            indexTasks.push(async () => {
+            indexTasks.push(async function ()  {
                 try {
                     if (indexConfig[index.name]) {
                         const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({

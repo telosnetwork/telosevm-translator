@@ -6,59 +6,40 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './t
 
 import {createLogger, format, Logger, transports} from 'winston';
 
-import {
-    EosioEvmDeposit,
-    EosioEvmRaw,
-    EosioEvmWithdraw,
-    StorageEosioAction,
-    StorageEvmTransaction
-} from './types/evm.js';
+import {StorageEosioAction} from './types/evm.js';
 
 import {Connector} from './database/connector.js';
 
 import {
     BlockHeader,
-    Bloom,
     EMPTY_TRIE_BUF,
     generateBloom,
     generateReceiptRootHash,
     generateTxRootHash,
-    generateUniqueVRS,
     getBlockGas,
     isTxDeserializationError,
-    KEYWORD_STRING_TRIM_SIZE,
     NULL_HASH,
     ProcessedBlock,
-    queryAddress,
-    RECEIPT_LOG_END,
-    RECEIPT_LOG_START,
-    removeHexPrefix,
-    stdGasLimit,
-    stdGasPrice,
     StorageEosioDelta,
-    TxDeserializationError,
-    ZERO_ADDR
 } from './utils/evm.js'
 
 import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {getRPCClient, parseAsset} from './utils/eosio.js';
+import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
 import * as EthereumUtil from 'ethereumjs-util';
 import rlp from 'rlp';
 import EventEmitter from "events";
-import Common, {Chain, Hardfork} from "@ethereumjs/common";
-import {addHexPrefix, isHexPrefixed, isValidAddress, unpadHexString} from "@ethereumjs/util";
-import {TEVMTransaction} from "./utils/evm-tx.js";
 
 import SegfaultHandler from 'segfault-handler';
 import {sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
 
-class TEVMEvents extends EventEmitter {};
+
+class TEVMEvents extends EventEmitter {}
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -99,9 +80,7 @@ export class TEVMIndexer {
 
     events = new TEVMEvents();
 
-    private evmCommon: Common.default;
     private evmDeserializationPool;
-        // StaticPool<(x: any) => any>;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -251,7 +230,7 @@ export class TEVMIndexer {
         };
 
         if (evmTxs.length > 0) {
-            for (const [i, evmTxData] of evmTxs.entries()) {
+            for (const evmTxData of evmTxs) {
                 evmTxData.evmTx.block_hash = currentBlockHash;
                 delete evmTxData.evmTx['raw'];
                 storableActions.push({
@@ -360,7 +339,7 @@ export class TEVMIndexer {
                 if (action.act.name == "raw") {
                     txTasks.push(
                         this.evmDeserializationPool.exec(
-                            this.handleEvmTx, [
+                            'createEvm', [
                                 block.blockInfo.this_block.block_id,
                                 evmTransactions.length,
                                 currentEvmBlock,
@@ -372,7 +351,7 @@ export class TEVMIndexer {
                 } else if (action.act.name == "withdraw") {
                     txTasks.push(
                         this.evmDeserializationPool.exec(
-                            this.handleEvmWithdraw, [
+                            'createWithdraw', [
                                 block.blockInfo.this_block.block_id,
                                 evmTransactions.length,
                                 currentEvmBlock,
@@ -386,7 +365,7 @@ export class TEVMIndexer {
                 action.act.data.to == "eosio.evm") {
                 txTasks.push(
                     this.evmDeserializationPool.exec(
-                        this.handleEvmDeposit, [
+                        'createDeposit', [
                             block.blockInfo.this_block.block_id,
                             evmTransactions.length,
                             currentEvmBlock,
@@ -600,10 +579,9 @@ export class TEVMIndexer {
                     `Error when doing start block check: ${error.message}`);
         }
 
-        this.evmCommon = Common.default.custom({
-            chainId: this.config.chainId,
-            defaultHardfork: Hardfork.Istanbul
-        }, {baseChain: Chain.Mainnet});
+        process.env.CHAIN_ID = this.config.chainId.toString();
+        process.env.ENDPOINT = this.config.endpoint;
+        process.env.LOG_LEVEL = this.config.logLevel;
 
         // this.evmDeserializationPool = new StaticPool({
         //     size: this.config.perf.evmWorkerAmount,
@@ -611,7 +589,8 @@ export class TEVMIndexer {
         //     workerData: {chainId: this.config.chainId, logLevel: this.config.logLevel}
         // });
 
-        this.evmDeserializationPool = workerpool.pool({
+        this.evmDeserializationPool = workerpool.pool(
+            './build/workers/handlers.js', {
             minWorkers: this.config.perf.evmWorkerAmount,
             maxWorkers: this.config.perf.evmWorkerAmount,
             workerType: 'thread'
@@ -862,372 +841,5 @@ export class TEVMIndexer {
     printIntroText() {
         this.logger.info('Telos EVM Translator v1.0.0-rc6');
         this.logger.info('Happy indexing!');
-    }
-
-    // Transaction Handlers:
-    async handleEvmTx(
-        nativeBlockHash: string,
-        trx_index: number,
-        blockNum: number,
-        tx: EosioEvmRaw,
-        consoleLog: string
-    ): Promise<StorageEvmTransaction | TxDeserializationError> {
-        try {
-            let receiptLog = consoleLog.slice(
-                consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
-                consoleLog.indexOf(RECEIPT_LOG_END)
-            );
-
-            let receipt: {
-                status: number,
-                epoch: number,
-                itxs: any[],
-                logs: any[],
-                errors?: any[],
-                output: string,
-                gasused: string,
-                gasusedblock: string,
-                charged_gas: string,
-                createdaddr: string
-            } = {
-                status: 1,
-                epoch: 0,
-                itxs: [],
-                logs: [],
-                errors: [],
-                output: '',
-                gasused: '',
-                gasusedblock: '',
-                charged_gas: '',
-                createdaddr: ''
-            };
-            try {
-                receipt = JSON.parse(receiptLog);
-            } catch (error) {
-                this.logger.error(`Failed to parse receiptLog:\n${receiptLog}`);
-                this.logger.error(JSON.stringify(error, null, 4));
-                // @ts-ignore
-                this.logger.error(error.message);
-                // @ts-ignore
-                this.logger.error(error.stack);
-                return new TxDeserializationError(
-                    'Raw EVM deserialization error',
-                    {
-                        'nativeBlockHash': nativeBlockHash,
-                        'tx': tx,
-                        'block_num': blockNum,
-                        'error': error.message
-                    }
-                );
-            }
-
-            const txRaw = Buffer.from(tx.tx, "hex");
-
-            let evmTx = TEVMTransaction.fromSerializedTx(
-                txRaw, {common: this.evmCommon});
-
-            const isSigned = evmTx.isSigned();
-
-            const evmTxParams = evmTx.toJSON();
-
-            let fromAddr = null;
-            let v, r, s;
-
-            if (!isSigned) {
-
-                let senderAddr = tx.sender.toLowerCase();
-
-                if (!isHexPrefixed(senderAddr))
-                    senderAddr = `0x${senderAddr}`;
-
-                [v, r, s] = generateUniqueVRS(
-                    nativeBlockHash, senderAddr, trx_index);
-
-                evmTxParams.v = addHexPrefix(v.toString(16));
-                evmTxParams.r = r;
-                evmTxParams.s = s;
-
-                evmTx = TEVMTransaction.fromTxData(
-                    evmTxParams, {common: this.evmCommon});
-
-                if (isValidAddress(senderAddr)) {
-                    fromAddr = senderAddr;
-
-                } else {
-                    return new TxDeserializationError(
-                        'Raw EVM deserialization error',
-                        {
-                            'nativeBlockHash': nativeBlockHash,
-                            'tx': tx,
-                            'block_num': blockNum,
-                            'error': `error deserializing address \'${tx.sender}\'`
-                        }
-                    );
-                }
-            } else
-                [v, r, s] = [
-                    evmTx.v.toNumber(),
-                    unpadHexString(addHexPrefix(evmTx.r.toString('hex'))),
-                    unpadHexString(addHexPrefix(evmTx.s.toString('hex')))
-                ];
-
-            if (receipt.itxs) {
-                // @ts-ignore
-                receipt.itxs.forEach((itx) => {
-                    if (itx.input)
-                        itx.input_trimmed = itx.input.substring(0, KEYWORD_STRING_TRIM_SIZE);
-                    else
-                        itx.input_trimmed = itx.input;
-                });
-            }
-
-            const txBody: StorageEvmTransaction = {
-                hash: '0x' + evmTx.hash().toString('hex'),
-                trx_index: trx_index,
-                block: blockNum,
-                block_hash: "",
-                to: evmTx.to?.toString(),
-                input_data: '0x' + evmTx.data?.toString('hex'),
-                input_trimmed: '0x' + evmTx.data?.toString('hex').substring(0, KEYWORD_STRING_TRIM_SIZE),
-                value: evmTx.value?.toString('hex'),
-                value_d: (new BN(evmTx.value?.toString()).div(new BN('1000000000000000000'))).toString(),
-                nonce: evmTx.nonce?.toString(),
-                gas_price: evmTx.gasPrice?.toString(),
-                gas_limit: evmTx.gasLimit?.toString(),
-                status: receipt.status,
-                itxs: receipt.itxs,
-                epoch: receipt.epoch,
-                createdaddr: receipt.createdaddr.toLowerCase(),
-                gasused: new BN(receipt.gasused, 16).toString(),
-                gasusedblock: '',
-                charged_gas_price: new BN(receipt.charged_gas, 16).toString(),
-                output: receipt.output,
-                raw: evmTx.serialize(),
-                v: v,
-                r: r,
-                s: s
-            };
-
-            if (!isSigned)
-                txBody['from'] = fromAddr;
-
-            else
-                txBody['from'] = evmTx.getSenderAddress().toString().toLowerCase();
-
-            if (receipt.logs) {
-                txBody.logs = receipt.logs;
-                if (txBody.logs.length === 0) {
-                    delete txBody['logs'];
-                } else {
-                    //console.log('------- LOGS -----------');
-                    //console.log(txBody['logs']);
-                    const bloom = new Bloom();
-                    for (const log of txBody['logs']) {
-                        bloom.add(Buffer.from(log['address'].padStart(40, '0'), 'hex'));
-                        for (const topic of log.topics)
-                            bloom.add(Buffer.from(topic.padStart(64, '0'), 'hex'));
-                    }
-
-                    txBody['logsBloom'] = bloom.bitvector.toString('hex');
-                }
-            }
-
-            if (receipt.errors) {
-                txBody['errors'] = receipt.errors;
-                if (txBody['errors'].length === 0) {
-                    delete txBody['errors'];
-                } else {
-                    //console.log('------- ERRORS -----------');
-                    //console.log(txBody['errors'])
-                }
-            }
-
-            return txBody;
-        } catch (error) {
-            return new TxDeserializationError(
-                'Raw EVM deserialization error',
-                {
-                    'nativeBlockHash': nativeBlockHash,
-                    'tx': tx,
-                    'block_num': blockNum,
-                    'error': error.message
-                }
-            );
-        }
-    }
-
-    async handleEvmDeposit(
-        nativeBlockHash: string,
-        trx_index: number,
-        blockNum: number,
-        tx: EosioEvmDeposit
-    ): Promise<StorageEvmTransaction | TxDeserializationError> {
-        const quantity = parseAsset(tx.quantity);
-
-        let toAddr = null;
-        if (!tx.memo.startsWith('0x')) {
-            const address = await queryAddress(tx.from, this.rpc, this.logger);
-
-            if (address) {
-                toAddr = `0x${address}`;
-            } else {
-                return new TxDeserializationError(
-                    "User deposited without registering",
-                    {
-                        'nativeBlockHash': nativeBlockHash,
-                        'tx': tx,
-                        'block_num': blockNum
-                    });
-            }
-        } else {
-            if (isValidAddress(tx.memo))
-                toAddr = tx.memo;
-
-            else {
-                const address = await queryAddress(tx.from, this.rpc, this.logger);
-
-                if (!address) {
-                    return new TxDeserializationError(
-                        "User deposited to an invalid address",
-                        {
-                            'nativeBlockHash': nativeBlockHash,
-                            'tx': tx,
-                            'block_num': blockNum
-                        });
-                }
-
-                toAddr = `0x${address}`;
-            }
-        }
-
-        const [v, r, s] = generateUniqueVRS(
-            nativeBlockHash, ZERO_ADDR, trx_index);
-
-        const txParams = {
-            nonce: 0,
-            gasPrice: stdGasPrice,
-            gasLimit: stdGasLimit,
-            to: toAddr,
-            value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
-            data: "0x",
-            v: v,
-            r: r,
-            s: s
-        };
-
-        try {
-            const evmTx = TEVMTransaction.fromTxData(
-                txParams, {common: this.evmCommon});
-            const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
-            const inputData = '0x' + evmTx.data?.toString('hex');
-            const txBody: StorageEvmTransaction = {
-                hash: '0x' + evmTx.hash()?.toString('hex'),
-                from: ZERO_ADDR,
-                trx_index: trx_index,
-                block: blockNum,
-                block_hash: "",
-                to: evmTx.to?.toString(),
-                input_data: inputData,
-                input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-                value: evmTx.value?.toString(16),
-                value_d: tx.quantity,
-                nonce: evmTx.nonce?.toString(),
-                gas_price: evmTx.gasPrice?.toString(),
-                gas_limit: evmTx.gasLimit.toString(),
-                status: 1,
-                itxs: new Array(),
-                epoch: 0,
-                createdaddr: "",
-                gasused: gasUsed.toString(),
-                gasusedblock: '',
-                charged_gas_price: '0',
-                output: "",
-                raw: evmTx.serialize(),
-                v: v,
-                r: r,
-                s: s
-            };
-
-            return txBody;
-
-        } catch (error) {
-            return new TxDeserializationError(
-                error.message,
-                {
-                    'nativeBlockHash': nativeBlockHash,
-                    'tx': tx,
-                    'block_num': blockNum
-                });
-        }
-    }
-
-    async handleEvmWithdraw(
-        nativeBlockHash: string,
-        trx_index: number,
-        blockNum: number,
-        tx: EosioEvmWithdraw
-    ): Promise<StorageEvmTransaction | TxDeserializationError> {
-        const address = await queryAddress(tx.to, this.rpc, this.logger);
-
-        const quantity = parseAsset(tx.quantity);
-
-        const [v, r, s] = generateUniqueVRS(
-            nativeBlockHash, address, trx_index);
-
-        const txParams = {
-            nonce: 0,
-            gasPrice: stdGasPrice,
-            gasLimit: stdGasLimit,
-            to: ZERO_ADDR,
-            value: (new BN(quantity.amount)).mul(new BN('100000000000000')),
-            data: "0x",
-            v: v,
-            r: r,
-            s: s
-        };
-        try {
-            const evmTx = new TEVMTransaction(
-                txParams, {common: this.evmCommon});
-            const gasUsed = new BN(removeHexPrefix(stdGasLimit), 16);
-            const inputData = '0x' + evmTx.data?.toString('hex');
-            const txBody: StorageEvmTransaction = {
-                hash: '0x' + evmTx.hash()?.toString('hex'),
-                from: '0x' + address.toLowerCase(),
-                trx_index: trx_index,
-                block: blockNum,
-                block_hash: "",
-                to: evmTx.to?.toString(),
-                input_data: inputData,
-                input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-                value: evmTx.value?.toString(16),
-                value_d: tx.quantity,
-                nonce: evmTx.nonce?.toString(),
-                gas_price: evmTx.gasPrice?.toString(),
-                gas_limit: evmTx.gasLimit?.toString(),
-                status: 1,
-                itxs: new Array(),
-                epoch: 0,
-                createdaddr: "",
-                gasused: gasUsed.toString(),
-                gasusedblock: '',
-                charged_gas_price: '0',
-                output: "",
-                raw: evmTx.serialize(),
-                v: v,
-                r: r,
-                s: s
-            };
-
-            return txBody;
-
-        } catch (error) {
-            return new TxDeserializationError(
-                error.message,
-                {
-                    'nativeBlockHash': nativeBlockHash,
-                    'tx': tx,
-                    'block_num': blockNum
-                });
-        }
     }
 };

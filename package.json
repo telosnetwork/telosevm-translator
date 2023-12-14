@@ -8,7 +8,7 @@
   "scripts": {
     "bootstrap": "sh -c 'yarn && cd node_modules/@eosrio/hyperion-sequential-reader && npm i && npx tsc'",
     "build": "npm run bootstrap && npx tsc",
-    "start": "node --expose-gc build/src/main.js",
+    "start": "node --expose-gc build/main.js",
     "test": "mocha build/tests/**/*.spec.js --timeout 120000",
     "elastic-start": "node scripts/elastic-start.mjs",
     "elastic-stop": "node scripts/elastic-stop.mjs",
