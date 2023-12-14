@@ -65,34 +65,30 @@ export class Connector {
 
         this.logger.info(`Updating index templates for ${this.chainName}...`);
         let updateCounter = 0;
-        const indexTasks = [];
         for (const index of indicesList) {
-            indexTasks.push(async function ()  {
-                try {
-                    if (indexConfig[index.name]) {
-                        const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
-                            name: `${this.chainName}-${index.type}`,
-                            body: indexConfig[index.name]
-                        });
-                        if (!creation_status || !creation_status['acknowledged']) {
-                            this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
-                        } else {
-                            updateCounter++;
-                            this.logger.info(`${this.chainName}-${index.type} template updated!`);
-                        }
+            try {
+                if (indexConfig[index.name]) {
+                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
+                        name: `${this.chainName}-${index.type}`,
+                        body: indexConfig[index.name]
+                    });
+                    if (!creation_status || !creation_status['acknowledged']) {
+                        this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
                     } else {
-                        this.logger.warn(`${index.name} template not found!`);
+                        updateCounter++;
+                        this.logger.info(`${this.chainName}-${index.type} template updated!`);
                     }
-                } catch (e) {
-                    this.logger.error(`[FATAL] ${e.message}`);
-                    if (e.meta) {
-                        this.logger.error(e.meta.body);
-                    }
-                    process.exit(1);
+                } else {
+                    this.logger.warn(`${index.name} template not found!`);
                 }
-            });
+            } catch (e) {
+                this.logger.error(`[FATAL] ${e.message}`);
+                if (e.meta) {
+                    this.logger.error(e.meta.body);
+                }
+                process.exit(1);
+            }
         }
-        await Promise.all(indexTasks);
         this.logger.info(`${updateCounter} index templates updated`);
     }
 

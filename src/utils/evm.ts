@@ -1,4 +1,4 @@
-import {BlockHeader} from "@ethereumjs/block";
+import {BlockHeader, BlockOptions, HeaderData} from "@ethereumjs/block";
 import {addHexPrefix} from '@ethereumjs/util';
 import {StorageEvmTransaction} from "../types/evm.js";
 import {Trie} from "@ethereumjs/trie";
@@ -12,11 +12,18 @@ import {nameToUint64} from "./eosio.js";
 import {sleep} from "./indexer.js";
 import moment from "moment";
 
+export function numberToHex(num: number): string {
+    let hex = num.toString(16);
+    if (hex.length % 2 !== 0) {
+        hex = '0' + hex;
+    }
+    return '0x' + hex;
+}
 
 export function arrayToHex(array: Uint8Array) {
     if (!array)
         return '';
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').toLowerCase();
 }
 
 export function removeHexPrefix(str: string) {
@@ -99,6 +106,16 @@ export function generateUniqueVRS(
  */
 
 export class TEVMBlockHeader extends BlockHeader {
+
+    /**
+     * Static constructor to create a block header from a header data dictionary
+     *
+     * @param headerData
+     * @param opts
+     */
+    public static fromHeaderData(headerData: HeaderData = {}, opts: BlockOptions = {}) {
+        return new TEVMBlockHeader(headerData, opts)
+    }
 
     /**
      * Validates extra data is DAO_ExtraData for DAO_ForceExtraDataRange blocks after DAO

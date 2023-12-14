@@ -10,7 +10,6 @@
     "wsEndpoint": "ws://127.0.0.1:18999",
 
     "evmBlockDelta": 36,
-    "evmDeployBlock": 180698860,
     "evmPrevHash": "",
 
     "startBlock": 37,

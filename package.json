@@ -23,8 +23,9 @@
   "dependencies": {
     "@elastic/elasticsearch": "8.10.0",
     "@eosrio/hyperion-sequential-reader": "https://github.com/eosrio/hyperion-sequential-reader.git#hist_buf_size",
+    "ethereum-cryptography": "2.1.2",
     "@ethereumjs/common": "4.1.0",
-    "@ethereumjs/devp2p": "^6.0.1",
+    "@ethereumjs/block": "5.0.1",
     "@ethereumjs/tx": "5.1.0",
     "@ethereumjs/util": "9.0.1",
     "@ethereumjs/vm": "7.1.0",

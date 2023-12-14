@@ -42,9 +42,6 @@ if (process.env.TELOS_WS_ENDPOINT)
 if (process.env.EVM_BLOCK_DELTA)
     conf.evmBlockDelta = parseInt(process.env.EVM_BLOCK_DELTA, 10);
 
-if (process.env.EVM_DEPLOY_BLOCK)
-    conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
-
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
 

@@ -12,7 +12,7 @@ import {
 import {getRPCClient, parseAsset} from "../utils/eosio.js";
 import {TEVMTransaction} from "../utils/tevm-tx.js";
 import {createLogger, format, transports} from "winston";
-import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress} from "@ethereumjs/util";
+import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress, unpadHex} from "@ethereumjs/util";
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
 
@@ -161,7 +161,7 @@ async function createEvm(
             to: evmTx.to?.toString(),
             input_data: '0x' + inputData,
             input_trimmed: '0x' + inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-            value: bigIntToHex(evmTx.value),
+            value: evmTx.value?.toString(16),
             value_d: (evmTx.value / BigInt('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
             gas_price: evmTx.gasPrice?.toString(),
@@ -170,14 +170,14 @@ async function createEvm(
             itxs: receipt.itxs,
             epoch: receipt.epoch,
             createdaddr: receipt.createdaddr.toLowerCase(),
-            gasused: receipt.gasused.toString(),
+            gasused: BigInt(addHexPrefix(receipt.gasused)).toString(),
             gasusedblock: '',
             charged_gas_price: BigInt(addHexPrefix(receipt.charged_gas)).toString(),
             output: receipt.output,
             raw: evmTx.serialize(),
             v: v.toString(),
-            r: r.toString(),
-            s: s.toString()
+            r: unpadHex(bigIntToHex(r)),
+            s: unpadHex(bigIntToHex(s))
         };
 
         if (!isSigned)
@@ -314,8 +314,8 @@ async function createDeposit(
             output: "",
             raw: evmTx.serialize(),
             v: v.toString(),
-            r: r.toString(),
-            s: s.toString()
+            r: unpadHex(bigIntToHex(r)),
+            s: unpadHex(bigIntToHex(s))
         };
 
         return txBody;
@@ -382,8 +382,8 @@ async function createWithdraw(
                 output: "",
                 raw: evmTx.serialize(),
                 v: v.toString(),
-                r: r.toString(),
-                s: s.toString()
+                r: unpadHex(bigIntToHex(r)),
+                s: unpadHex(bigIntToHex(s))
             };
 
             return txBody;

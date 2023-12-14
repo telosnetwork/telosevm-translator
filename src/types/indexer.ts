@@ -31,7 +31,6 @@ export type IndexerConfig = {
     remoteEndpoint: string;
     wsEndpoint: string;
     evmBlockDelta: number;
-    evmDeployBlock: number;
     evmPrevHash: string;
     evmValidateHash: string;
     startBlock: number;
@@ -59,7 +58,6 @@ export const DEFAULT_CONF = {
     "wsEndpoint": "ws://127.0.0.1:29999",
 
     "evmBlockDelta": 2,
-    "evmDeployBlock": 35,
     "evmPrevHash": "",
     "evmValidateHash": "",
 

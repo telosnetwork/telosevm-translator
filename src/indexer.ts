@@ -11,11 +11,12 @@ import {StorageEosioAction} from './types/evm.js';
 import {Connector} from './database/connector.js';
 
 import {
+    arrayToHex,
     EMPTY_TRIE_BUF,
     generateBlockApplyInfo,
     hexStringToUint8Array,
     isTxDeserializationError,
-    NULL_HASH,
+    NULL_HASH, numberToHex,
     ProcessedBlock,
     StorageEosioDelta, TEVMBlockHeader,
 } from './utils/evm.js'
@@ -32,8 +33,8 @@ import SegfaultHandler from 'segfault-handler';
 import {sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
-import {arrayToHex} from "eosjs/dist/eosjs-serialize.js";
-import {keccak256} from "@ethereumjs/devp2p";
+import {keccak256} from "ethereum-cryptography/keccak.js";
+import * as evm from "@ethereumjs/common";
 
 
 class TEVMEvents extends EventEmitter {}
@@ -43,7 +44,6 @@ export class TEVMIndexer {
     wsEndpoint: string;  // nodoes ship ws endpoint
 
     evmBlockDelta: number;  // number diference between evm and native blck
-    evmDeployBlock: number;  // native block number where telos.evm was deployed
     startBlock: number;  // native block number to start indexer from as defined by env vars or config
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
@@ -79,14 +79,19 @@ export class TEVMIndexer {
 
     private evmDeserializationPool;
 
+    private common: evm.Common;
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
+        this.common = evm.Common.custom({
+            chainId: 1,
+            defaultHardfork: evm.Hardfork.Istanbul
+        }, {baseChain: evm.Chain.Mainnet});
 
         this.endpoint = telosConfig.endpoint;
         this.wsEndpoint = telosConfig.wsEndpoint;
 
         this.evmBlockDelta = telosConfig.evmBlockDelta;
-        this.evmDeployBlock = telosConfig.evmDeployBlock;
 
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
@@ -185,7 +190,7 @@ export class TEVMIndexer {
             'difficulty': BigInt(0),
             'timestamp': BigInt(blockTimestamp.unix()),
             'extraData': hexStringToUint8Array(block.nativeBlockHash)
-        })
+        }, {common: this.common});
 
         const currentBlockHash = arrayToHex(blockHeader.hash());
         const receiptsHash = arrayToHex(blockApplyInfo.receiptsTrie.root());
@@ -293,7 +298,6 @@ export class TEVMIndexer {
 
         // process deltas to catch evm block num
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
-        const evmTransactions = []
         const errors = []
 
         // traces
@@ -331,7 +335,7 @@ export class TEVMIndexer {
                         this.evmDeserializationPool.exec(
                             'createEvm', [
                                 block.blockInfo.this_block.block_id,
-                                evmTransactions.length,
+                                txTasks.length,
                                 currentEvmBlock,
                                 action.act.data,
                                 action.console,  // tx.trace.console
@@ -343,7 +347,7 @@ export class TEVMIndexer {
                         this.evmDeserializationPool.exec(
                             'createWithdraw', [
                                 block.blockInfo.this_block.block_id,
-                                evmTransactions.length,
+                                txTasks.length,
                                 currentEvmBlock,
                                 action.act.data
                             ]
@@ -357,7 +361,7 @@ export class TEVMIndexer {
                     this.evmDeserializationPool.exec(
                         'createDeposit', [
                             block.blockInfo.this_block.block_id,
-                            evmTransactions.length,
+                            txTasks.length,
                             currentEvmBlock,
                             action.act.data
                         ]
@@ -370,6 +374,7 @@ export class TEVMIndexer {
         }
 
         const evmTxs = await Promise.all(txTasks);
+        const evmTransactions = []
 
         let gasUsedBlock = BigInt(0);
         let i = 0;
@@ -379,7 +384,7 @@ export class TEVMIndexer {
                 throw new Error(JSON.stringify(evmTx));
             }
 
-            gasUsedBlock += evmTx.gasused;
+            gasUsedBlock += BigInt(evmTx.gasused);
             evmTx.gasusedblock = gasUsedBlock.toString();
 
             const action = actions[i];
@@ -606,46 +611,46 @@ export class TEVMIndexer {
         const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
 
         const genesisParams = {
-            "alloc": {},
-            "config": {
-                "chainID": this.config.chainId,
-                "homesteadBlock": 0,
-                "eip155Block": 0,
-                "eip158Block": 0
+            alloc: {},
+            config: {
+                chainID: this.config.chainId,
+                homesteadBlock: 0,
+                eip155Block: 0,
+                eip158Block: 0
             },
-            "nonce": "0x0000000000000000",
-            "difficulty": "0x00",
-            "mixhash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "coinbase": "0x0000000000000000000000000000000000000000",
-            "timestamp": "0x" + genesisTimestamp.toString(16),
-            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "extraData": "0x" + this.genesisBlock.id,
-            "gasLimit": "0xffffffff",
-            "uncleHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "transactionsTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "receiptTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "logsBloom": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "number": "0x" + genesisEvmBlockNum.toString(16),
-            "gasUsed": "0x00"
+            nonce: "0x0000000000000000",
+            difficulty: "0x00",
+            mixhash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            coinbase: "0x0000000000000000000000000000000000000000",
+            timestamp: "0x" + genesisTimestamp.toString(16),
+            parentHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            extraData: "0x" + this.genesisBlock.id,
+            gasLimit: "0xffffffff",
+            uncleHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            stateRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            transactionsTrie: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            receiptTrie: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            logsBloom: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            number: numberToHex(genesisEvmBlockNum),
+            gasUsed: "0x00"
         }
 
         const encodedGenesisParams = rlp.encode([
-            hexStringToUint8Array(genesisParams['parentHash']),
-            hexStringToUint8Array(genesisParams['uncleHash']),
-            hexStringToUint8Array(genesisParams['coinbase']),
-            hexStringToUint8Array(genesisParams['stateRoot']),
-            hexStringToUint8Array(genesisParams['transactionsTrie']),
-            hexStringToUint8Array(genesisParams['receiptTrie']),
-            hexStringToUint8Array(genesisParams['logsBloom']),
-            hexStringToUint8Array(genesisParams['difficulty']),
-            hexStringToUint8Array(genesisParams['number']),
-            hexStringToUint8Array(genesisParams['gasLimit']),
-            hexStringToUint8Array(genesisParams['gasUsed']),
-            hexStringToUint8Array(genesisParams['timestamp']),
-            hexStringToUint8Array(genesisParams['extraData']),
-            hexStringToUint8Array(genesisParams['mixhash']),
-            hexStringToUint8Array(genesisParams['nonce'])
+            hexStringToUint8Array(genesisParams.parentHash),
+            hexStringToUint8Array(genesisParams.uncleHash),
+            hexStringToUint8Array(genesisParams.coinbase),
+            hexStringToUint8Array(genesisParams.stateRoot),
+            hexStringToUint8Array(genesisParams.transactionsTrie),
+            hexStringToUint8Array(genesisParams.receiptTrie),
+            hexStringToUint8Array(genesisParams.logsBloom),
+            hexStringToUint8Array(genesisParams.difficulty),
+            hexStringToUint8Array(genesisParams.number),
+            hexStringToUint8Array(genesisParams.gasLimit),
+            hexStringToUint8Array(genesisParams.gasUsed),
+            hexStringToUint8Array(genesisParams.timestamp),
+            hexStringToUint8Array(genesisParams.extraData),
+            hexStringToUint8Array(genesisParams.mixhash),
+            hexStringToUint8Array(genesisParams.nonce)
         ]);
         const genesisHash = keccak256(encodedGenesisParams);
 

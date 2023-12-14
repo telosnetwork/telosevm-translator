@@ -14,7 +14,6 @@ describe('Leap Mock', async function () {
 
     const translatorConfig = cloneDeep(DEFAULT_CONF);
     translatorConfig.evmBlockDelta = 0;
-    translatorConfig.evmDeployBlock = 2;
     translatorConfig.startBlock = 2;
     translatorConfig.perf.stallCounter = 2;
     translatorConfig.perf.elasticDumpSize = 1;
