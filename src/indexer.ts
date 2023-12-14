@@ -106,6 +106,9 @@ export class TEVMIndexer {
             `translator-segfault-${process.pid}.log`);
 
         process.on('unhandledRejection', error => {
+            // @ts-ignore
+            if (error.message == 'Worker terminated')
+                return;
             this.logger.error('Unhandled Rejection');
             this.logger.error(JSON.stringify(error, null, 4));
             // @ts-ignore
@@ -715,23 +718,30 @@ export class TEVMIndexer {
         clearInterval(this.statsTaskId as unknown as number);
         clearInterval(this.stateSwitchTaskId as unknown as number);
 
+        if (this.reader) {
+            try {
+                this.reader.stop();
+            } catch (e) {
+                this.logger.warn(`error stopping reader: ${e.message}`);
+            }
+        }
+
         await this._waitWriteTasks();
 
-        try {
-            this.reader.stop();
-        } catch(e) {
-            this.logger.warn(`error stopping reader: ${e.message}`);
-        }
-        try {
-            await this.connector.deinit();
-        } catch (e) {
-            this.logger.warn(`error stopping connector: ${e.message}`);
+        if (this.connector) {
+            try {
+                await this.connector.deinit();
+            } catch (e) {
+                this.logger.warn(`error stopping connector: ${e.message}`);
+            }
         }
 
-        try {
-            await this.evmDeserializationPool.terminate(true);
-        } catch (e) {
-            this.logger.warn(`error stopping thread pool: ${e.message}`);
+        if (this.evmDeserializationPool) {
+            try {
+                await this.evmDeserializationPool.terminate(true);
+            } catch (e) {
+                this.logger.warn(`error stopping thread pool: ${e.message}`);
+            }
         }
 
         // if (process.env.LOG_LEVEL == 'debug')
