@@ -12,7 +12,7 @@ import {
 import {getRPCClient, parseAsset} from "../utils/eosio.js";
 import {TEVMTransaction} from "../utils/tevm-tx.js";
 import {createLogger, format, transports} from "winston";
-import {bigIntToHex, isHexPrefixed, isValidAddress} from "@ethereumjs/util";
+import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress} from "@ethereumjs/util";
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
 
@@ -172,12 +172,12 @@ async function createEvm(
             createdaddr: receipt.createdaddr.toLowerCase(),
             gasused: receipt.gasused.toString(),
             gasusedblock: '',
-            charged_gas_price: BigInt(receipt.charged_gas).toString(),
+            charged_gas_price: BigInt(addHexPrefix(receipt.charged_gas)).toString(),
             output: receipt.output,
             raw: evmTx.serialize(),
-            v: v,
-            r: r,
-            s: s
+            v: v.toString(),
+            r: r.toString(),
+            s: s.toString()
         };
 
         if (!isSigned)

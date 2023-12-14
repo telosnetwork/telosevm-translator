@@ -108,7 +108,11 @@ export class TEVMIndexer {
             if (error.message == 'Worker terminated')
                 return;
             this.logger.error('Unhandled Rejection');
-            this.logger.error(JSON.stringify(error, null, 4));
+            try {
+                this.logger.error(JSON.stringify(error, null, 4));
+            } catch (e) {
+
+            }
             // @ts-ignore
             this.logger.error(error.message);
             // @ts-ignore

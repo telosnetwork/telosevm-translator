@@ -1,6 +1,8 @@
 import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
+import cloneDeep from "lodash.clonedeep";
+import {mergeDeep} from "./utils/misc";
 
 // import heapdump from 'heapdump';
 // 
@@ -9,9 +11,11 @@ import {readFileSync} from "node:fs";
 // });
 
 
-let conf: IndexerConfig = DEFAULT_CONF;
+const conf: IndexerConfig = cloneDeep(DEFAULT_CONF);
+
 try {
-    conf = { ...DEFAULT_CONF, ...JSON.parse(readFileSync('config.json').toString()) };
+    const userConf = JSON.parse(readFileSync('config.json').toString());
+    mergeDeep(conf, userConf);
 } catch (e) { }
 
 if (process.env.LOG_LEVEL)

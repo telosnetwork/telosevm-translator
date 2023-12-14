@@ -209,7 +209,7 @@ export async function generateTxApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         }
 
         const receipt: TxReceipt = {
-            cumulativeGasUsed: BigInt(tx.evmTx.gasusedblock),
+            cumulativeBlockGasUsed: BigInt(tx.evmTx.gasusedblock),
             bitvector: bloom.bitvector,
             logs: logs,
             // @ts-ignore

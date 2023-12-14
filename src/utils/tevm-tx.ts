@@ -1,4 +1,4 @@
-import {LegacyTransaction, TransactionType} from "@ethereumjs/tx";
+import {LegacyTransaction, LegacyTxData, TransactionType} from "@ethereumjs/tx";
 import type { Common } from '@ethereumjs/common';
 
 import type {
@@ -11,6 +11,21 @@ import {validateNoLeadingZeroes} from "@ethereumjs/util";
 type TxValuesArray = AllTypesTxValuesArray[TransactionType.Legacy]
 
 export class TEVMTransaction extends LegacyTransaction {
+    public constructor(txData: LegacyTxData, opts: TxOptions = {}) {
+        super(txData, opts);
+    }
+
+    /**
+     * Instantiate a transaction from a data dictionary.
+     *
+     * Format: { nonce, gasPrice, gasLimit, to, value, data, v, r, s }
+     *
+     * Notes:
+     * - All parameters are optional and have some basic default values
+     */
+    public static fromTxData(txData: LegacyTxData, opts: TxOptions = {}) {
+        return new TEVMTransaction(txData, opts)
+    }
 
     /**
      * Instantiate a transaction from the serialized tx.
@@ -56,7 +71,7 @@ export class TEVMTransaction extends LegacyTransaction {
 
         validateNoLeadingZeroes({ nonce, gasPrice, gasLimit, value, v, r, s })
 
-        return new LegacyTransaction(
+        return new TEVMTransaction(
             {
                 nonce,
                 gasPrice,
@@ -89,7 +104,7 @@ export class TEVMTransaction extends LegacyTransaction {
      * Validates tx's `v` value
      */
     protected _validateTxV(_v?: bigint, common?: Common): Common {
-        return this.common;
+        return common;
     }
 
 }
