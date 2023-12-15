@@ -90,7 +90,8 @@ async function createEvm(
                     'nativeBlockHash': nativeBlockHash,
                     'tx': tx,
                     'block_num': blockNum,
-                    'error': error.message
+                    'error': error.message,
+                    'stack': error.stack
                 }
             );
         }
@@ -222,7 +223,8 @@ async function createEvm(
                 'nativeBlockHash': nativeBlockHash,
                 'tx': tx,
                 'block_num': blockNum,
-                'error': error.message
+                'error': error.message,
+                'stacl': error.stack
             }
         );
     }
@@ -326,7 +328,9 @@ async function createDeposit(
             {
                 'nativeBlockHash': nativeBlockHash,
                 'tx': tx,
-                'block_num': blockNum
+                'block_num': blockNum,
+                'error': error.message,
+                'stack': error.stack
             });
     }
 }
@@ -394,7 +398,9 @@ async function createWithdraw(
                 {
                     'nativeBlockHash': nativeBlockHash,
                     'tx': tx,
-                    'block_num': blockNum
+                    'block_num': blockNum,
+                    'error': error.message,
+                    'stack': error.stack
                 });
         }
 }

@@ -263,10 +263,10 @@ export class TxDeserializationError {
 
     constructor(
         message: string,
-        info: { [key: string]: any }
+        info: { stack?: any, [key: string]: any }
     ) {
         this.info = info;
-        this.stack = (<any>new Error()).stack;
+        this.stack = info.stack ? info.stack : new Error().stack;
         this.timestamp = moment.utc().format();
         this.message = message;
     }

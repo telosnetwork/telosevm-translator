@@ -340,7 +340,10 @@ export class TEVMIndexer {
                                 action.act.data,
                                 action.console,  // tx.trace.console
                             ]
-                        )
+                        ).catch(function(err) {
+                            console.log(err.message)
+                            console.log(err.stack)
+                        })
                     );
                 } else if (action.act.name == "withdraw") {
                     txTasks.push(
