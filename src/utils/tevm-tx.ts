@@ -6,7 +6,6 @@ import type {
     TxOptions,
 } from '@ethereumjs/tx';
 import RLP from "rlp";
-import {validateNoLeadingZeroes} from "@ethereumjs/util";
 
 type TxValuesArray = AllTypesTxValuesArray[TransactionType.Legacy]
 
@@ -66,7 +65,8 @@ export class TEVMTransaction extends LegacyTransaction {
 
         const [nonce, gasPrice, gasLimit, to, value, data, v, r, s] = values
 
-        validateNoLeadingZeroes({ nonce, gasPrice, gasLimit, value, v, r, s })
+        // TELOS: dont validate leading zeros
+        // validateNoLeadingZeroes({ nonce, gasPrice, gasLimit, value, v, r, s })
 
         return new TEVMTransaction(
             {

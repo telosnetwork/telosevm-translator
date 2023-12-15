@@ -103,6 +103,7 @@ async function createEvm(
         const isSigned = evmTx.isSigned();
 
         const evmTxParams = evmTx.toJSON();
+        evmTxParams.value = unpadHex(evmTxParams.value);
 
         let fromAddr = null;
         let v, r, s;
