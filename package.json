@@ -1,14 +1,15 @@
 {
   "name": "telosevm-translator",
-  "version": "0.1a5",
+  "version": "1.0.0-rc7",
   "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
   "repository": "https://github.com/telosnetwork/telosevm-translator",
   "scripts": {
     "bootstrap": "sh -c 'yarn && cd node_modules/@eosrio/hyperion-sequential-reader && npm i && npx tsc'",
-    "build": "npm run bootstrap && npx tsc",
+    "build": "npm run bootstrap && npx tsc && node scripts/create-dist-packages.mjs",
     "start": "npm run build && node --expose-gc build/main.js",
+    "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
     "test": "npm run build && mocha build/tests/**/*.spec.js --timeout 120000",
     "elastic-start": "node scripts/elastic-start.mjs",
     "elastic-stop": "node scripts/elastic-stop.mjs",

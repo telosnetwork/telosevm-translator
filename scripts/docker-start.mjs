@@ -1,11 +1,5 @@
-import { fileURLToPath } from 'node:url';
-import path from 'path';
-import fs from "fs";
 import {spawn} from "child_process";
-
-const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const packageJsonFile = path.join(currentDir, '../package.json');
-const packageInfo = JSON.parse(fs.readFileSync(packageJsonFile, 'utf-8'));
+import {packageInfo} from "../build/utils/indexer.js";
 
 // Spawn the process
 const process = spawn(

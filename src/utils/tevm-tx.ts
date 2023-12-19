@@ -51,6 +51,7 @@ export class TEVMTransaction extends LegacyTransaction {
         // If length is not 6, it has length 9. If v/r/s are empty Uint8Arrays, it is still an unsigned transaction
         // This happens if you get the RLP data from `raw()`
         if (values.length !== 6 && values.length !== 9) {
+            // TELOS: allow for bigger than 9 values.length but only if no trailing bytes
             if (values.length > 10) {
                 let i = 10;
                 while (i < values.length) {

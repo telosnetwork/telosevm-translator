@@ -30,7 +30,7 @@ import rlp from 'rlp';
 import EventEmitter from "events";
 
 import SegfaultHandler from 'segfault-handler';
-import {sleep} from "./utils/indexer.js";
+import {packageInfo, sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
 import {keccak256} from "ethereum-cryptography/keccak.js";
@@ -84,7 +84,7 @@ export class TEVMIndexer {
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
         this.common = evm.Common.custom({
-            chainId: 1,
+            chainId: telosConfig.chainId,
             defaultHardfork: evm.Hardfork.Istanbul
         }, {baseChain: evm.Chain.Mainnet});
 
@@ -857,7 +857,7 @@ export class TEVMIndexer {
     }
 
     printIntroText() {
-        this.logger.info('Telos EVM Translator v1.0.0-rc6');
+        this.logger.info(`Telos EVM Translator v${packageInfo.version}`);
         this.logger.info('Happy indexing!');
     }
 };
