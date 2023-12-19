@@ -555,6 +555,7 @@ export class TEVMIndexer {
 
         } else {
 
+            prevHash = this.config.evmPrevHash;
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
             this.lastBlock = startBlock - 1;
