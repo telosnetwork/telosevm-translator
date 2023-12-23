@@ -11,7 +11,7 @@ const process = spawn(
         '--network=host',
         '--name=telosevm-translator-kibana',
         '--env', 'ELASTICSEARCH_HOSTS=http://localhost:9200',
-        'docker.elasitc.co/kibana/kibana:7.17.4'
+        'docker.elasitc.co/kibana/kibana:8.11.3'
     ]
 );
 

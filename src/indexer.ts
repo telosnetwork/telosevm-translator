@@ -18,7 +18,7 @@ import {
     isTxDeserializationError,
     NULL_HASH, numberToHex,
     ProcessedBlock,
-    StorageEosioDelta, TEVMBlockHeader,
+    StorageEosioDelta,
 } from './utils/evm.js'
 
 import moment from 'moment';
@@ -35,6 +35,7 @@ import {packageInfo, sleep} from "./utils/indexer.js";
 import workerpool from 'workerpool';
 import {keccak256} from "ethereum-cryptography/keccak.js";
 import * as evm from "@ethereumjs/common";
+import { TEVMBlockHeader } from "telos-evm-custom-ds";
 
 
 class TEVMEvents extends EventEmitter {}

@@ -10,11 +10,11 @@ import {
     ZERO_ADDR
 } from "../utils/evm.js";
 import {getRPCClient, parseAsset} from "../utils/eosio.js";
-import {TEVMTransaction} from "../utils/tevm-tx.js";
 import {createLogger, format, transports} from "winston";
 import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress, unpadHex} from "@ethereumjs/util";
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
+import {TEVMTransaction} from "telos-evm-custom-ds";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
