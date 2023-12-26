@@ -7,6 +7,7 @@ import {StorageEosioDelta} from '../utils/evm.js';
 import {StorageEosioAction} from '../types/evm.js';
 import {Logger} from "winston";
 
+
 interface ConfigInterface {
     [key: string]: any;
 };
@@ -610,7 +611,7 @@ export class Connector {
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
 
         const txOperations = blockInfo.transactions.flatMap(
-            doc => [{index: {_index: txIndex}}, doc]);
+            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc.trx_id}`}}, doc]);
 
         const errOperations = blockInfo.errors.flatMap(
             doc => [{index: {_index: errIndex}}, doc]);
@@ -618,7 +619,7 @@ export class Connector {
         const operations = [
             ...errOperations,
             ...txOperations,
-            {index: {_index: dtIndex}}, blockInfo.delta
+            {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
         ];
 
         this.opDrain = [...this.opDrain, ...operations];
