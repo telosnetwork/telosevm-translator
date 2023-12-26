@@ -533,34 +533,34 @@ export class TEVMIndexer {
             return;
         }
 
-        if (this.config.evmPrevHash === '') {
-            if (lastBlock != null &&
-                lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+        if (lastBlock != null &&
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            // if there is a last block found on db other than genesis doc
 
-                if (gap == null) {
-                    ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-                } else {
-                    if (process.argv.includes('--gaps-purge'))
-                        ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                    else
-                        throw new Error(
-                            `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                }
-
-                // Init state tracking attributes
-                this.prevHash = prevHash;
-                this.startBlock = startBlock;
-                this.lastBlock = startBlock - 1;
-                this.connector.lastPushed = this.lastBlock;
+            if (gap == null) {
+                ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+            } else {
+                if (process.argv.includes('--gaps-purge'))
+                    ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                else
+                    throw new Error(
+                        `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
             }
 
-        } else {
+            this.prevHash = prevHash;
+            this.startBlock = startBlock;
+            this.lastBlock = startBlock - 1;
+            this.connector.lastPushed = this.lastBlock;
+
+        } else if (this.config.evmPrevHash != '') {
+            // if there is an evmPrevHash set state directly
 
             prevHash = this.config.evmPrevHash;
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
             this.lastBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
+
         }
 
         if (prevHash)
@@ -582,12 +582,6 @@ export class TEVMIndexer {
         process.env.CHAIN_ID = this.config.chainId.toString();
         process.env.ENDPOINT = this.config.endpoint;
         process.env.LOG_LEVEL = this.config.logLevel;
-
-        // this.evmDeserializationPool = new StaticPool({
-        //     size: this.config.perf.evmWorkerAmount,
-        //     task: './build/workers/evm.js',
-        //     workerData: {chainId: this.config.chainId, logLevel: this.config.logLevel}
-        // });
 
         this.evmDeserializationPool = workerpool.pool(
             './build/workers/handlers.js', {
