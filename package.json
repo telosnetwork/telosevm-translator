@@ -8,6 +8,7 @@
   "scripts": {
     "bootstrap": "sh -c 'yarn && cd node_modules/@eosrio/hyperion-sequential-reader && npm i && npx tsc'",
     "build": "npm run bootstrap && npx tsc && node scripts/create-dist-packages.mjs",
+    "db-check": "npm run build && node build/main.js --only-db-check",
     "start": "npm run build && node --expose-gc build/main.js",
     "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
     "test": "npm run build && mocha build/tests/**/*.spec.js --timeout 120000",

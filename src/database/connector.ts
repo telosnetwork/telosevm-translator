@@ -611,7 +611,7 @@ export class Connector {
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
 
         const txOperations = blockInfo.transactions.flatMap(
-            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc.trx_id}`}}, doc]);
+            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc['@raw'].trx_index}`}}, doc]);
 
         const errOperations = blockInfo.errors.flatMap(
             doc => [{index: {_index: errIndex}}, doc]);
