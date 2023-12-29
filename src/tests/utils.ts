@@ -1,4 +1,4 @@
-import {IndexerState, IndexerConfig} from "../types/indexer.js";
+import {IndexerState, IndexerConfig, IndexedBlockInfo} from "../types/indexer.js";
 import {TEVMIndexer} from "../indexer.js";
 import {Connector} from "../database/connector.js";
 
@@ -61,6 +61,8 @@ import {
 } from "../types/evm.js";
 import {Client} from "@elastic/elasticsearch";
 import cloneDeep from "lodash.clonedeep";
+import {arrayToHex, removeHexPrefix, ZERO_ADDR} from "../utils/evm.js";
+import {Bloom} from "@ethereumjs/vm";
 
 export interface TestContext {
     ctx: ControllerContext;

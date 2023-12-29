@@ -13,6 +13,7 @@
     "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
     "test-mock": "npm run build && mocha build/tests/*.mock.spec.js --timeout 120000 --debug-brk",
     "test-unit": "npm run build && mocha build/tests/*.unit.spec.js --debug-brk",
+    "coverage": "nyc mocha build/tests/*.unit.spec.js",
     "elastic-start": "node scripts/elastic-start.mjs",
     "elastic-stop": "node scripts/elastic-stop.mjs",
     "kibana-start": "node scripts/kibana-start.mjs",
@@ -55,6 +56,7 @@
     "depcheck": "^1.4.7",
     "leap-mock": "0.1.6",
     "mocha": "^10.2.0",
+    "nyc": "^15.1.0",
     "typescript": "4.9.5"
   }
 }

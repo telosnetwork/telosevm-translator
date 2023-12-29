@@ -164,3 +164,10 @@ export const StorageEosioGenesisDeltaSchema = z.object({
 });
 
 export type StorageEosioGenesisDelta = z.infer<typeof StorageEosioGenesisDeltaSchema>;
+
+export function isStorableDocument(obj: any): boolean {
+    // use genesis schema for delta docs as its more permissive
+    const isDelta = StorageEosioGenesisDeltaSchema.safeParse(obj).success;
+    const isAction = StorageEosioActionSchema.safeParse(obj).success;
+    return isAction || isDelta;
+}

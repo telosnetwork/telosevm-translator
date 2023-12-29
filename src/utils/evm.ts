@@ -50,7 +50,7 @@ export function hexStringToUint8Array(hexString: string): Uint8Array {
 }
 
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
-export const NULL_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
+export const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
 export const EMPTY_TRIE_BUF = new Trie().EMPTY_TRIE_ROOT;
 export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
@@ -59,13 +59,13 @@ export const BLOCK_GAS_LIMIT = '0x3b9aca00'
 
 export const NEW_HEADS_TEMPLATE = {
     difficulty: "0x0",
-    extraData: NULL_HASH,
+    extraData: ZERO_HASH,
     gasLimit: BLOCK_GAS_LIMIT,
     miner: ZERO_ADDR,
     nonce: "0x0000000000000000",
-    parentHash: NULL_HASH,
+    parentHash: ZERO_HASH,
     receiptsRoot: EMPTY_TRIE,
-    sha3Uncles: NULL_HASH,
+    sha3Uncles: ZERO_HASH,
     stateRoot: EMPTY_TRIE,
     transactionsRoot: EMPTY_TRIE,
 };

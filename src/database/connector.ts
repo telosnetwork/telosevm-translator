@@ -4,7 +4,7 @@ import {getTemplatesForChain} from './templates.js';
 
 import {Client, estypes} from '@elastic/elasticsearch';
 import {
-    StorageEosioActionSchema,
+    isStorableDocument,
     StorageEosioDelta,
     StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
 } from '../types/evm.js';
@@ -14,11 +14,6 @@ import {Logger} from "winston";
 interface ConfigInterface {
     [key: string]: any;
 };
-
-function getSuffix(blockNum: number, docsPerIndex: number) {
-    const adjustedNum = Math.floor(blockNum / docsPerIndex);
-    return String(adjustedNum).padStart(8, '0');
-}
 
 function indexToSuffixNum(index: string) {
     const spltIndex = index.split('-');
@@ -57,6 +52,11 @@ export class Connector {
         this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
+    }
+
+    getSuffixForBlock(blockNum: number) {
+        const adjustedNum = Math.floor(blockNum / this.config.elastic.docsPerIndex);
+        return String(adjustedNum).padStart(8, '0');
     }
 
     async init() {
@@ -156,7 +156,7 @@ export class Connector {
     }
 
     async getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta> {
-        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const suffix = this.getSuffixForBlock(blockNum);
         try {
             const result = await this.elastic.search({
                 index: `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`,
@@ -492,7 +492,7 @@ export class Connector {
     }
 
     async _deleteBlocksInRange(startBlock: number, endBlock: number) {
-        const targetSuffix = getSuffix(endBlock, this.config.elastic.docsPerIndex);
+        const targetSuffix = this.getSuffixForBlock(endBlock);
         const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
         const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
 
@@ -552,7 +552,7 @@ export class Connector {
 
     async _purgeIndicesNewerThan(blockNum: number) {
         this.logger.info(`purging indices in db from block ${blockNum}...`);
-        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const targetSuffix = this.getSuffixForBlock(blockNum);
         const targetNum = parseInt(targetSuffix);
 
         const deleteList = [];
@@ -595,7 +595,7 @@ export class Connector {
         if (this.totalPushed != 0 && currentBlock != this.lastPushed + 1)
             throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentBlock}`);
 
-        const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
+        const suffix = this.getSuffixForBlock(blockInfo.delta.block_num);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
@@ -643,22 +643,16 @@ export class Connector {
         // fix state flag
         this.lastPushed = lastNonForked;
 
-        const isDatabaseDocument = (obj) => {
-            const isDelta = StorageEosioDeltaSchema.safeParse(obj).success;
-            const isAction = StorageEosioActionSchema.safeParse(obj).success;
-            return isAction || isDelta;
-        };
-
         // clear elastic operations drain
-        let i = this.opDrain.length;
+        let i = this.opDrain.length - 1;
         while (i > 0) {
             const op = this.opDrain[i];
-            if (op && isDatabaseDocument(op) &&
+            if (op && isStorableDocument(op) &&
                 op.block_num > lastNonForked) {
                 this.opDrain.splice(i - 1); // delete indexing info
                 this.opDrain.splice(i);     // delete the document
             }
-            i--;
+            i -= 2;
         }
 
         // clear broadcast queue
@@ -672,7 +666,7 @@ export class Connector {
         }
 
         // write information about fork event
-        const suffix = getSuffix(lastNonForked, this.config.elastic.docsPerIndex);
+        const suffix = this.getSuffixForBlock(lastNonForked);
         const frkIndex = `${this.chainName}-${this.config.elastic.subfix.fork}-${suffix}`;
         this.opDrain.push({index: {_index: frkIndex}});
         this.opDrain.push({timestamp, lastNonForked, lastForked});

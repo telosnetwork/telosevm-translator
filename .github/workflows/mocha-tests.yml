@@ -31,7 +31,12 @@ jobs:
     - name: Build
       run: npm run build
 
-    - name: Tests
-      run: npm run test
+    - name: Unit Tests
+      run: npm run test-unit
+      env:
+        LOG_LEVEL: debug
+
+    - name: Mock Tests
+      run: npm run test-mock
       env:
         LOG_LEVEL: debug

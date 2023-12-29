@@ -16,7 +16,7 @@ import {
     generateBlockApplyInfo,
     hexStringToUint8Array,
     isTxDeserializationError,
-    NULL_HASH, numberToHex,
+    ZERO_HASH, numberToHex,
     ProcessedBlock, removeHexPrefix
 } from './utils/evm.js'
 
@@ -536,7 +536,7 @@ export class TEVMIndexer {
         }
 
         if (lastBlock != null &&
-            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            lastBlock['@evmPrevBlockHash'] != ZERO_HASH) {
             // if there is a last block found on db other than genesis doc
 
             if (gap == null) {
@@ -684,7 +684,7 @@ export class TEVMIndexer {
                     block_num: genesisEvmBlockNum
                 },
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
-                '@evmPrevBlockHash': removeHexPrefix(NULL_HASH),
+                '@evmPrevBlockHash': removeHexPrefix(ZERO_HASH),
                 '@evmBlockHash': this.ethGenesisHash,
             },
             nativeHash: this.genesisBlock.id.toLowerCase(),
