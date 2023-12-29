@@ -1,5 +1,5 @@
-import {StorageEosioActionSchema, StorageEosioDeltaSchema} from "../types/evm.js";
-import {sampleActionDocument, sampleDeltaDocument} from "./samples.js";
+import {StorageEosioActionSchema, StorageEosioDeltaSchema} from "../../types/evm";
+import {sampleActionDocument, sampleDeltaDocument} from "../samples";
 import {assert} from "chai";
 
 describe('Elastic Document Validation', function() {
