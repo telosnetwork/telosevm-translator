@@ -106,56 +106,6 @@ export interface EVMTxWrapper {
     evmTx: StorageEvmTransaction
 };
 
-
-export const DS_TYPES = [
-    'transaction',
-    'code_id',
-    'account_v0',
-    'account_metadata_v0',
-    'code_v0',
-    'contract_table_v0',
-    'contract_row_v0',
-    'contract_index64_v0',
-    'contract_index128_v0',
-    'contract_index256_v0',
-    'contract_index_double_v0',
-    'contract_index_long_double_v0',
-    'account',
-    'account_metadata',
-    'code',
-    'contract_table',
-    'contract_row',
-    'contract_index64',
-    'contract_index128',
-    'contract_index256',
-    'contract_index_double',
-    'contract_index_long_double'
-];
-
-
-export class StorageEosioDelta {
-    "@timestamp": string;
-    block_num: number;
-    "@global": {
-        block_num: number
-    };
-    "@blockHash": string;
-    "@evmBlockHash": string;
-    "@evmPrevBlockHash": string;
-    "@receiptsRootHash": string;
-    "@transactionsRoot": string;
-    gasUsed: string;
-    gasLimit: string;
-    size: string;
-
-    code: string;
-    table: string;
-
-    constructor(obj: Partial<StorageEosioDelta>) {
-        Object.assign(this, obj);
-    }
-}
-
 export class ProcessedBlock {
     nativeBlockHash: string;
     nativeBlockNumber: number;
@@ -261,7 +211,7 @@ export async function queryAddress(
     logger: Logger
 ) {
     const acctInt = nameToUint64(accountName);
-    let retry = 5;
+    let retry = 2;
     let result = null;
     while (retry > 0) {
         retry--;
@@ -295,3 +245,4 @@ export async function queryAddress(
 
     throw new Error(`failed to get eth addr for ${accountName}, int: ${acctInt}`);
 }
+

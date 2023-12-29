@@ -6,7 +6,7 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './t
 
 import {createLogger, format, Logger, transports} from 'winston';
 
-import {StorageEosioAction} from './types/evm.js';
+import {StorageEosioAction, StorageEosioDelta} from './types/evm.js';
 
 import {Connector} from './database/connector.js';
 
@@ -17,8 +17,7 @@ import {
     hexStringToUint8Array,
     isTxDeserializationError,
     NULL_HASH, numberToHex,
-    ProcessedBlock,
-    StorageEosioDelta,
+    ProcessedBlock, removeHexPrefix
 } from './utils/evm.js'
 
 import moment from 'moment';
@@ -35,7 +34,8 @@ import {packageInfo, sleep} from "./utils/indexer.js";
 import workerpool from 'workerpool';
 import {keccak256} from "ethereum-cryptography/keccak.js";
 import * as evm from "@ethereumjs/common";
-import { TEVMBlockHeader } from "telos-evm-custom-ds";
+import {TEVMBlockHeader} from "telos-evm-custom-ds";
+import {HandlerArguments} from "./workers/handlers";
 
 
 class TEVMEvents extends EventEmitter {}
@@ -72,7 +72,7 @@ export class TEVMIndexer {
     private statsTaskId: NodeJS.Timer;
     private stateSwitchTaskId: NodeJS.Timer;
 
-    private irreversibleOnly: boolean;
+    private readonly irreversibleOnly: boolean;
 
     private logger: Logger;
 
@@ -80,7 +80,7 @@ export class TEVMIndexer {
 
     private evmDeserializationPool;
 
-    private common: evm.Common;
+    private readonly common: evm.Common;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -202,7 +202,7 @@ export class TEVMIndexer {
         const storableBlockInfo: IndexedBlockInfo = {
             "transactions": storableActions,
             "errors": block.errors,
-            "delta": new StorageEosioDelta({
+            "delta": {
                 "@timestamp": blockTimestamp.format(),
                 "block_num": block.nativeBlockNumber,
                 "code": "eosio",
@@ -218,7 +218,7 @@ export class TEVMIndexer {
                 "gasUsed": blockApplyInfo.gasUsed.toString(),
                 "gasLimit": blockApplyInfo.gasLimit.toString(),
                 "size": blockApplyInfo.size.toString()
-            }),
+            },
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
             "receiptsRoot": receiptsHash,
@@ -291,6 +291,9 @@ export class TEVMIndexer {
             return;
         }
 
+        if (currentBlock > this.stopBlock)
+            return;
+
         if (currentBlock > this.lastBlock + 1)
             throw new Error(
                 `Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`)
@@ -313,6 +316,16 @@ export class TEVMIndexer {
         ]
         const actions = [];
         const txTasks = [];
+        const startTxTask = (taskType: string, params: HandlerArguments) => {
+            txTasks.push(
+                this.evmDeserializationPool.exec(taskType, [params])
+                    .catch((err) => {
+                        this.logger.error(err.message);
+                        this.logger.error(err.stack);
+                        throw err;
+                    })
+            );
+        };
         for (const action of block.actions) {
             const aDuplicate = actions.find(other => {
                 return other.receipt.act_digest === action.receipt.act_digest
@@ -324,54 +337,38 @@ export class TEVMIndexer {
                 !actionWhitelist.includes(action.act.name))
                 continue;
 
+            const isEvmContract = action.act.account === 'eosio.evm';
+            const isRaw = isEvmContract && action.act.name === 'raw';
+            const isWithdraw = isEvmContract && action.act.name === 'withdraw';
+
+            const isTokenContract = action.act.account === 'eosio.token';
+            const isTransfer = isTokenContract && action.act.name === 'transfer';
+            const isDeposit = isTransfer && action.act.data.to === 'eosio.evm';
+
             // discard transfers to accounts other than eosio.evm
             // and transfers from system accounts
-            if ((action.act.name == "transfer" && action.receiver != "eosio.evm") ||
-                (action.act.name == "transfer" && action.act.data.from in systemAccounts))
+            if ((isTransfer && action.receiver != 'eosio.evm') ||
+                (isTransfer && action.act.data.from in systemAccounts))
                 continue;
 
-            if (action.act.account == "eosio.evm") {
-                if (action.act.name == "raw") {
-                    txTasks.push(
-                        this.evmDeserializationPool.exec(
-                            'createEvm', [
-                                block.blockInfo.this_block.block_id,
-                                txTasks.length,
-                                currentEvmBlock,
-                                action.act.data,
-                                action.console,  // tx.trace.console
-                            ]
-                        ).catch(function(err) {
-                            console.log(err.message)
-                            console.log(err.stack)
-                        })
-                    );
-                } else if (action.act.name == "withdraw") {
-                    txTasks.push(
-                        this.evmDeserializationPool.exec(
-                            'createWithdraw', [
-                                block.blockInfo.this_block.block_id,
-                                txTasks.length,
-                                currentEvmBlock,
-                                action.act.data
-                            ]
-                        )
-                    );
-                }
-            } else if (action.act.account == "eosio.token" &&
-                action.act.name == "transfer" &&
-                action.act.data.to == "eosio.evm") {
-                txTasks.push(
-                    this.evmDeserializationPool.exec(
-                        'createDeposit', [
-                            block.blockInfo.this_block.block_id,
-                            txTasks.length,
-                            currentEvmBlock,
-                            action.act.data
-                        ]
-                    )
-                );
-            } else
+            const params: HandlerArguments = {
+                nativeBlockHash: block.blockInfo.this_block.block_id,
+                trx_index: txTasks.length,
+                blockNum: currentEvmBlock,
+                tx: action.act.data,
+                consoleLog: action.console
+            };
+
+            if (isRaw)
+                startTxTask('createEvm', params);
+
+            else if (isWithdraw)
+                startTxTask('createWithdraw', params);
+
+            else if (isDeposit)
+                startTxTask('createDeposit', params);
+
+            else
                 continue;
 
             actions.push(action);
@@ -422,6 +419,11 @@ export class TEVMIndexer {
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
         this.events.emit('push-block', storableBlockInfo);
+
+        if (currentBlock == this.stopBlock) {
+            await this.stop();
+            return;
+        }
 
         // For debug stats
         this.pushedLastUpdate++;
@@ -492,7 +494,7 @@ export class TEVMIndexer {
         this.printIntroText();
 
         let startBlock = this.startBlock;
-        let prevHash;
+        let prevHash: string;
 
         this.connector = new Connector(this.config, this.logger);
         await this.connector.init();
@@ -675,16 +677,16 @@ export class TEVMIndexer {
         await this.connector.pushBlock({
             transactions: [],
             errors: [],
-            delta: new StorageEosioDelta({
+            delta: {
                 '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
                 block_num: this.genesisBlock.block_num,
                 '@global': {
                     block_num: genesisEvmBlockNum
                 },
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
-                '@evmPrevBlockHash': NULL_HASH,
+                '@evmPrevBlockHash': removeHexPrefix(NULL_HASH),
                 '@evmBlockHash': this.ethGenesisHash,
-            }),
+            },
             nativeHash: this.genesisBlock.id.toLowerCase(),
             parentHash: '',
             receiptsRoot: '',
@@ -754,7 +756,6 @@ export class TEVMIndexer {
                 this.logger.error(e);
                 this.logger.warn(`couldn\'t get genesis block ${this.startBlock - 1} retrying in 5 sec...`);
                 await sleep(5000);
-                continue
             }
         }
         return genesisBlock;
@@ -856,4 +857,4 @@ export class TEVMIndexer {
         this.logger.info(`Telos EVM Translator v${packageInfo.version}`);
         this.logger.info('Happy indexing!');
     }
-};
+}

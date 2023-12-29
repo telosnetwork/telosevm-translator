@@ -1,6 +1,6 @@
 {
   "name": "telosevm-translator",
-  "version": "1.0.0-rc7",
+  "version": "1.0.0-rc8",
   "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
@@ -11,7 +11,8 @@
     "db-check": "npm run build && node build/main.js --only-db-check",
     "start": "npm run build && node --expose-gc build/main.js",
     "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
-    "test": "npm run build && mocha build/tests/**/*.spec.js --timeout 120000",
+    "test-mock": "npm run build && mocha build/tests/*.mock.spec.js --timeout 120000 --debug-brk",
+    "test-unit": "npm run build && mocha build/tests/*.unit.spec.js --debug-brk",
     "elastic-start": "node scripts/elastic-start.mjs",
     "elastic-stop": "node scripts/elastic-stop.mjs",
     "kibana-start": "node scripts/kibana-start.mjs",
@@ -31,6 +32,7 @@
     "@ethereumjs/util": "9.0.1",
     "@ethereumjs/vm": "7.1.0",
     "@greymass/eosio": "0.6.11",
+    "commander": "^11.1.0",
     "eosjs": "22.1.0",
     "ethereum-cryptography": "2.1.2",
     "lodash.clonedeep": "^4.5.0",
@@ -41,7 +43,8 @@
     "telos-evm-custom-ds": "1.0.2",
     "uWebSockets.js": "uNetworking/uWebSockets.js#v20.15.0",
     "winston": "3.8.2",
-    "workerpool": "^8.0.0"
+    "workerpool": "^8.0.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/chai": "^4.3.11",

@@ -3,8 +3,11 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js
 import {getTemplatesForChain} from './templates.js';
 
 import {Client, estypes} from '@elastic/elasticsearch';
-import {StorageEosioDelta} from '../utils/evm.js';
-import {StorageEosioAction} from '../types/evm.js';
+import {
+    StorageEosioActionSchema,
+    StorageEosioDelta,
+    StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
+} from '../types/evm.js';
 import {Logger} from "winston";
 
 
@@ -13,7 +16,8 @@ interface ConfigInterface {
 };
 
 function getSuffix(blockNum: number, docsPerIndex: number) {
-    return String(Math.floor(blockNum / docsPerIndex)).padStart(8, '0');
+    const adjustedNum = Math.floor(blockNum / docsPerIndex);
+    return String(adjustedNum).padStart(8, '0');
 }
 
 function indexToSuffixNum(index: string) {
@@ -127,7 +131,31 @@ export class Connector {
         return deltaIndices;
     }
 
-    async getIndexedBlock(blockNum: number) {
+    private unwrapSingleElasticResult(result) {
+        const hits = result?.hits?.hits;
+
+        if (!hits)
+            throw new Error(`Elastic unwrap error hits undefined`);
+
+        if (hits.length != 1)
+            throw new Error(`Elastic unwrap error expected one and got ${hits.length}`);
+
+        const document = hits[0]._source;
+
+        this.logger.debug(`elastic unwrap document:\n${JSON.stringify(document, null, 4)}`);
+
+        let parseResult = StorageEosioDeltaSchema.safeParse(document);
+        if (parseResult.success)
+            return parseResult.data;
+
+        parseResult = StorageEosioGenesisDeltaSchema.safeParse(document);
+        if (parseResult.success)
+            return parseResult.data;
+
+        throw new Error(`Document is not a valid StorageEosioDelta!`);
+    }
+
+    async getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta> {
         const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
         try {
             const result = await this.elastic.search({
@@ -141,41 +169,14 @@ export class Connector {
                 }
             });
 
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+            return this.unwrapSingleElasticResult(result);
 
         } catch (error) {
             return null;
         }
     }
 
-    async getIndexedBlockEVM(blockNum: number) {
-        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
-        const sufNum = indexToSuffixNum(suffix);
-        const indices: Array<string> = (await this.getOrderedDeltaIndices())
-            .filter((val) =>
-                Math.abs(indexToSuffixNum(val.index) - sufNum) <= 1)
-            .map((val) => val.index);
-
-        try {
-            const result = await this.elastic.search({
-                index: indices,
-                query: {
-                    match: {
-                        '@global.block_num': {
-                            query: blockNum
-                        }
-                    }
-                }
-            });
-
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
-
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async getFirstIndexedBlock() {
+    async getFirstIndexedBlock() : Promise<StorageEosioDelta> {
         const indices = await this.getOrderedDeltaIndices();
 
         if (indices.length == 0)
@@ -191,20 +192,14 @@ export class Connector {
                 ]
             });
 
-            if (result?.hits?.hits?.length == 0)
-                return null;
-
-            const blockDoc = result?.hits?.hits[0]?._source;
-            this.logger.debug(`getFirstIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
-
-            return new StorageEosioDelta(blockDoc);
+            return this.unwrapSingleElasticResult(result);
 
         } catch (error) {
             return null;
         }
     }
 
-    async getLastIndexedBlock() {
+    async getLastIndexedBlock() : Promise<StorageEosioDelta> {
         const indices = await this.getOrderedDeltaIndices();
         if (indices.length == 0)
             return null;
@@ -219,15 +214,10 @@ export class Connector {
                         {"block_num": {"order": "desc"}}
                     ]
                 });
-
-                const blockDoc = result?.hits?.hits[0]?._source;
-
-                this.logger.debug(`getLastIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
-
                 if (result?.hits?.hits?.length == 0)
                     continue;
 
-                return new StorageEosioDelta(blockDoc);
+                return this.unwrapSingleElasticResult(result);
 
             } catch (error) {
                 this.logger.error(error);
@@ -653,12 +643,17 @@ export class Connector {
         // fix state flag
         this.lastPushed = lastNonForked;
 
+        const isDatabaseDocument = (obj) => {
+            const isDelta = StorageEosioDeltaSchema.safeParse(obj).success;
+            const isAction = StorageEosioActionSchema.safeParse(obj).success;
+            return isAction || isDelta;
+        };
+
         // clear elastic operations drain
         let i = this.opDrain.length;
         while (i > 0) {
             const op = this.opDrain[i];
-            if (op && (Object.getPrototypeOf(op) == StorageEosioDelta.prototype ||
-                Object.getPrototypeOf(op) == StorageEosioAction.prototype) &&
+            if (op && isDatabaseDocument(op) &&
                 op.block_num > lastNonForked) {
                 this.opDrain.splice(i - 1); // delete indexing info
                 this.opDrain.splice(i);     // delete the document
@@ -729,4 +724,4 @@ export class Connector {
         if (global.gc) {global.gc();}
     }
 
-};
+}

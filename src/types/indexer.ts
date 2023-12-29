@@ -1,5 +1,5 @@
-import {StorageEosioAction} from './evm.js';
-import {StorageEosioDelta, TxDeserializationError} from '../utils/evm.js';
+import {StorageEosioAction, StorageEosioDelta} from './evm.js';
+import {TxDeserializationError} from '../utils/evm.js';
 
 export type ConnectorConfig = {
     node: string;
@@ -114,22 +114,3 @@ export type StartBlockInfo = {
     startEvmBlock?: number;
     prevHash: string;
 }
-
-export interface ElasticIndex {
-    "health": string;
-    "status": string;
-    "index": string;
-    "uuid": string;
-    "pri": string;
-    "rep": string;
-    "docs.count": string;
-    "docs.deleted": string;
-    "store.size": string;
-    "pri.store.size": string;
-}
-
-export type StorageForkInfo = {
-    timestamp: string;
-    lastNonForked: number;
-    lastForked: number;
-};
