@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": "https://github.com/telosnetwork/telosevm-translator",
   "scripts": {
-    "bootstrap": "sh -c 'yarn && cd node_modules/@eosrio/hyperion-sequential-reader && npm i && npx tsc'",
+    "bootstrap": "yarn",
     "build": "npm run bootstrap && npx tsc && node scripts/create-dist-packages.mjs",
     "db-check": "npm run build && node build/main.js --only-db-check",
     "start": "npm run build && node --expose-gc build/main.js",
@@ -24,7 +24,7 @@
   "type": "module",
   "dependencies": {
     "@elastic/elasticsearch": "8.10.0",
-    "@eosrio/hyperion-sequential-reader": "https://github.com/eosrio/hyperion-sequential-reader.git#hist_buf_size",
+    "@eosrio/hyperion-sequential-reader": "1.2.5",
     "@ethereumjs/block": "5.0.1",
     "@ethereumjs/common": "4.1.0",
     "@ethereumjs/tx": "5.1.0",
@@ -50,7 +50,7 @@
     "@types/node": "^20.10.4",
     "chai": "^4.3.10",
     "depcheck": "^1.4.7",
-    "leap-mock": "0.1.1-rc9",
+    "leap-mock": "0.1.6",
     "mocha": "^10.2.0",
     "typescript": "4.9.5"
   }

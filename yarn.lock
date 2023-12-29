@@ -149,9 +149,10 @@
     tslib "^2.4.0"
     undici "^5.22.1"
 
-"@eosrio/hyperion-sequential-reader@https://github.com/eosrio/hyperion-sequential-reader.git#hist_buf_size":
+"@eosrio/hyperion-sequential-reader@1.2.5":
   version "1.2.5"
-  resolved "https://github.com/eosrio/hyperion-sequential-reader.git#8573e0db7790d66279f640ee41bdbb442cb26236"
+  resolved "https://registry.yarnpkg.com/@eosrio/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.5.tgz#71f75fe042eac8b9714e730d68e6c33e3f2ef742"
+  integrity sha512-PlV6v0LecKRHr/TpvnMMhD3jXTztVfOXnQtYQlwCUsIuwVg6zCKeTNluXYXBsnHMBTzWM2fkZGHf07LjBJ3CbA==
   dependencies:
     "@greymass/eosio" "0.6.11"
     async "^3.2.4"
@@ -1635,11 +1636,13 @@ kuler@^2.0.0:
   resolved "https://registry.yarnpkg.com/kuler/-/kuler-2.0.0.tgz#e2c570a3800388fb44407e851531c1d670b061b3"
   integrity sha512-Xq9nH7KlWZmXAtodXDDRE7vs6DU1gTU8zYDHDiWLSip45Egwq3plLHzPn27NgvzL2r1LMPC1vdqh98sQxtqj4A==
 
-leap-mock@0.1.1-rc9:
-  version "0.1.1-rc9"
-  resolved "https://registry.yarnpkg.com/leap-mock/-/leap-mock-0.1.1-rc9.tgz#0d7e5b4d7f1ac203d7e1835e4ce8bf99e822c18a"
-  integrity sha512-SXCWVpJY0WsgNa7slvTgYG3myGdelwQDQrpmN4kqOzrR0FzbeLd0+nE1h1kcvMcFmE6h3rxrbGXTcuEaANMUEA==
+leap-mock@0.1.6:
+  version "0.1.6"
+  resolved "https://registry.yarnpkg.com/leap-mock/-/leap-mock-0.1.6.tgz#4e5232a29d9047b49f92babe4d1ce6ca62f5ae6f"
+  integrity sha512-YdYxsAIXF2vDxPkrXmc3pzOhCjX5JaXA8HiaWKwIeY3jbVMTt2sHF+t+dRHMZ8bzKxQhu5d6hClP5FJwsIwzbw==
   dependencies:
+    "@ethereumjs/tx" "^5.1.0"
+    "@ethereumjs/util" "^9.0.1"
     "@greymass/eosio" "0.6.11"
     "@types/express" "^4.17.20"
     "@types/ws" "^8.5.8"
@@ -1647,6 +1650,8 @@ leap-mock@0.1.1-rc9:
     axios "^1.6.2"
     commander "^11.1.0"
     express "^4.18.2"
+    lodash.clonedeep "^4.5.0"
+    telos-evm-custom-ds "1.0.0-rc4"
     winston "^3.11.0"
     ws "^8.14.2"
 
@@ -2303,6 +2308,16 @@ supports-preserve-symlinks-flag@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz#6eda4bd344a3c94aea376d4cc31bc77311039e09"
   integrity sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==
+
+telos-evm-custom-ds@1.0.0-rc4:
+  version "1.0.0-rc4"
+  resolved "https://registry.yarnpkg.com/telos-evm-custom-ds/-/telos-evm-custom-ds-1.0.0-rc4.tgz#d11c9ea4db087bd47d27893cb7481a5f0c2aa936"
+  integrity sha512-WaJ7BJQRpEvsZ99PMCDxSkZmzOgFA2Rje9sHKAoavY2zytmffoQEArkrKYin+DGbnh3Tn3C1tDAtJiEbr0i9zA==
+  dependencies:
+    "@ethereumjs/block" "5.0.1"
+    "@ethereumjs/common" "4.1.0"
+    "@ethereumjs/tx" "5.1.0"
+    rlp "3.0.0"
 
 telos-evm-custom-ds@1.0.2:
   version "1.0.2"
