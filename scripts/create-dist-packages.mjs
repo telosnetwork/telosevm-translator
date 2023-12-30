@@ -2,6 +2,7 @@ import { copyFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'path';
 import fs from 'fs';
+import {SCRIPTS_DIR} from "./utils.mjs";
 
 function makeDirectory(directoryPath) {
     const resolvedPath = path.resolve(directoryPath);
@@ -14,13 +15,11 @@ function makeDirectory(directoryPath) {
     }
 }
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url));
-
-makeDirectory(path.join(currentDir, '../build/tests/resources'));
+makeDirectory(path.join(SCRIPTS_DIR, '../build/tests/resources'));
 
 // include package in build
-const src = path.join(currentDir, '../package.json');
-const dest = path.join(currentDir, '../build/package.json');
+const src = path.join(SCRIPTS_DIR, '../package.json');
+const dest = path.join(SCRIPTS_DIR, '../build/package.json');
 
 copyFileSync(src, dest);
 

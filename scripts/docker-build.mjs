@@ -1,33 +1,9 @@
-import {spawn} from "child_process";
+import {runCommand} from "./utils.mjs";
 import {packageInfo} from "../build/utils/indexer.js";
 
-// Spawn the process
-const process = spawn(
+const buildExitCode = await runCommand(
     'docker',
-    ['build', '-t', `telosevm-translator:${packageInfo.version}`, '.']
+    ['build', '-t', `telosevm-translator:${packageInfo.version}`, '.'],
+    console.log
 );
-
-// Handle standard output
-process.stdout.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.log(line);
-        }
-    });
-});
-
-// Handle standard error
-process.stderr.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.error(line);
-        }
-    });
-});
-
-// Handle process exit
-process.on('close', (code) => {
-    console.log(`Process exited with code ${code}`);
-});
+console.log(`Build exited with code ${buildExitCode}`);

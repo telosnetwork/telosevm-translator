@@ -1,29 +1,9 @@
-import {spawn} from "child_process";
+import {runCommand} from "./utils.mjs";
+import {packageInfo} from "../build/utils/indexer.js";
 
-// Spawn the process
-const process = spawn('docker', ['kill', 'leap-mock']);
 
-// Handle standard output
-process.stdout.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.log(line);
-        }
-    });
-});
-
-// Handle standard error
-process.stderr.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.error(line);
-        }
-    });
-});
-
-// Handle process exit
-process.on('close', (code) => {
-    console.log(`Process exited with code ${code}`);
-});
+const stopExitCode = await runCommand(
+    'docker', ['kill', `telosevm-translator:${packageInfo.version}`],
+    console.log
+);
+console.log(`Stop process exited with code ${stopExitCode}`);

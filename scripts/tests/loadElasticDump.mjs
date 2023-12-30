@@ -1,40 +1,12 @@
 import path from "path";
-import {fileURLToPath} from "node:url";
 import {existsSync, readFileSync} from "fs";
 import {Client} from "@elastic/elasticsearch";
-import { spawn } from 'child_process';
 import {Command} from "commander";
+import {runCommand, TEST_RESOURCES_DIR} from "../utils.mjs";
 
-// Function to run a command and stream its output
-async function runCommand(command, args, listener) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args);
-
-        // Handle standard output data
-        child.stdout.on('data', listener);
-
-        // Handle standard error data
-        child.stderr.on('data', listener);
-
-        // Handle error
-        child.on('error', (error) => {
-            console.error(`Error: ${error.message}`);
-            reject(error);
-        });
-
-        // Handle close
-        child.on('close', (code) => {
-            console.log(`Child process exited with code ${code}`);
-            resolve(code);
-        });
-    });
-}
-
-const currentDir = path.dirname(fileURLToPath(import.meta.url));
-export const testResourcesDir = path.join(currentDir, '../../build/tests/resources');
 
 async function maybeLoadElasticDump(dumpName, elasticHost) {
-    const dumpPath = path.join(testResourcesDir, dumpName);
+    const dumpPath = path.join(TEST_RESOURCES_DIR, dumpName);
     if (!existsSync(dumpPath))
         throw new Error(`elasticdump directory not found at ${dumpPath}`);
 
@@ -68,24 +40,23 @@ async function maybeLoadElasticDump(dumpName, elasticHost) {
 
         await es.indices.create({index: indexName});
 
-        const displayProcOutput = (msg) => console.log(msg.toString());
         const mappingArgs = [`--input=${mappingPath}`, `--output=${elasticHost}/${indexName}`, '--type=mapping'];
-        await runCommand('elasticdump', mappingArgs, displayProcOutput);
+        await runCommand('elasticdump', mappingArgs, console.log);
 
         const dataArgs = [
             `--input=${dataPath}`, `--output=${elasticHost}/${indexName}`, '--type=data', '--limit=1000'
         ];
-        await runCommand('elasticdump', dataArgs, displayProcOutput);
+        await runCommand('elasticdump', dataArgs, console.log);
     }
 }
 
 const program = new Command();
 
 program
-    .option('-d, --dumpName [dumpName]', 'Path to elasticdump directory relative to resources')
-    .option('-e, --elasticHost [elasticHost]', 'Elasticsearch client connection info')
-    .action(async (options) => {
-        await maybeLoadElasticDump(options.dumpName, options.elasticHost);
+    .argument('<dumpName>', 'Path to elasticdump directory relative to resources')
+    .argument('<elasticHost>', 'Elasticsearch client connection info')
+    .action(async (dumpName, elasticHost) => {
+        await maybeLoadElasticDump(dumpName, elasticHost);
     });
 
-console.log('test');
+program.parse(process.argv);

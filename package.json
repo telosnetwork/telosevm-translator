@@ -13,16 +13,17 @@
     "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
     "test-mock": "npm run build && mocha build/tests/leap.mock.spec.js --timeout 120000 --debug-brk",
     "test-unit": "npm run build && mocha build/tests/unit/**/*.unit.spec.js --debug-brk",
-    "test-sdn": "npm run build && mocha build/tests/sdn/1mil.spec.js --timeout 120000 --debug-brk",
+    "test-sdn": "npm run build",
     "coverage": "nyc mocha build/tests/*.unit.spec.js",
     "elastic-start": "node scripts/elastic-start.mjs",
     "elastic-stop": "node scripts/elastic-stop.mjs",
     "kibana-start": "node scripts/kibana-start.mjs",
     "kibana-stop": "node scripts/kibana-stop.mjs",
     "docker-build": "npm run build && node scripts/docker-build.mjs",
-    "docker-start": "npm run docker-build && node scripts/docker-run.mjs",
+    "docker-start": "node scripts/docker-start.mjs",
     "docker-stop": "node scripts/docker-stop.mjs",
-    "clean-deps": "rm -rdf node_modules && yarn cache clean"
+    "clean-deps": "rm -rdf node_modules && yarn cache clean",
+    "clean-build": "rm -rdf build/**/*.js build/*.js build/**/*.map"
   },
   "type": "module",
   "dependencies": {
@@ -55,9 +56,12 @@
     "@types/node": "^20.10.4",
     "chai": "^4.3.10",
     "depcheck": "^1.4.7",
-    "leap-mock": "0.1.6",
     "elasticdump": "^6.110.0",
+    "leap-mock": "0.1.6",
+    "lzma-native": "^8.0.6",
     "mocha": "^10.2.0",
+    "node-zstandard": "^1.2.4",
+    "nodejs-file-downloader": "^4.12.1",
     "nyc": "^15.1.0",
     "typescript": "4.9.5"
   }

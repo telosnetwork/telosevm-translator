@@ -1,8 +1,6 @@
-import {spawn} from "child_process";
+import {runCommand} from "./utils.mjs";
 
-
-// Spawn the process
-const process = spawn(
+const launchExitCode = await runCommand(
     'docker',
     [
         'run',
@@ -12,30 +10,7 @@ const process = spawn(
         '--name=telosevm-translator-kibana',
         '--env', 'ELASTICSEARCH_HOSTS=http://localhost:9200',
         'kibana:8.11.3'
-    ]
+    ],
+    console.log
 );
-
-// Handle standard output
-process.stdout.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.log(line);
-        }
-    });
-});
-
-// Handle standard error
-process.stderr.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.error(line);
-        }
-    });
-});
-
-// Handle process exit
-process.on('close', (code) => {
-    console.log(`Process exited with code ${code}`);
-});
+console.log(`Launch process exited with code ${launchExitCode}`);
