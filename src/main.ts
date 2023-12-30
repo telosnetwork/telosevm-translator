@@ -1,6 +1,8 @@
 import {IndexerConfig, DEFAULT_CONF} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
+import cloneDeep from "lodash.clonedeep";
+import {mergeDeep} from "./utils/misc.js";
 
 // import heapdump from 'heapdump';
 // 
@@ -9,9 +11,11 @@ import {readFileSync} from "node:fs";
 // });
 
 
-let conf: IndexerConfig = DEFAULT_CONF;
+const conf: IndexerConfig = cloneDeep(DEFAULT_CONF);
+
 try {
-    conf = { ...DEFAULT_CONF, ...JSON.parse(readFileSync('config.json').toString()) };
+    const userConf = JSON.parse(readFileSync('config.json').toString());
+    mergeDeep(conf, userConf);
 } catch (e) { }
 
 if (process.env.LOG_LEVEL)
@@ -37,9 +41,6 @@ if (process.env.TELOS_WS_ENDPOINT)
 
 if (process.env.EVM_BLOCK_DELTA)
     conf.evmBlockDelta = parseInt(process.env.EVM_BLOCK_DELTA, 10);
-
-if (process.env.EVM_DEPLOY_BLOCK)
-    conf.evmDeployBlock = parseInt(process.env.EVM_DEPLOY_BLOCK, 10);
 
 if (process.env.EVM_PREV_HASH)
     conf.evmPrevHash = process.env.EVM_PREV_HASH;
@@ -74,7 +75,10 @@ if (process.env.ELASTIC_PASSWORD)
 if (process.env.ELASTIC_TIMEOUT)
     conf.elastic.requestTimeout = parseInt(process.env.ELASTIC_TIMEOUT, 10);
 
-if (process.env.WORKER_AMOUNT)
-    conf.perf.workerAmount = parseInt(process.env.WORKER_AMOUNT, 10);
+if (process.env.READER_WORKER_AMOUNT)
+    conf.perf.readerWorkerAmount = parseInt(process.env.READER_WORKER_AMOUNT, 10);
+
+if (process.env.EVM_WORKER_AMOUNT)
+    conf.perf.evmWorkerAmount = parseInt(process.env.EVM_WORKER_AMOUNT, 10);
 
 new TEVMIndexer(conf).launch();

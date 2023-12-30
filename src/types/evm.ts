@@ -64,8 +64,8 @@ export interface StorageEvmTransaction {
     logsBloom?: string,
     errors?: string[],
     value_d?: string,
-    raw?: Buffer,
-    v: number,
+    raw?: Uint8Array,
+    v: string,
     r: string,
     s: string
 }

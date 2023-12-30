@@ -1,11 +1,7 @@
-FROM elasticsearch:7.17.4
+FROM elasticsearch:8.11.3
 
-ENV ES_JAVA_OPTS "-Xms2g -Xmx2g"
-ENV ELASTIC_USERNAME "elastic"
-ENV ELASTIC_PASSWORD "password"
+ENV ES_JAVA_OPTS "-Xms2g -Xmx2g -Des.xpack.security.enabled=false"
 
 COPY elasticsearch.yml /usr/share/elasticsearch/config/
 
-RUN printf "password" | ./bin/elasticsearch-keystore add -f -x "bootstrap.password"
-
-EXPOSE 9200 
+EXPOSE 9200

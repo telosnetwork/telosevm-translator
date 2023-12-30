@@ -6,49 +6,45 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './t
 
 import {createLogger, format, Logger, transports} from 'winston';
 
-import {StorageEosioAction, StorageEvmTransaction} from './types/evm.js';
+import {StorageEosioAction} from './types/evm.js';
 
 import {Connector} from './database/connector.js';
 
 import {
-    BlockHeader,
+    arrayToHex,
     EMPTY_TRIE_BUF,
-    EVMTxWrapper,
-    generateBloom,
-    generateReceiptRootHash,
-    generateTxRootHash,
-    getBlockGas,
-    NULL_HASH,
+    generateBlockApplyInfo,
+    hexStringToUint8Array,
+    isTxDeserializationError,
+    NULL_HASH, numberToHex,
     ProcessedBlock,
-    StorageEosioDelta
+    StorageEosioDelta,
 } from './utils/evm.js'
 
-import BN from 'bn.js';
 import moment from 'moment';
 import {JsonRpc, RpcInterfaces} from 'eosjs';
 import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
-
-import {
-    handleEvmDeposit,
-    handleEvmTx,
-    handleEvmWithdraw,
-    isTxDeserializationError,
-    setCommon,
-    TxDeserializationError
-} from "./handlers.js";
-import * as EthereumUtil from 'ethereumjs-util';
 import rlp from 'rlp';
+import EventEmitter from "events";
 
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+import SegfaultHandler from 'segfault-handler';
+import {packageInfo, sleep} from "./utils/indexer.js";
+
+import workerpool from 'workerpool';
+import {keccak256} from "ethereum-cryptography/keccak.js";
+import * as evm from "@ethereumjs/common";
+import { TEVMBlockHeader } from "telos-evm-custom-ds";
+
+
+class TEVMEvents extends EventEmitter {}
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
     wsEndpoint: string;  // nodoes ship ws endpoint
 
     evmBlockDelta: number;  // number diference between evm and native blck
-    evmDeployBlock: number;  // native block number where telos.evm was deployed
     startBlock: number;  // native block number to start indexer from as defined by env vars or config
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
@@ -74,19 +70,29 @@ export class TEVMIndexer {
     private stallCounter: number = 0;
 
     private statsTaskId: NodeJS.Timer;
+    private stateSwitchTaskId: NodeJS.Timer;
 
     private irreversibleOnly: boolean;
 
     private logger: Logger;
 
+    events = new TEVMEvents();
+
+    private evmDeserializationPool;
+
+    private common: evm.Common;
+
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
+        this.common = evm.Common.custom({
+            chainId: telosConfig.chainId,
+            defaultHardfork: evm.Hardfork.Istanbul
+        }, {baseChain: evm.Chain.Mainnet});
 
         this.endpoint = telosConfig.endpoint;
         this.wsEndpoint = telosConfig.wsEndpoint;
 
         this.evmBlockDelta = telosConfig.evmBlockDelta;
-        this.evmDeployBlock = telosConfig.evmDeployBlock;
 
         this.startBlock = telosConfig.startBlock;
         this.stopBlock = telosConfig.stopBlock;
@@ -99,20 +105,28 @@ export class TEVMIndexer {
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
+        SegfaultHandler.registerHandler(
+            `translator-segfault-${process.pid}.log`);
+
         process.on('unhandledRejection', error => {
+            // @ts-ignore
+            if (error.message == 'Worker terminated')
+                return;
             this.logger.error('Unhandled Rejection');
-            this.logger.error(JSON.stringify(error, null, 4));
+            try {
+                this.logger.error(JSON.stringify(error, null, 4));
+            } catch (e) {
+
+            }
             // @ts-ignore
             this.logger.error(error.message);
             // @ts-ignore
             this.logger.error(error.stack);
-            process.exit(1);
+            throw error;
         });
 
         // if (process.env.LOG_LEVEL == 'debug')
         //     process.on('SIGUSR1', async () => logWhyIsNodeRunning());
-
-        setCommon(telosConfig.chainId);
 
         this.timestampLastUpdate = Date.now() / 1000;
     }
@@ -123,12 +137,12 @@ export class TEVMIndexer {
     updateDebugStats() {
         const now = Date.now() / 1000;
         const timeElapsed = now - this.timestampLastUpdate;
-        const blocksPerSecond = this.pushedLastUpdate / timeElapsed;
+        const blocksPerSecond = parseFloat((this.pushedLastUpdate / timeElapsed).toFixed(1));
 
         if (blocksPerSecond == 0)
             this.stallCounter++;
 
-        if (this.stallCounter > 60) {
+        if (this.stallCounter > this.config.perf.stallCounter) {
             this.logger.info('stall detected... restarting ship reader.');
             this.resetReader();
         }
@@ -149,12 +163,8 @@ export class TEVMIndexer {
 
     resetReader() {
         this.logger.warn("restarting SHIP reader!...");
-        this.reader.ship.close();
-        this.logger.warn("reader stopped, waiting 2 seconds to restart.");
-        setTimeout(() => {
-            this.reader.restart();
-        }, 2000);
-        this.stallCounter = -15;
+        this.reader.restart(0);
+        this.stallCounter = -2;
     }
 
     /*
@@ -164,42 +174,28 @@ export class TEVMIndexer {
     async hashBlock(block: ProcessedBlock) {
         const evmTxs = block.evmTxs;
 
-        // generate valid ethereum hashes
-        const transactionsRoot = await generateTxRootHash(evmTxs);
-        const receiptsRoot = await generateReceiptRootHash(evmTxs);
-        const bloom = generateBloom(evmTxs);
-
-        const {gasUsed, gasLimit, size} = getBlockGas(evmTxs);
-
+        // generate block info derived from applying the transactions to the vm state
+        const blockApplyInfo = await generateBlockApplyInfo(evmTxs);
         const blockTimestamp = moment.utc(block.blockTimestamp);
 
         // generate 'valid' block header
-        const blockHeader = BlockHeader.fromHeaderData({
-            'parentHash': Buffer.from(this.prevHash, 'hex'),
-            'transactionsTrie': transactionsRoot,
-            'receiptTrie': receiptsRoot,
+        const blockHeader = TEVMBlockHeader.fromHeaderData({
+            'parentHash': hexStringToUint8Array(this.prevHash),
+            'transactionsTrie': blockApplyInfo.txsRootHash.root(),
+            'receiptTrie': blockApplyInfo.receiptsTrie.root(),
             'stateRoot': EMPTY_TRIE_BUF,
-            'bloom': bloom,
-            'number': new BN(block.evmBlockNumber),
-            'gasLimit': gasLimit,
-            'gasUsed': gasUsed,
-            'difficulty': new BN(0),
-            'timestamp': new BN(blockTimestamp.unix()),
-            'extraData': Buffer.from(block.nativeBlockHash, 'hex')
-        })
+            'logsBloom': blockApplyInfo.blockBloom.bitvector,
+            'number': BigInt(block.evmBlockNumber),
+            'gasLimit': blockApplyInfo.gasLimit,
+            'gasUsed': blockApplyInfo.gasUsed,
+            'difficulty': BigInt(0),
+            'timestamp': BigInt(blockTimestamp.unix()),
+            'extraData': hexStringToUint8Array(block.nativeBlockHash)
+        }, {common: this.common});
 
-        const currentBlockHash = blockHeader.hash().toString('hex');
-
-        // debug stuff for hash match with 2.0
-        //  const buffs = blockHeader.raw();
-        //  let blockHeaderSize = 0;
-        //  console.log(`raw buffs for block header with hash: \"${currentBlockHash}\"`);
-        //  for (const [i, buf] of buffs.entries()) {
-        //      console.log(`[${i}]: size ${buf.length}, \"${buf.toString('hex')}\"`);
-        //      blockHeaderSize += buf.length;
-        //  }
-        //  console.log(`total header size: ${blockHeaderSize}`);
-
+        const currentBlockHash = arrayToHex(blockHeader.hash());
+        const receiptsHash = arrayToHex(blockApplyInfo.receiptsTrie.root());
+        const txsHash = arrayToHex(blockApplyInfo.txsRootHash.root());
 
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
@@ -217,20 +213,20 @@ export class TEVMIndexer {
                 "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
                 "@blockHash": block.nativeBlockHash,
-                "@receiptsRootHash": receiptsRoot.toString('hex'),
-                "@transactionsRoot": transactionsRoot.toString('hex'),
-                "gasUsed": gasUsed.toString(),
-                "gasLimit": gasLimit.toString(),
-                "size": size.toString()
+                "@receiptsRootHash": receiptsHash,
+                "@transactionsRoot": txsHash,
+                "gasUsed": blockApplyInfo.gasUsed.toString(),
+                "gasLimit": blockApplyInfo.gasLimit.toString(),
+                "size": blockApplyInfo.size.toString()
             }),
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
-            "receiptsRoot": receiptsRoot.toString('hex'),
-            "blockBloom": bloom.toString('hex')
+            "receiptsRoot": receiptsHash,
+            "blockBloom": arrayToHex(blockApplyInfo.blockBloom.bitvector)
         };
 
         if (evmTxs.length > 0) {
-            for (const [i, evmTxData] of evmTxs.entries()) {
+            for (const evmTxData of evmTxs) {
                 evmTxData.evmTx.block_hash = currentBlockHash;
                 delete evmTxData.evmTx['raw'];
                 storableActions.push({
@@ -250,10 +246,7 @@ export class TEVMIndexer {
     }
 
     private async handleStateSwitch() {
-        if (this.state == IndexerState.HEAD)
-            return;
-
-        // SYNC & HEAD mode swtich detection
+        // SYNC & HEAD mode switch detection
         try {
             const remoteHead = (await this.remoteRpc.get_info()).head_block_num;
             const blocksUntilHead = remoteHead - this.lastBlock;
@@ -261,12 +254,26 @@ export class TEVMIndexer {
             this.logger.info(`${blocksUntilHead} until remote head ${remoteHead}`);
 
             if (blocksUntilHead <= 100) {
+                if (this.state == IndexerState.HEAD)
+                    return;
+
                 this.state = IndexerState.HEAD;
                 this.connector.state = IndexerState.HEAD;
 
                 this.logger.info(
                     'switched to HEAD mode! blocks will be written to db asap.');
+
+            } else {
+                if (this.state == IndexerState.SYNC)
+                    return;
+
+                this.state = IndexerState.SYNC;
+                this.connector.state = IndexerState.SYNC;
+
+                this.logger.info(
+                    'switched to SYNC mode! blocks will be written to db in batches.');
             }
+
         } catch (error) {
             this.logger.warn('get_info query to remote failed with error:');
             this.logger.warn(error);
@@ -292,11 +299,9 @@ export class TEVMIndexer {
 
         // process deltas to catch evm block num
         const currentEvmBlock = currentBlock - this.config.evmBlockDelta;
-        const evmTransactions = []
         const errors = []
 
         // traces
-        let gasUsedBlock = new BN(0);
         const systemAccounts = ['eosio', 'eosio.stake', 'eosio.ram'];
         const contractWhitelist = [
             "eosio.evm", "eosio.token",  // evm
@@ -306,10 +311,11 @@ export class TEVMIndexer {
             "raw", "withdraw", "transfer",  // evm
             "exec" // msig deferred sig catch
         ]
-        const actDigests = [];
+        const actions = [];
+        const txTasks = [];
         for (const action of block.actions) {
-            const aDuplicate = actDigests.find(digest => {
-                return digest === action.receipt.act_digest
+            const aDuplicate = actions.find(other => {
+                return other.receipt.act_digest === action.receipt.act_digest
             })
             if (aDuplicate)
                 continue;
@@ -324,58 +330,75 @@ export class TEVMIndexer {
                 (action.act.name == "transfer" && action.act.data.from in systemAccounts))
                 continue;
 
-
-            let evmTx: StorageEvmTransaction | TxDeserializationError = null;
             if (action.act.account == "eosio.evm") {
                 if (action.act.name == "raw") {
-                    evmTx = await handleEvmTx(
-                        block.blockInfo.this_block.block_id,
-                        evmTransactions.length,
-                        currentEvmBlock,
-                        action.act.data,
-                        action.console,  // tx.trace.console,
-                        gasUsedBlock
+                    txTasks.push(
+                        this.evmDeserializationPool.exec(
+                            'createEvm', [
+                                block.blockInfo.this_block.block_id,
+                                txTasks.length,
+                                currentEvmBlock,
+                                action.act.data,
+                                action.console,  // tx.trace.console
+                            ]
+                        ).catch(function(err) {
+                            console.log(err.message)
+                            console.log(err.stack)
+                        })
                     );
                 } else if (action.act.name == "withdraw") {
-                    evmTx = await handleEvmWithdraw(
-                        this.logger,
-                        block.blockInfo.this_block.block_id,
-                        evmTransactions.length,
-                        currentEvmBlock,
-                        action.act.data,
-                        this.rpc,
-                        gasUsedBlock
+                    txTasks.push(
+                        this.evmDeserializationPool.exec(
+                            'createWithdraw', [
+                                block.blockInfo.this_block.block_id,
+                                txTasks.length,
+                                currentEvmBlock,
+                                action.act.data
+                            ]
+                        )
                     );
                 }
             } else if (action.act.account == "eosio.token" &&
                 action.act.name == "transfer" &&
                 action.act.data.to == "eosio.evm") {
-                evmTx = await handleEvmDeposit(
-                    this.logger,
-                    block.blockInfo.this_block.block_id,
-                    evmTransactions.length,
-                    currentEvmBlock,
-                    action.act.data,
-                    this.rpc,
-                    gasUsedBlock
+                txTasks.push(
+                    this.evmDeserializationPool.exec(
+                        'createDeposit', [
+                            block.blockInfo.this_block.block_id,
+                            txTasks.length,
+                            currentEvmBlock,
+                            action.act.data
+                        ]
+                    )
                 );
             } else
                 continue;
 
+            actions.push(action);
+        }
+
+        const evmTxs = await Promise.all(txTasks);
+        const evmTransactions = []
+
+        let gasUsedBlock = BigInt(0);
+        let i = 0;
+        for (const evmTx of evmTxs) {
             if (isTxDeserializationError(evmTx)) {
                 this.logger.error(evmTx.info.error);
                 throw new Error(JSON.stringify(evmTx));
             }
 
-            gasUsedBlock.iadd(new BN(evmTx.gasused, 10));
+            gasUsedBlock += BigInt(evmTx.gasused);
+            evmTx.gasusedblock = gasUsedBlock.toString();
 
+            const action = actions[i];
             evmTransactions.push({
                 trx_id: action.trxId,
                 action_ordinal: action.actionOrdinal,
                 signatures: [],
                 evmTx: evmTx
             });
-            actDigests.push(action.receipt.act_digest);
+            i++;
         }
 
         const newestBlock = new ProcessedBlock({
@@ -398,6 +421,7 @@ export class TEVMIndexer {
 
         // Push to db
         await this.connector.pushBlock(storableBlockInfo);
+        this.events.emit('push-block', storableBlockInfo);
 
         // For debug stats
         this.pushedLastUpdate++;
@@ -414,10 +438,10 @@ export class TEVMIndexer {
 
     startReaderFrom(blockNum: number) {
         this.reader = new HyperionSequentialReader({
-            poolSize: this.config.perf.workerAmount,
+            poolSize: this.config.perf.readerWorkerAmount,
             shipApi: this.wsEndpoint,
             chainApi: this.config.endpoint,
-            blockConcurrency: this.config.perf.workerAmount,
+            blockConcurrency: this.config.perf.readerWorkerAmount,
             blockHistorySize: this.config.blockHistorySize,
             startBlock: blockNum,
             irreversibleOnly: this.irreversibleOnly,
@@ -497,44 +521,46 @@ export class TEVMIndexer {
             } else {
                 if (process.argv.includes('--only-db-check')) {
                     this.logger.warn('--only-db-check on empty database...');
-                    process.exit(0);
+                    await this.connector.deinit();
+                    return;
                 }
             }
         }
 
         if (process.argv.includes('--only-db-check')) {
             this.logger.info('--only-db-check passed exiting...');
-            process.exit(0);
+            await this.connector.deinit();
+            return;
         }
 
-        if (this.config.evmPrevHash === '') {
-            if (lastBlock != null &&
-                lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+        if (lastBlock != null &&
+            lastBlock['@evmPrevBlockHash'] != NULL_HASH) {
+            // if there is a last block found on db other than genesis doc
 
-                if (gap == null) {
-                    ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
-                } else {
-                    if (process.argv.includes('--gaps-purge'))
-                        ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
-                    else {
-                        this.logger.warn(`Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
-                        process.exit(1);
-                    }
-                }
-
-                // Init state tracking attributes
-                this.prevHash = prevHash;
-                this.startBlock = startBlock;
-                this.lastBlock = startBlock - 1;
-                this.connector.lastPushed = this.lastBlock;
+            if (gap == null) {
+                ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
+            } else {
+                if (process.argv.includes('--gaps-purge'))
+                    ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
+                else
+                    throw new Error(
+                        `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
             }
 
-        } else {
+            this.prevHash = prevHash;
+            this.startBlock = startBlock;
+            this.lastBlock = startBlock - 1;
+            this.connector.lastPushed = this.lastBlock;
 
+        } else if (this.config.evmPrevHash != '') {
+            // if there is an evmPrevHash set state directly
+
+            prevHash = this.config.evmPrevHash;
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
             this.lastBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
+
         }
 
         if (prevHash)
@@ -553,14 +579,25 @@ export class TEVMIndexer {
                     `Error when doing start block check: ${error.message}`);
         }
 
-        setInterval(() => this.handleStateSwitch(), 10 * 1000);
+        process.env.CHAIN_ID = this.config.chainId.toString();
+        process.env.ENDPOINT = this.config.endpoint;
+        process.env.LOG_LEVEL = this.config.logLevel;
 
-        this.logger.info(`Starting with ${this.config.perf.workerAmount} workers`);
+        this.evmDeserializationPool = workerpool.pool(
+            './build/workers/handlers.js', {
+            minWorkers: this.config.perf.evmWorkerAmount,
+            maxWorkers: this.config.perf.evmWorkerAmount,
+            workerType: 'thread'
+        });
+
+        this.logger.info('Initializing ws broadcast...')
+        this.connector.startBroadcast();
 
         this.startReaderFrom(startBlock);
 
         // Launch bg routines
         this.statsTaskId = setInterval(() => this.updateDebugStats(), 1000);
+        this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
     async genesisBlockInitialization() {
@@ -573,50 +610,50 @@ export class TEVMIndexer {
         const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
 
         const genesisParams = {
-            "alloc": {},
-            "config": {
-                "chainID": this.config.chainId,
-                "homesteadBlock": 0,
-                "eip155Block": 0,
-                "eip158Block": 0
+            alloc: {},
+            config: {
+                chainID: this.config.chainId,
+                homesteadBlock: 0,
+                eip155Block: 0,
+                eip158Block: 0
             },
-            "nonce": "0x0000000000000000",
-            "difficulty": "0x00",
-            "mixhash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "coinbase": "0x0000000000000000000000000000000000000000",
-            "timestamp": "0x" + genesisTimestamp.toString(16),
-            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "extraData": "0x" + this.genesisBlock.id,
-            "gasLimit": "0xffffffff",
-            "uncleHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "transactionsTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "receiptTrie": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "logsBloom": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "number": "0x" + genesisEvmBlockNum.toString(16),
-            "gasUsed": "0x00"
+            nonce: "0x0000000000000000",
+            difficulty: "0x00",
+            mixhash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            coinbase: "0x0000000000000000000000000000000000000000",
+            timestamp: "0x" + genesisTimestamp.toString(16),
+            parentHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            extraData: "0x" + this.genesisBlock.id,
+            gasLimit: "0xffffffff",
+            uncleHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            stateRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            transactionsTrie: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            receiptTrie: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            logsBloom: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            number: numberToHex(genesisEvmBlockNum),
+            gasUsed: "0x00"
         }
 
         const encodedGenesisParams = rlp.encode([
-            EthereumUtil.toBuffer(genesisParams['parentHash']),
-            EthereumUtil.toBuffer(genesisParams['uncleHash']),
-            EthereumUtil.toBuffer(genesisParams['coinbase']),
-            EthereumUtil.toBuffer(genesisParams['stateRoot']),
-            EthereumUtil.toBuffer(genesisParams['transactionsTrie']),
-            EthereumUtil.toBuffer(genesisParams['receiptTrie']),
-            EthereumUtil.toBuffer(genesisParams['logsBloom']),
-            EthereumUtil.toBuffer(genesisParams['difficulty']),
-            EthereumUtil.toBuffer(genesisParams['number']),
-            EthereumUtil.toBuffer(genesisParams['gasLimit']),
-            EthereumUtil.toBuffer(genesisParams['gasUsed']),
-            EthereumUtil.toBuffer(genesisParams['timestamp']),
-            EthereumUtil.toBuffer(genesisParams['extraData']),
-            EthereumUtil.toBuffer(genesisParams['mixhash']),
-            EthereumUtil.toBuffer(genesisParams['nonce'])
+            hexStringToUint8Array(genesisParams.parentHash),
+            hexStringToUint8Array(genesisParams.uncleHash),
+            hexStringToUint8Array(genesisParams.coinbase),
+            hexStringToUint8Array(genesisParams.stateRoot),
+            hexStringToUint8Array(genesisParams.transactionsTrie),
+            hexStringToUint8Array(genesisParams.receiptTrie),
+            hexStringToUint8Array(genesisParams.logsBloom),
+            hexStringToUint8Array(genesisParams.difficulty),
+            hexStringToUint8Array(genesisParams.number),
+            hexStringToUint8Array(genesisParams.gasLimit),
+            hexStringToUint8Array(genesisParams.gasUsed),
+            hexStringToUint8Array(genesisParams.timestamp),
+            hexStringToUint8Array(genesisParams.extraData),
+            hexStringToUint8Array(genesisParams.mixhash),
+            hexStringToUint8Array(genesisParams.nonce)
         ]);
-        const genesisHash = EthereumUtil.keccak256(Buffer.from(encodedGenesisParams));
+        const genesisHash = keccak256(encodedGenesisParams);
 
-        this.ethGenesisHash = genesisHash.toString('hex');
+        this.ethGenesisHash = arrayToHex(genesisHash);
 
         if (this.config.evmValidateHash != "" &&
             this.ethGenesisHash != this.config.evmValidateHash) {
@@ -669,14 +706,37 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
-        // if (process.env.LOG_LEVEL == 'debug')
-        //     logWhyIsNodeRunning();
-
         clearInterval(this.statsTaskId as unknown as number);
+        clearInterval(this.stateSwitchTaskId as unknown as number);
+
+        if (this.reader) {
+            try {
+                this.reader.stop();
+            } catch (e) {
+                this.logger.warn(`error stopping reader: ${e.message}`);
+            }
+        }
 
         await this._waitWriteTasks();
 
-        process.exit(0);
+        if (this.connector) {
+            try {
+                await this.connector.deinit();
+            } catch (e) {
+                this.logger.warn(`error stopping connector: ${e.message}`);
+            }
+        }
+
+        if (this.evmDeserializationPool) {
+            try {
+                await this.evmDeserializationPool.terminate(true);
+            } catch (e) {
+                this.logger.warn(`error stopping thread pool: ${e.message}`);
+            }
+        }
+
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     logWhyIsNodeRunning();
     }
 
     /*
@@ -709,12 +769,9 @@ export class TEVMIndexer {
         // another indexer is running
         await sleep(3000);
         const newlastBlock = await this.connector.getLastIndexedBlock();
-        if (lastBlock.block_num != newlastBlock.block_num) {
-            this.logger.error(
+        if (lastBlock.block_num != newlastBlock.block_num)
+            throw new Error(
                 'New last block check failed probably another indexer is running, abort...');
-
-            process.exit(2);
-        }
 
         let startBlock = lastBlock.block_num;
 
@@ -796,7 +853,7 @@ export class TEVMIndexer {
     }
 
     printIntroText() {
-        this.logger.info('Telos EVM Translator v1.0.0-rc6');
+        this.logger.info(`Telos EVM Translator v${packageInfo.version}`);
         this.logger.info('Happy indexing!');
     }
 };

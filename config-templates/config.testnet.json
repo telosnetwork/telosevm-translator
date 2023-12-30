@@ -10,14 +10,14 @@
     "wsEndpoint": "ws://141.193.240.11:18993",
 
     "evmBlockDelta": 57,
-    "evmDeployBlock": 136393814,
-    "evmValidateHash": "",
+    "evmPrevHash": "8e149fd918bad5a4adfe6f17478e46643f7db7292a2b7b9247f48dc85bdeec94",
 
     "startBlock": 136393814,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
-        "workerAmount": 4,
+        "readerWorkerAmount": 4,
+        "evmWorkerAmount": 4,
         "elasticDumpSize": 2048
     },
 

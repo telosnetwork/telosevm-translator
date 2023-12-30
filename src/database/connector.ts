@@ -7,6 +7,7 @@ import {StorageEosioDelta} from '../utils/evm.js';
 import {StorageEosioAction} from '../types/evm.js';
 import {Logger} from "winston";
 
+
 interface ConfigInterface {
     [key: string]: any;
 };
@@ -25,7 +26,6 @@ export class Connector {
     config: IndexerConfig;
     logger: Logger;
     elastic: Client;
-    broadcast: RPCBroadcaster;
     chainName: string;
 
     state: IndexerState;
@@ -37,6 +37,9 @@ export class Connector {
     lastPushed: number = 0;
 
     writeCounter: number = 0;
+
+    broadcast: RPCBroadcaster;
+    isBroadcasting: boolean = false;
 
     constructor(config: IndexerConfig, logger: Logger) {
         this.config = config;
@@ -50,10 +53,6 @@ export class Connector {
         this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
-    }
-
-    setState(state: IndexerState) {
-        this.state = state;
     }
 
     async init() {
@@ -70,7 +69,7 @@ export class Connector {
         for (const index of indicesList) {
             try {
                 if (indexConfig[index.name]) {
-                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic['indices'].putTemplate({
+                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
                         name: `${this.chainName}-${index.type}`,
                         body: indexConfig[index.name]
                     });
@@ -92,10 +91,23 @@ export class Connector {
             }
         }
         this.logger.info(`${updateCounter} index templates updated`);
+    }
 
-        this.logger.info('Initializing ws broadcaster...');
-
+    startBroadcast() {
         this.broadcast.initUWS();
+        this.isBroadcasting = true;
+    }
+
+    stopBroadcast() {
+        this.broadcast.close();
+        this.isBroadcasting = false;
+    }
+
+    async deinit() {
+        if (this.isBroadcasting)
+            this.stopBroadcast();
+
+        await this.elastic.close();
     }
 
     async getOrderedDeltaIndices() {
@@ -496,7 +508,8 @@ export class Connector {
 
         try {
             await this._deleteFromIndex(deltaIndex, 'block_num', startBlock, endBlock);
-            await this._deleteFromIndex(actionIndex, '@raw.block', startBlock - this.config.evmBlockDelta, endBlock);
+            await this._deleteFromIndex(
+                actionIndex, '@raw.block', startBlock - this.config.evmBlockDelta, endBlock - this.config.evmBlockDelta);
         } catch (e) {
             if (e.name != 'ResponseError' || e.meta.body.error.type != 'index_not_found_exception') {
                 throw e;
@@ -525,8 +538,11 @@ export class Connector {
     }
 
     async _purgeBlocksNewerThan(blockNum: number) {
-        const maxBlockNum = (await this.getLastIndexedBlock()).block_num;
-        const batchSize = 20000; // Batch size set to 20,000
+        const lastBlock = await this.getLastIndexedBlock();
+        if (lastBlock == null)
+            return;
+        const maxBlockNum = lastBlock.block_num;
+        const batchSize = Math.min(maxBlockNum, 20000); // Batch size set to 20,000
         const maxConcurrentDeletions = 4; // Maximum of 4 deletions in parallel
 
         for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize * maxConcurrentDeletions) {
@@ -538,13 +554,9 @@ export class Connector {
                 deletionTasks.push(this._deleteBlocksInRange(batchStart, batchEnd));
             }
 
-            await Promise.all(deletionTasks).then((results) => {
-                results.forEach((result, index) => {
-                    const batchStart = startBlock + index * batchSize;
-                    const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
-                    this.logger.info(`deleted blocks from ${batchStart} to ${batchEnd}, remaining: ${maxBlockNum - batchEnd}`);
-                });
-            });
+            await Promise.all(deletionTasks);
+            const batchEnd = Math.min(startBlock + (batchSize * maxConcurrentDeletions), maxBlockNum);
+            this.logger.info(`deleted blocks from ${startBlock} to ${batchEnd}`);
         }
     }
 
@@ -599,7 +611,7 @@ export class Connector {
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
 
         const txOperations = blockInfo.transactions.flatMap(
-            doc => [{index: {_index: txIndex}}, doc]);
+            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc['@raw'].trx_index}`}}, doc]);
 
         const errOperations = blockInfo.errors.flatMap(
             doc => [{index: {_index: errIndex}}, doc]);
@@ -607,7 +619,7 @@ export class Connector {
         const operations = [
             ...errOperations,
             ...txOperations,
-            {index: {_index: dtIndex}}, blockInfo.delta
+            {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
         ];
 
         this.opDrain = [...this.opDrain, ...operations];

@@ -2,23 +2,23 @@
     "logLevel": "debug",
     "readerLogLevel": "info",
 
-    "chainName": "telos-mainnet",
-    "chainId": 40,
+    "chainName": "telos-testnet",
+    "chainId": 41,
 
-    "endpoint": "http://mainnet.telos.net",
-    "remoteEndpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://127.0.0.1:18999",
+    "endpoint": "http://testnet.telos.net",
+    "remoteEndpoint": "http://testnet.telos.net",
+    "wsEndpoint": "ws://141.193.240.11:18993",
 
-    "evmBlockDelta": 36,
-    "evmDeployBlock": 180698860,
-    "evmPrevHash": "",
+    "evmBlockDelta": 57,
+    "evmValidateHash": "1f42e34c53aa45b4bb0a8fc20cb98ba1f0663ef1d581995c56f9f2314b837a35",
 
-    "startBlock": 37,
+    "startBlock": 58,
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
-        "workerAmount": 4,
-        "elasticDumpSize": 256
+        "readerWorkerAmount": 4,
+        "evmWorkerAmount": 4,
+        "elasticDumpSize": 2048
     },
 
     "elastic": {
