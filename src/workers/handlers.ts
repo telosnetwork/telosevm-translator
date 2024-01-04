@@ -235,7 +235,7 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
                 'tx': tx,
                 'block_num': args.blockNum,
                 'error': error.message,
-                'stacl': error.stack
+                'stack': error.stack
             }
         );
     }

@@ -130,7 +130,7 @@ export function describeMockChainTests(
         const getActionDocuments = async function() {
             return getDocumentsAtIndex(
                 `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.transaction}-*`,
-                [{'@timestamp': 'asc'}, {'@raw.block': 'asc'}, {'action_ordinal': 'asc'}]
+                [{'@raw.block': 'asc'}, {'@raw.trx_index': 'asc'}]
             );
         }
 

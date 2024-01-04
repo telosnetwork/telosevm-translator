@@ -85,3 +85,5 @@ program
 
         await new TEVMIndexer(conf).launch();
     });
+
+program.parse(process.argv);

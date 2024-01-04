@@ -5,9 +5,9 @@
     "chainName": "telos-testnet",
     "chainId": 41,
 
-    "endpoint": "http://testnet.telos.net",
+    "endpoint": "http://127.0.0.1:8888",
     "remoteEndpoint": "http://testnet.telos.net",
-    "wsEndpoint": "ws://141.193.240.11:18993",
+    "wsEndpoint": "ws://127.0.0.1:29999",
 
     "evmBlockDelta": 57,
     "evmValidateHash": "1f42e34c53aa45b4bb0a8fc20cb98ba1f0663ef1d581995c56f9f2314b837a35",
@@ -16,6 +16,7 @@
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
+        "stallCounter": 5,
         "readerWorkerAmount": 4,
         "evmWorkerAmount": 4,
         "elasticDumpSize": 2048

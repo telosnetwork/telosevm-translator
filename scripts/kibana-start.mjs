@@ -1,16 +1,8 @@
-import {runCommand} from "./utils.mjs";
+import {runCustomDocker} from "./utils.mjs";
 
-const launchExitCode = await runCommand(
-    'docker',
-    [
-        'run',
+await runCustomDocker('kibana:8.11.3', 'kibana', [
         '-d',
         '--rm',
         '--network=host',
-        '--name=telosevm-translator-kibana',
-        '--env', 'ELASTICSEARCH_HOSTS=http://localhost:9200',
-        'kibana:8.11.3'
-    ],
-    console.log
-);
-console.log(`Launch process exited with code ${launchExitCode}`);
+        '--env', 'ELASTICSEARCH_HOSTS=http://localhost:9200'
+]);

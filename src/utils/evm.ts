@@ -54,13 +54,14 @@ export const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000
 export const EMPTY_TRIE_BUF = new Trie().EMPTY_TRIE_ROOT;
 export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
-// 1,000,000,000
-export const BLOCK_GAS_LIMIT = '0x3b9aca00'
+export const EMPTY_BLOCK_GAS_LIMIT_HEX = '0x7fffffff';
+
+export const EMPTY_BLOCK_GAS_LIMIT = BigInt(EMPTY_BLOCK_GAS_LIMIT_HEX);
 
 export const NEW_HEADS_TEMPLATE = {
     difficulty: "0x0",
     extraData: ZERO_HASH,
-    gasLimit: BLOCK_GAS_LIMIT,
+    gasLimit: EMPTY_BLOCK_GAS_LIMIT_HEX,
     miner: ZERO_ADDR,
     nonce: "0x0000000000000000",
     parentHash: ZERO_HASH,
@@ -166,6 +167,10 @@ export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         const encodedReceipt = encodeReceipt(receipt, TransactionType.Legacy);
         await receiptsTrie.put(RLP.encode(i), encodedReceipt);
     }
+
+    if (gasLimit == BigInt(0))
+        gasLimit = EMPTY_BLOCK_GAS_LIMIT;
+
     return {
         gasUsed, gasLimit, size,
         txsRootHash, receiptsTrie, blockBloom
@@ -211,10 +216,9 @@ export async function queryAddress(
     logger: Logger
 ) {
     const acctInt = nameToUint64(accountName);
-    let retry = 2;
+    let retry = true;
     let result = null;
-    while (retry > 0) {
-        retry--;
+    while (retry) {
         try {
             result = await rpc.get_table_rows({
                 code: 'eosio.evm',
@@ -235,11 +239,16 @@ export async function queryAddress(
         } catch (error) {
             logger.error(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
             logger.error(error);
-            if (retry == 0)
+            try {
+                await sleep(200);
+                await rpc.get_info();
+                logger.error(`seems get info succeded, queryAddress error is not network related, throw...`);
                 throw error;
+            } catch (innerError) {
+                logger.warn(`seems get info failed, queryAddress error is likely network related, retrying soon...`);
+            }
         }
 
-        logger.warn(`queryAddress returned null for account ${accountName}, int: ${acctInt}, retrying...`);
         await sleep(500);
     }
 

@@ -41,10 +41,10 @@ export const InteralEvmTransactionSchema = z.object({
     value: z.string(),
     gasUsed: z.string(),
     output: z.string(),
-    subtraces: z.number(),
-    traceAddress: z.string(),
+    subtraces: z.string(),
+    traceAddress: z.array(z.number()),
     type: z.string(),
-    depth: z.number(),
+    depth: z.string(),
     extra: z.any()
 });
 

@@ -9,6 +9,7 @@ import {
     StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
 } from '../types/evm.js';
 import {Logger} from "winston";
+import EventEmitter from "events";
 
 
 interface ConfigInterface {
@@ -29,7 +30,7 @@ export class Connector {
 
     state: IndexerState;
 
-    blockDrain: any[];
+    blockDrain: IndexedBlockInfo[];
     opDrain: any[];
 
     totalPushed: number = 0;
@@ -39,6 +40,8 @@ export class Connector {
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
+
+    events = new EventEmitter();
 
     constructor(config: IndexerConfig, logger: Logger) {
         this.config = config;
@@ -108,6 +111,8 @@ export class Connector {
     }
 
     async deinit() {
+        await this.flush();
+
         if (this.isBroadcasting)
             this.stopBroadcast();
 
@@ -590,6 +595,17 @@ export class Connector {
         await this._purgeBlocksNewerThan(blockNum);
     }
 
+    async flush() {
+        const ops = this.opDrain;
+        const blocks = this.blockDrain;
+
+        this.opDrain = [];
+        this.blockDrain = [];
+        this.writeCounter++;
+
+        await this.writeBlocks(ops, blocks);
+    }
+
     async pushBlock(blockInfo: IndexedBlockInfo) {
         const currentBlock = blockInfo.delta.block_num;
         if (this.totalPushed != 0 && currentBlock != this.lastPushed + 1)
@@ -620,18 +636,10 @@ export class Connector {
 
         if (this.state == IndexerState.HEAD ||
             this.opDrain.length >= (this.config.perf.elasticDumpSize * 2)) {
-
-            const ops = this.opDrain;
-            const blocks = this.blockDrain;
-
-            this.opDrain = [];
-            this.blockDrain = [];
-            this.writeCounter++;
-
             if (this.state == IndexerState.HEAD)
-                await this.writeBlocks(ops, blocks);
+                await this.flush();
             else
-                void this.writeBlocks(ops, blocks);
+                void this.flush();
         }
     }
 
@@ -714,6 +722,11 @@ export class Connector {
         this.logger.info('done.');
 
         this.writeCounter--;
+
+        this.events.emit('write', {
+            from: blocks[0].delta.block_num,
+            to: blocks[blocks.length - 1].delta.block_num
+        });
 
         if (global.gc) {global.gc();}
     }
