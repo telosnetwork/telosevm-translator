@@ -54,19 +54,21 @@ export const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000
 export const EMPTY_TRIE_BUF = new Trie().EMPTY_TRIE_ROOT;
 export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
-export const EMPTY_BLOCK_GAS_LIMIT_HEX = '0x7fffffff';
+export const EMPTY_UNCLES = '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347';
 
-export const EMPTY_BLOCK_GAS_LIMIT = BigInt(EMPTY_BLOCK_GAS_LIMIT_HEX);
+export const BLOCK_GAS_LIMIT_HEX = '0x7fffffff';
+
+export const BLOCK_GAS_LIMIT = BigInt(BLOCK_GAS_LIMIT_HEX);
 
 export const NEW_HEADS_TEMPLATE = {
     difficulty: "0x0",
     extraData: ZERO_HASH,
-    gasLimit: EMPTY_BLOCK_GAS_LIMIT_HEX,
+    gasLimit: BLOCK_GAS_LIMIT_HEX,
     miner: ZERO_ADDR,
     nonce: "0x0000000000000000",
     parentHash: ZERO_HASH,
     receiptsRoot: EMPTY_TRIE,
-    sha3Uncles: ZERO_HASH,
+    sha3Uncles: EMPTY_UNCLES,
     stateRoot: EMPTY_TRIE,
     transactionsRoot: EMPTY_TRIE,
 };
@@ -122,14 +124,12 @@ export class ProcessedBlock {
 
 export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
     let gasUsed = BigInt(0);
-    let gasLimit = BigInt(0);
     let size = BigInt(0);
     const txsRootHash = new Trie();
     const receiptsTrie = new Trie();
     const blockBloom = new Bloom();
     for (const [i, tx] of evmTxs.entries()) {
         gasUsed += BigInt(tx.evmTx.gasused);
-        gasLimit += BigInt(tx.evmTx.gas_limit);
         size += BigInt(tx.evmTx.raw.length);
 
         const logs: Log[] = [];
@@ -168,11 +168,8 @@ export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         await receiptsTrie.put(RLP.encode(i), encodedReceipt);
     }
 
-    if (gasLimit == BigInt(0))
-        gasLimit = EMPTY_BLOCK_GAS_LIMIT;
-
     return {
-        gasUsed, gasLimit, size,
+        gasUsed, size,
         txsRootHash, receiptsTrie, blockBloom
     };
 }

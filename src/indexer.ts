@@ -17,7 +17,7 @@ import {
     hexStringToUint8Array,
     isTxDeserializationError,
     ZERO_HASH, numberToHex,
-    ProcessedBlock, removeHexPrefix
+    ProcessedBlock, removeHexPrefix, BLOCK_GAS_LIMIT
 } from './utils/evm.js'
 
 import moment from 'moment';
@@ -75,7 +75,7 @@ export class TEVMIndexer {
         windowSizeMs: 10 * 1000
     });
 
-    private statsTaskId: NodeJS.Timer;
+    private perfTaskId: NodeJS.Timer;
     private stateSwitchTaskId: NodeJS.Timer;
 
     private readonly irreversibleOnly: boolean;
@@ -186,12 +186,10 @@ export class TEVMIndexer {
             'parentHash': hexStringToUint8Array(this.prevHash),
             'transactionsTrie': blockApplyInfo.txsRootHash.root(),
             'receiptTrie': blockApplyInfo.receiptsTrie.root(),
-            'stateRoot': EMPTY_TRIE_BUF,
             'logsBloom': blockApplyInfo.blockBloom.bitvector,
             'number': BigInt(block.evmBlockNumber),
-            'gasLimit': blockApplyInfo.gasLimit,
+            'gasLimit': BLOCK_GAS_LIMIT,
             'gasUsed': blockApplyInfo.gasUsed,
-            'difficulty': BigInt(0),
             'timestamp': BigInt(blockTimestamp.unix()),
             'extraData': hexStringToUint8Array(block.nativeBlockHash)
         }, {common: this.common});
@@ -219,7 +217,7 @@ export class TEVMIndexer {
                 "@receiptsRootHash": receiptsHash,
                 "@transactionsRoot": txsHash,
                 "gasUsed": blockApplyInfo.gasUsed.toString(),
-                "gasLimit": blockApplyInfo.gasLimit.toString(),
+                "gasLimit": BLOCK_GAS_LIMIT.toString(),
                 "size": blockApplyInfo.size.toString()
             },
             "nativeHash": block.nativeBlockHash.toLowerCase(),
@@ -628,7 +626,7 @@ export class TEVMIndexer {
         await this.startReaderFrom(startBlock);
 
         // Launch bg routines
-        this.statsTaskId = setInterval(() => this.performanceMetricsTask(), 1000);
+        this.perfTaskId = setInterval(() => this.performanceMetricsTask(), 1000);
         this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
@@ -642,15 +640,8 @@ export class TEVMIndexer {
         const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
 
         const genesisHeader = TEVMBlockHeader.fromHeaderData({
-            'parentHash': hexStringToUint8Array(ZERO_HASH),
-            'transactionsTrie': EMPTY_TRIE_BUF,
-            'receiptTrie': EMPTY_TRIE_BUF,
-            'stateRoot': EMPTY_TRIE_BUF,
-            'logsBloom': new Bloom().bitvector,
             'number': BigInt(genesisEvmBlockNum),
-            'gasLimit': BigInt(0),
-            'gasUsed': BigInt(0),
-            'difficulty': BigInt(0),
+            'gasLimit': BLOCK_GAS_LIMIT,
             'timestamp': BigInt(genesisTimestamp),
             'extraData': hexStringToUint8Array(this.genesisBlock.id)
         }, {common: this.common});
@@ -715,7 +706,7 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
-        clearInterval(this.statsTaskId as unknown as number);
+        clearInterval(this.perfTaskId as unknown as number);
         clearInterval(this.stateSwitchTaskId as unknown as number);
 
         if (this.reader) {
