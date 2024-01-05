@@ -12,12 +12,11 @@ import {Connector} from './database/connector.js';
 
 import {
     arrayToHex,
-    EMPTY_TRIE_BUF,
     generateBlockApplyInfo,
     hexStringToUint8Array,
     isTxDeserializationError,
-    ZERO_HASH, numberToHex,
-    ProcessedBlock, removeHexPrefix, BLOCK_GAS_LIMIT
+    ZERO_HASH,
+    ProcessedBlock, removeHexPrefix, BLOCK_GAS_LIMIT, EMPTY_TRIE
 } from './utils/evm.js'
 
 import moment from 'moment';
@@ -25,22 +24,31 @@ import {JsonRpc, RpcInterfaces} from 'eosjs';
 import {getRPCClient} from './utils/eosio.js';
 import {ABI} from "@greymass/eosio";
 
-import rlp from 'rlp';
 import EventEmitter from "events";
 
 import SegfaultHandler from 'segfault-handler';
 import {packageInfo, sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
-import {keccak256} from "ethereum-cryptography/keccak.js";
 import * as evm from "@ethereumjs/common";
 import {TEVMBlockHeader} from "telos-evm-custom-ds";
 import {HandlerArguments} from "./workers/handlers";
 
 import logWhyIsNodeRunning from 'why-is-node-running';
-import {Bloom} from "@ethereumjs/vm";
+import cloneDeep from "lodash.clonedeep";
 
 EventEmitter.defaultMaxListeners = 1000;
+
+export interface TEVMIndexerOptions {
+    config: string;
+    trimFrom: string | undefined;
+    skipIntegrityCheck: boolean;
+    onlyDbCheck: boolean;
+    gapsPurge: boolean;
+    skipStartBlockCheck: boolean;
+    skipRemoteCheck: boolean;
+    reindexInto: string | undefined;
+};
 
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
@@ -174,7 +182,7 @@ export class TEVMIndexer {
      * Generate valid ethereum has, requires blocks to be passed in order, updates state
      * handling class attributes.
      */
-    async hashBlock(block: ProcessedBlock) {
+    async hashBlock(block: ProcessedBlock): Promise<IndexedBlockInfo> {
         const evmTxs = block.evmTxs;
 
         // generate block info derived from applying the transactions to the vm state
@@ -206,8 +214,6 @@ export class TEVMIndexer {
             "delta": {
                 "@timestamp": blockTimestamp.format(),
                 "block_num": block.nativeBlockNumber,
-                "code": "eosio",
-                "table": "global",
                 "@global": {
                     "block_num": block.evmBlockNumber
                 },
@@ -492,8 +498,8 @@ export class TEVMIndexer {
     /*
      * Entry point
      */
-    async launch() {
-        const options = {
+    async launch(options: Partial<TEVMIndexerOptions>) {
+        const loggingOptions = {
             exitOnError: false,
             level: this.config.logLevel,
             format: format.combine(
@@ -505,7 +511,7 @@ export class TEVMIndexer {
                 })
             )
         }
-        this.logger = createLogger(options);
+        this.logger = createLogger(loggingOptions);
         this.logger.add(new transports.Console({
             level: this.config.logLevel
         }));
@@ -519,9 +525,8 @@ export class TEVMIndexer {
         this.connector = new Connector(this.config, this.logger);
         await this.connector.init();
 
-        if (process.argv.includes('--trim-from')) {
-            const trimFromIndex = process.argv.indexOf('--trim-from');
-            const trimBlockNum = parseInt(process.argv[trimFromIndex + 1], 10);
+        if (options.trimFrom) {
+            const trimBlockNum = parseInt(options.trimFrom, 10);
             await this.connector.purgeNewerThan(trimBlockNum);
         }
 
@@ -529,7 +534,7 @@ export class TEVMIndexer {
         let lastBlock = await this.connector.getLastIndexedBlock();
 
         let gap = null;
-        if ((!process.argv.includes('--skip-integrity-check'))) {
+        if (!options.skipIntegrityCheck) {
             if (lastBlock != null) {
                 this.logger.debug('performing integrity check...');
                 gap = await this.connector.fullIntegrityCheck();
@@ -541,18 +546,22 @@ export class TEVMIndexer {
                     this.logger.info(JSON.stringify(gap, null, 4));
                 }
             } else {
-                if (process.argv.includes('--only-db-check')) {
+                if (options.onlyDbCheck) {
                     this.logger.warn('--only-db-check on empty database...');
-                    await this.connector.deinit();
-                    return;
                 }
             }
         }
 
-        if (process.argv.includes('--only-db-check')) {
+        if (options.onlyDbCheck) {
             this.logger.info('--only-db-check passed exiting...');
             await this.connector.deinit();
             return;
+        }
+
+        if (options.reindexInto) {
+            await this.reindex(options.reindexInto);
+            this.logger.info(`Finished re-index into ${options.reindexInto}`);
+            await this.stop();
         }
 
         if (lastBlock != null &&
@@ -562,7 +571,7 @@ export class TEVMIndexer {
             if (gap == null) {
                 ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
-                if (process.argv.includes('--gaps-purge'))
+                if (options.gapsPurge)
                     ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                 else
                     throw new Error(
@@ -576,13 +585,11 @@ export class TEVMIndexer {
 
         } else if (this.config.evmPrevHash != '') {
             // if there is an evmPrevHash set state directly
-
             prevHash = this.config.evmPrevHash;
             this.prevHash = this.config.evmPrevHash;
             this.startBlock = this.config.startBlock;
             this.lastBlock = startBlock - 1;
             this.connector.lastPushed = this.lastBlock;
-
         }
 
         if (prevHash)
@@ -592,21 +599,24 @@ export class TEVMIndexer {
             await this.genesisBlockInitialization();
         }
 
-        // check node actually contains first block
-        try {
-            await this.rpc.get_block(startBlock);
-        } catch (error) {
-            if ((process.argv.length > 1) && (!process.argv.includes('--skip-start-block-check')))
+        if (!options.skipStartBlockCheck) {
+            // check node actually contains first block
+            try {
+                await this.rpc.get_block(startBlock);
+            } catch (error) {
                 throw new Error(
                     `Error when doing start block check: ${error.message}`);
+            }
         }
 
-        // check remote node is up
-        try {
-            await this.remoteRpc.get_info();
-        } catch(error) {
-            this.logger.error(`Error while doing remote node check: ${error.message}`);
-            throw error;
+        if (!options.skipRemoteCheck) {
+            // check remote node is up
+            try {
+                await this.remoteRpc.get_info();
+            } catch (error) {
+                this.logger.error(`Error while doing remote node check: ${error.message}`);
+                throw error;
+            }
         }
 
         process.env.CHAIN_ID = this.config.chainId.toString();
@@ -679,6 +689,11 @@ export class TEVMIndexer {
                 '@blockHash': this.genesisBlock.id.toLowerCase(),
                 '@evmPrevBlockHash': removeHexPrefix(ZERO_HASH),
                 '@evmBlockHash': this.ethGenesisHash,
+                "@receiptsRootHash": EMPTY_TRIE,
+                "@transactionsRoot": EMPTY_TRIE,
+                "gasUsed": "0x0",
+                "gasLimit": BLOCK_GAS_LIMIT.toString(),
+                "size": "0"
             },
             nativeHash: this.genesisBlock.id.toLowerCase(),
             parentHash: '',
@@ -687,6 +702,44 @@ export class TEVMIndexer {
         });
 
         this.events.emit('start');
+    }
+
+    async reindex(targetPrefix: string) {
+        const config = cloneDeep(this.config);
+        config.chainName = targetPrefix;
+
+        const reindexConnector = new Connector(config, this.logger);
+        await reindexConnector.init();
+
+        const blocks = await this.connector.blockScroll({
+            from: this.config.startBlock,
+            to: this.config.stopBlock,
+            fields: ['@timestamp', 'block_num', '@blockHash', '@transactionsRoot']
+        });
+
+        this.prevHash = config.evmPrevHash;
+
+        try {
+            for await (const block of blocks) {
+                const evmBlockNum = block.block_num - this.config.evmBlockDelta;
+
+                let evmTxs = [];
+                if (block['@transactionsRoot'] !== EMPTY_TRIE)
+                    evmTxs = await this.connector.getTransactionsForBlock(evmBlockNum);
+
+                const evmBlock = new ProcessedBlock({
+                    nativeBlockHash: block['@blockHash'],
+                    nativeBlockNumber: block.block_num,
+                    evmBlockNumber: evmBlockNum,
+                    blockTimestamp: block['@timestamp'],
+                    evmTxs, errors: []
+                });
+                await reindexConnector.pushBlock(
+                    await this.hashBlock(evmBlock));
+            }
+        } finally {
+            await reindexConnector.deinit();
+        }
     }
 
     /*

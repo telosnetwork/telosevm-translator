@@ -458,7 +458,7 @@ export async function maybeLoadElasticDump(dumpName, esConfig) {
 export async function getElasticDeltas(esclient, index, from, to) {
     try {
         const hits = [];
-        const result = await esclient.search({
+        let result = await esclient.search({
             index: index,
             query: {
                 range: {
@@ -476,11 +476,11 @@ export async function getElasticDeltas(esclient, index, from, to) {
         let scrollId = result._scroll_id;
         while (result.hits.hits.length) {
             result.hits.hits.forEach(hit => hits.push(hit._source));
-            const scrollResult = await esclient.scroll({
+            result = await esclient.scroll({
                 scroll_id: scrollId,
                 scroll: '10s'
             });
-            scrollId = scrollResult._scroll_id;
+            scrollId = result._scroll_id;
         }
 
         return hits;
@@ -494,7 +494,7 @@ export async function getElasticDeltas(esclient, index, from, to) {
 export async function getElasticActions(esclient, index, from, to) {
     try {
         const hits = [];
-        const result = await esclient.search({
+        let result = await esclient.search({
             index: index,
             query: {
                 range: {
@@ -512,11 +512,11 @@ export async function getElasticActions(esclient, index, from, to) {
         let scrollId = result._scroll_id;
         while (result.hits.hits.length) {
             result.hits.hits.forEach(hit => hits.push(hit._source));
-            const scrollResult = await esclient.scroll({
+            result = await esclient.scroll({
                 scroll_id: scrollId,
                 scroll: '10s'
             });
-            scrollId = scrollResult._scroll_id;
+            scrollId = result._scroll_id;
         }
 
         return hits;

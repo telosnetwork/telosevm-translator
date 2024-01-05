@@ -41,7 +41,7 @@ export async function expectTranslatorSequence(
         reachedEnd = i == blockSequence.length;
     });
 
-    await translator.launch();
+    await translator.launch({});
 
     while(isExpectedSequence && !reachedEnd)
         await sleep(500);

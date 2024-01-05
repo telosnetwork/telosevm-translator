@@ -8,15 +8,20 @@ import { Command } from 'commander';
 const program = new Command();
 
 program
-    .option('-c, --configFilePath [configFilePath]', 'Path to config.json file')
+    .option('-c, --config [path to config.json]', 'Path to config.json file', 'config.json')
+    .option('-t, --trim-from [block num]', 'Delete blocks in db from [block num] onwards', undefined)
+    .option('-s, --skip-integrity-check', 'Skip initial db check', false)
+    .option('-o, --only-db-check', 'Perform initial db check and exit', false)
+    .option('-p, --gaps-purge', 'In case db integrity check fails purge db from last valid block', false)
+    .option('-S, --skip-start-block-check', 'Skip initial get_block query to configured endpoint', false)
+    .option('-r, --skip-remote-check', 'Skip initial get_info query to configured remoteEndpoint', false)
+    .option('-R, --reindex-into',
+        'Use configured es index as source and regenerate data + hashes into a different index', undefined)
     .action(async (options) => {
         const conf: IndexerConfig = cloneDeep(DEFAULT_CONF);
 
         try {
-            const userConf = JSON.parse(
-                readFileSync(
-                    options.configFilePath ? options.configFilePath : 'config.json').toString());
-
+            const userConf = JSON.parse(readFileSync(options.config).toString());
             mergeDeep(conf, userConf);
         } catch (e) { }
 
@@ -83,7 +88,7 @@ program
         if (process.env.EVM_WORKER_AMOUNT)
             conf.perf.evmWorkerAmount = parseInt(process.env.EVM_WORKER_AMOUNT, 10);
 
-        await new TEVMIndexer(conf).launch();
+        await new TEVMIndexer(conf).launch(options);
     });
 
 program.parse(process.argv);

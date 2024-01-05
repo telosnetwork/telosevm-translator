@@ -4,12 +4,13 @@ import {getTemplatesForChain} from './templates.js';
 
 import {Client, estypes} from '@elastic/elasticsearch';
 import {
-    isStorableDocument,
+    isStorableDocument, StorageEosioAction, StorageEosioActionSchema,
     StorageEosioDelta,
     StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
 } from '../types/evm.js';
 import {Logger} from "winston";
 import EventEmitter from "events";
+import {SearchResponse} from "@elastic/elasticsearch/lib/api/types";
 
 
 interface ConfigInterface {
@@ -20,6 +21,47 @@ function indexToSuffixNum(index: string) {
     const spltIndex = index.split('-');
     const suffix = spltIndex[spltIndex.length - 1];
     return parseInt(suffix);
+}
+
+
+class BlockScroller {
+    private elastic: Client;
+    private scrollId: string;
+    private done: boolean = false;
+    private readonly initialDocs: any[];
+
+    constructor(elastic: Client, scrollResponse: SearchResponse) {
+        this.elastic = elastic;
+        this.initialDocs = scrollResponse.hits.hits.map(h => h._source);
+        this.scrollId = scrollResponse._scroll_id;
+    }
+
+    async nextScroll() {
+        const scrollResponse = await this.elastic.scroll({
+            scroll_id: this.scrollId,
+            scroll: '1m'
+        });
+
+        const hits = scrollResponse.hits.hits;
+
+        if (hits.length === 0) {
+            this.done = true;
+            return [];
+        }
+
+        return hits.map(hit => hit._source);
+    }
+
+    async *[Symbol.asyncIterator]() {
+        for (const doc of this.initialDocs)
+            yield doc
+
+        while (!this.done) {
+            const documents = await this.nextScroll();
+            for (const doc of documents)
+                yield doc;
+        }
+    }
 }
 
 export class Connector {
@@ -231,6 +273,34 @@ export class Connector {
         }
 
         return null;
+    }
+
+    async getTransactionsForBlock(evmBlockNum: number): Promise<StorageEosioAction[]> {
+        const suffix = this.getSuffixForBlock(evmBlockNum - this.config.evmBlockDelta);
+        const hits = [];
+        let result = await this.elastic.search({
+            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`,
+            query: {
+                match: {
+                    '@raw.block': evmBlockNum
+                }
+            },
+            size: 1,
+            sort: [{ '@raw.block': 'asc' }, { '@raw.trx_index': 'asc' }],
+            scroll: '10s'
+        });
+
+        let scrollId = result._scroll_id;
+        while (result.hits.hits.length) {
+            result.hits.hits.forEach(hit => hits.push(StorageEosioActionSchema.parse(hit._source)));
+            result = await this.elastic.scroll({
+                scroll_id: scrollId,
+                scroll: '10s'
+            });
+            scrollId = result._scroll_id;
+        }
+
+        return hits;
     }
 
     async findGapInIndices() {
@@ -729,6 +799,30 @@ export class Connector {
         });
 
         if (global.gc) {global.gc();}
+    }
+
+    async blockScroll(opts: {
+        from: number,
+        to: number,
+        fields?: string[]
+    }) {
+        const response = await this.elastic.search({
+            index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
+            scroll: '1m',
+            size: 1000,
+            sort: [{'block_num': 'asc'}],
+            query: {
+                range: {
+                    block_num: {
+                        gte: opts.from,
+                        lte: opts.to
+                    }
+                }
+            },
+            _source: opts.fields
+        });
+
+        return new BlockScroller(this.elastic, response);
     }
 
 }
