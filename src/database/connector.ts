@@ -24,7 +24,7 @@ function indexToSuffixNum(index: string) {
 }
 
 
-class BlockScroller {
+class ElasticScroller {
     private elastic: Client;
     private scrollId: string;
     private done: boolean = false;
@@ -39,7 +39,7 @@ class BlockScroller {
     async nextScroll() {
         const scrollResponse = await this.elastic.scroll({
             scroll_id: this.scrollId,
-            scroll: '1m'
+            scroll: '1s'
         });
 
         const hits = scrollResponse.hits.hits;
@@ -53,13 +53,11 @@ class BlockScroller {
     }
 
     async *[Symbol.asyncIterator]() {
-        for (const doc of this.initialDocs)
-            yield doc
+        yield this.initialDocs;
 
         while (!this.done) {
-            const documents = await this.nextScroll();
-            for (const doc of documents)
-                yield doc;
+            const hits = await this.nextScroll();
+            if (hits.length > 0) yield hits;
         }
     }
 }
@@ -275,30 +273,37 @@ export class Connector {
         return null;
     }
 
-    async getTransactionsForBlock(evmBlockNum: number): Promise<StorageEosioAction[]> {
-        const suffix = this.getSuffixForBlock(evmBlockNum - this.config.evmBlockDelta);
+    async getTransactionsForRange(from: number, to: number): Promise<StorageEosioAction[]> {
         const hits = [];
         let result = await this.elastic.search({
-            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`,
+            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
             query: {
-                match: {
-                    '@raw.block': evmBlockNum
+                range: {
+                    '@raw.block': {
+                        gte: from - this.config.evmBlockDelta,
+                        lte: to - this.config.evmBlockDelta
+                    }
                 }
             },
-            size: 1,
+            size: 4000,
             sort: [{ '@raw.block': 'asc' }, { '@raw.trx_index': 'asc' }],
-            scroll: '10s'
+            scroll: '1s'
         });
 
         let scrollId = result._scroll_id;
         while (result.hits.hits.length) {
-            result.hits.hits.forEach(hit => hits.push(StorageEosioActionSchema.parse(hit._source)));
+            try {
+                result.hits.hits.forEach(hit => hits.push(StorageEosioActionSchema.parse(hit._source)));
+            } catch (e) {
+                throw new Error("parsing error");
+            }
             result = await this.elastic.scroll({
                 scroll_id: scrollId,
-                scroll: '10s'
+                scroll: '1s'
             });
             scrollId = result._scroll_id;
         }
+        await this.elastic.clearScroll({scroll_id: scrollId});
 
         return hits;
     }
@@ -666,6 +671,8 @@ export class Connector {
     }
 
     async flush() {
+        if (this.opDrain.length == 0) return;
+
         const ops = this.opDrain;
         const blocks = this.blockDrain;
 
@@ -784,10 +791,12 @@ export class Connector {
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
         this.logger.info(`drained ${ops.length} operations.`);
-        this.logger.info(`broadcasting ${blocks.length} blocks...`)
+        if (this.isBroadcasting) {
+            this.logger.info(`broadcasting ${blocks.length} blocks...`)
 
-        for (const block of blocks)
-            this.broadcast.broadcastBlock(block);
+            for (const block of blocks)
+                this.broadcast.broadcastBlock(block);
+        }
 
         this.logger.info('done.');
 
@@ -808,8 +817,8 @@ export class Connector {
     }) {
         const response = await this.elastic.search({
             index: `${this.config.chainName}-${this.config.elastic.subfix.delta}-*`,
-            scroll: '1m',
-            size: 1000,
+            scroll: '1s',
+            size: 4000,
             sort: [{'block_num': 'asc'}],
             query: {
                 range: {
@@ -822,7 +831,7 @@ export class Connector {
             _source: opts.fields
         });
 
-        return new BlockScroller(this.elastic, response);
+        return new ElasticScroller(this.elastic, response);
     }
 
 }

@@ -15,7 +15,7 @@ program
     .option('-p, --gaps-purge', 'In case db integrity check fails purge db from last valid block', false)
     .option('-S, --skip-start-block-check', 'Skip initial get_block query to configured endpoint', false)
     .option('-r, --skip-remote-check', 'Skip initial get_info query to configured remoteEndpoint', false)
-    .option('-R, --reindex-into',
+    .option('-R, --reindex-into [index prefix]',
         'Use configured es index as source and regenerate data + hashes into a different index', undefined)
     .action(async (options) => {
         const conf: IndexerConfig = cloneDeep(DEFAULT_CONF);

@@ -54,7 +54,7 @@ export const StorageEvmTransactionSchema = z.object({
     trx_index: z.number(),
     block: z.number(),
     block_hash: z.string().refine(obj => isValidUnprefixedEVMHash(obj), { message: "Invalid unprefixed EVM hash" }),
-    to: z.string().refine(isValidAddress, { message: "Invalid address" }),
+    to: z.string().optional().refine(obj => isValidAddress(obj) || obj === undefined, { message: "Invalid address" }),
     input_data: z.string().refine(obj => isValidHexString(obj) || obj === '', { message: "Invalid hex string" }),
     input_trimmed: z.string().refine(obj => isValidHexString(obj) || obj === '', { message: "Invalid hex string" }),
     value: z.string().refine(isValidUnprefixedHexString, { message: "Invalid unprefixed hex string" }),
