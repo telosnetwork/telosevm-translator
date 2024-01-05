@@ -36,6 +36,7 @@ import {HandlerArguments} from "./workers/handlers";
 
 import logWhyIsNodeRunning from 'why-is-node-running';
 import cloneDeep from "lodash.clonedeep";
+import {clearInterval} from "timers";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -719,6 +720,15 @@ export class TEVMIndexer {
 
         this.prevHash = config.evmPrevHash;
 
+        const metrics = new ThroughputMeasurer({windowSizeMs: 10 * 1000});
+        let blocksPushed = 0;
+        let lastPushed = 0;
+        const reindexPerfTask = setInterval(async () => {
+            metrics.measure(blocksPushed);
+            this.logger.info(`reindexed ${lastPushed} @ ${metrics.average}`);
+            blocksPushed = 0;
+        }, 1000);
+
         try {
             for await (const block of blocks) {
                 const evmBlockNum = block.block_num - this.config.evmBlockDelta;
@@ -736,9 +746,13 @@ export class TEVMIndexer {
                 });
                 await reindexConnector.pushBlock(
                     await this.hashBlock(evmBlock));
+
+                lastPushed = block.block_num;
+                blocksPushed++;
             }
         } finally {
             await reindexConnector.deinit();
+            clearInterval(reindexPerfTask);
         }
     }
 

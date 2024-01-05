@@ -13,7 +13,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 import path from "path";
-import fs, {existsSync, readFileSync, unlinkSync} from "fs";
+import fs, {existsSync, readFileSync} from "fs";
 
 export const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const TEST_RESOURCES_DIR = path.join(SCRIPTS_DIR, '../build/tests/resources');
