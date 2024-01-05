@@ -1,5 +1,4 @@
 import { copyFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import path from 'path';
 import fs from 'fs';
 import {SCRIPTS_DIR} from "./utils.mjs";

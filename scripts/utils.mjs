@@ -1,4 +1,4 @@
-import {packageInfo, sleep} from "../build/utils/indexer.js";
+import {sleep} from "../build/utils/indexer.js";
 
 process.on('SIGINT', () => process.exit(4));
 process.on('SIGTERM', () => process.exit(4));
@@ -17,6 +17,9 @@ import fs, {existsSync, readFileSync, unlinkSync} from "fs";
 
 export const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const TEST_RESOURCES_DIR = path.join(SCRIPTS_DIR, '../build/tests/resources');
+
+const packageJsonFile = path.join(SCRIPTS_DIR, '../package.json');
+export const packageInfo = JSON.parse(fs.readFileSync(packageJsonFile, 'utf-8'));
 
 export function makeDirectory(directoryPath) {
     const resolvedPath = path.resolve(directoryPath);
