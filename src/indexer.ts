@@ -556,9 +556,10 @@ export class TEVMIndexer {
         }
 
         if (options.reindexInto) {
-            await this.reindex(options.reindexInto);
-            this.logger.info(`Finished re-index into ${options.reindexInto}`);
-            await this.stop();
+            const res = await this.reindex(options.reindexInto);
+            this.logger.info(`Re-index result: ${res}`);
+            await this.connector.deinit();
+            return;
         }
 
         if (lastBlock != null &&
@@ -730,7 +731,7 @@ export class TEVMIndexer {
             'receiptTrie': receiptsHash,
             'logsBloom': blockBloom.bitvector,
             'number': BigInt(evmBlockNum),
-            'gasLimit': BLOCK_GAS_LIMIT,
+            'gasLimit': gasUsed,  // BLOCK_GAS_LIMIT,
             'gasUsed': gasUsed,
             'timestamp': BigInt(moment.utc(block['@timestmap']).unix()),
             'extraData': hexStringToUint8Array(block['@blockHash'])
@@ -760,7 +761,7 @@ export class TEVMIndexer {
                 "@receiptsRootHash": block['@receiptsRootHash'],
                 "@transactionsRoot": block['@transactionsRoot'],
                 "gasUsed": gasUsed.toString(),
-                "gasLimit": BLOCK_GAS_LIMIT.toString(),
+                "gasLimit": gasUsed.toString(),  // BLOCK_GAS_LIMIT.toString(),
                 "size": block['size']
             },
             "nativeHash": block['@blockHash'],
@@ -771,23 +772,30 @@ export class TEVMIndexer {
     }
 
     async reindex(targetPrefix: string) {
+        let result = `${targetPrefix} reindexed!`
         const config = cloneDeep(this.config);
         config.chainName = targetPrefix;
 
         const reindexConnector = new Connector(config, this.logger);
         await reindexConnector.init();
 
+        await reindexConnector.purgeNewerThan(config.startBlock);
+
         const blockScroller = await this.connector.blockScroll({
-            from: this.config.startBlock,
-            to: this.config.stopBlock,
-            fields: [
-                '@timestamp',
-                'block_num',
-                '@blockHash',
-                '@transactionsRoot',
-                '@receiptsRootHash',
-                'size'
-            ]
+            from: config.startBlock,
+            to: config.stopBlock,
+            scrollOpts: {
+                fields: [
+                    '@timestamp',
+                    'block_num',
+                    '@blockHash',
+                    '@transactionsRoot',
+                    '@receiptsRootHash',
+                    'size'
+                ],
+                size: 4000,
+                scroll: '1s'
+            }
         });
 
         const metrics = new ThroughputMeasurer({windowSizeMs: 10 * 1000});
@@ -799,9 +807,9 @@ export class TEVMIndexer {
             blocksPushed = 0;
         }, 1000);
 
-        const initialHash = this.config.evmPrevHash ? this.config.evmPrevHash : ZERO_HASH;
-        let parentHash = hexStringToUint8Array(initialHash);
         try {
+            const initialHash = this.config.evmPrevHash ? this.config.evmPrevHash : ZERO_HASH;
+            let parentHash = hexStringToUint8Array(initialHash);
             for await (const blocks of blockScroller) {
                 const from = blocks[0].block_num;
                 const to = blocks[blocks.length - 1].block_num;
@@ -824,10 +832,13 @@ export class TEVMIndexer {
                     blocksPushed++;
                 }
             }
+        } catch(e) {
+            result = e.message;
         } finally {
             clearInterval(reindexPerfTask);
+            await reindexConnector.deinit();
         }
-        await reindexConnector.deinit();
+        return result;
     }
 
     /*
