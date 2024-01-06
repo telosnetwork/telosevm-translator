@@ -1,1 +1,1 @@
-import {stopDocker} from "./utils.mjs"; await stopDocker('toxiproxy');
+import {stopDocker} from "./utils.mjs"; await stopDocker('kibana');

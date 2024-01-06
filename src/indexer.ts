@@ -797,7 +797,7 @@ export class TEVMIndexer {
                     'size'
                 ],
                 size: 4000,
-                scroll: '1s'
+                scroll: '10s'
             }
         });
 
