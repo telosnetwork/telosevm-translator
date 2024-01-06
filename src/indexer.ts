@@ -38,6 +38,7 @@ import logWhyIsNodeRunning from 'why-is-node-running';
 import cloneDeep from "lodash.clonedeep";
 import {clearInterval} from "timers";
 import {Bloom} from "@ethereumjs/vm";
+import {bigIntToHex} from "@ethereumjs/util";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -729,11 +730,12 @@ export class TEVMIndexer {
             'parentHash': parentHash,
             'transactionsTrie': txsHash,
             'receiptTrie': receiptsHash,
+            'stateRoot': EMPTY_TRIE_BUF,
             'logsBloom': blockBloom.bitvector,
             'number': BigInt(evmBlockNum),
-            'gasLimit': gasUsed,  // BLOCK_GAS_LIMIT,
+            'gasLimit': BLOCK_GAS_LIMIT,
             'gasUsed': gasUsed,
-            'timestamp': BigInt(moment.utc(block['@timestmap']).unix()),
+            'timestamp': BigInt(moment.utc(block['@timestamp']).unix()),
             'extraData': hexStringToUint8Array(block['@blockHash'])
         }, {common: this.common});
 
@@ -761,7 +763,7 @@ export class TEVMIndexer {
                 "@receiptsRootHash": block['@receiptsRootHash'],
                 "@transactionsRoot": block['@transactionsRoot'],
                 "gasUsed": gasUsed.toString(),
-                "gasLimit": gasUsed.toString(),  // BLOCK_GAS_LIMIT.toString(),
+                "gasLimit": BLOCK_GAS_LIMIT.toString(),
                 "size": block['size']
             },
             "nativeHash": block['@blockHash'],
@@ -779,7 +781,8 @@ export class TEVMIndexer {
         const reindexConnector = new Connector(config, this.logger);
         await reindexConnector.init();
 
-        await reindexConnector.purgeNewerThan(config.startBlock);
+        for (const index of (await reindexConnector.getOrderedDeltaIndices()))
+            await reindexConnector.elastic.indices.delete({index: index.index});
 
         const blockScroller = await this.connector.blockScroll({
             from: config.startBlock,
@@ -809,6 +812,7 @@ export class TEVMIndexer {
 
         try {
             const initialHash = this.config.evmPrevHash ? this.config.evmPrevHash : ZERO_HASH;
+            let firstHash = '';
             let parentHash = hexStringToUint8Array(initialHash);
             for await (const blocks of blockScroller) {
                 const from = blocks[0].block_num;
@@ -819,11 +823,23 @@ export class TEVMIndexer {
                 for (const block of blocks) {
                     const evmBlockNum = block.block_num - this.config.evmBlockDelta;
 
+                    // const blockTimestamp = new Date(block['@timestamp']);
+                    // // blockTimestamp.setHours(blockTimestamp.getHours() - 3);
+                    // block['@timestamp'] = blockTimestamp.toISOString();
+                    // const ts = bigIntToHex(BigInt(moment.utc(blockTimestamp).unix()));
+
                     const blockTxs = [];
                     while (txIndex < rangeTxs.length && rangeTxs[txIndex]['@raw'].block == evmBlockNum)
                         blockTxs.push(rangeTxs[txIndex++]);
 
                     const storableBlock = this.reindexBlock(parentHash, block, blockTxs);
+
+                    if (firstHash === '') {
+                        firstHash = storableBlock.delta['@evmBlockHash'];
+                        if (this.config.evmValidateHash &&
+                            firstHash !== this.config.evmValidateHash)
+                            throw new Error(`initial hash validation failed: got ${firstHash} and expected ${this.config.evmValidateHash}`);
+                    }
 
                     parentHash = hexStringToUint8Array(storableBlock.delta['@evmBlockHash']);
                     await reindexConnector.pushBlock(storableBlock);
@@ -833,7 +849,8 @@ export class TEVMIndexer {
                 }
             }
         } catch(e) {
-            result = e.message;
+            this.logger.error(e.message);
+            this.logger.error(e.stack);
         } finally {
             clearInterval(reindexPerfTask);
             await reindexConnector.deinit();

@@ -431,13 +431,11 @@ export async function maybeLoadElasticDump(dumpName, esConfig) {
                 `${indexName} exists but its doc count (${indexDocCount.count}) doesnt match manifest: ${indexInfo.size} ` +
                 `delete and re-import...`
             );
-            for (const index in Object.keys(manifest)) {
-                try {
-                    await es.indices.delete({index});
-                } catch (e) {
-                    console.error(`Error while deleting ${index}...`);
-                    console.error(e);
-                }
+            try {
+                await es.indices.delete({index: indexName});
+            } catch (e) {
+                console.error(`Error while deleting ${indexName}...`);
+                console.error(e);
             }
 
         } catch (e) {

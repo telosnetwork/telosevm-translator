@@ -6,17 +6,19 @@ import {TEVMIndexer} from "../../build/indexer.js";
 import {assert, expect} from "chai";
 import {StorageEosioActionSchema, StorageEosioDeltaSchema} from "../../build/types/evm.js";
 import {
-    getElasticActions, getElasticDeltas,
-    SCRIPTS_DIR,
+    decompressFile,
+    getElasticActions, getElasticDeltas, maybeLoadElasticDump,
+    SCRIPTS_DIR, TEST_RESOURCES_DIR,
 } from "../utils.mjs";
 import moment from "moment";
 
 const testStartTime = new Date().getTime();
 const esConfig = {
     host: 'http://127.0.0.1:9200',
+    esDumpLimit: 4000,
     verification: {
-        delta: 'telos-mainnet-verification-delta-v1.5-00000031',
-        action: 'telos-mainnet-verification-action-v1.5-00000031'
+        delta: 'telos-mainnet-verification-delta-v1.5-00000000',
+        action: 'telos-mainnet-verification-action-v1.5-00000000'
     }
 }
 const esClient = new Client({node: esConfig.host});
@@ -29,9 +31,9 @@ try {
 
 const translatorTestConfig = {
     template: 'config.mainnet.json',
-    startBlock: 312087081,
-    totalBlocks: 10000,
-    evmPrevHash: '501f3fe6f64c7d858a57e914ac130af2661e530f47ed9492606a44e1baecd6b6',
+    startBlock: 36,
+    endBlock: 99965,
+    evmPrevHash: '',
 };
 const templatesDirPath = path.join(SCRIPTS_DIR, '../config-templates');
 const translatorConfig = JSON.parse(
@@ -39,12 +41,13 @@ const translatorConfig = JSON.parse(
 );
 
 const startBlock = translatorTestConfig.startBlock;
-const endBlock = startBlock + translatorTestConfig.totalBlocks;
+const endBlock = translatorTestConfig.endBlock;
 
 translatorConfig.chainName = 'telos-mainnet-verification';
 translatorConfig.startBlock = startBlock;
 translatorConfig.stopBlock = endBlock;
 translatorConfig.evmPrevHash = translatorTestConfig.evmPrevHash;
+// translatorConfig.evmValidateHash = '13f28fe4d164354cbcb0b9d8d43dff5d8e4b180e440579a55505a5fc96831c6b';
 
 if (translatorTestConfig.totalBlocks < translatorConfig.perf.elasticDumpSize)
     translatorConfig.perf.elasticDumpSize = translatorTestConfig.totalBlocks;
@@ -64,6 +67,13 @@ try {
     await esClient.indices.delete({index:  reindexActionIndexName});
 } catch (e) {
 }
+
+const esDumpName = 'telos-mainnet-200k-ebr';
+const esDumpCompressedPath = path.join(TEST_RESOURCES_DIR, `${esDumpName}.tar.zst`);
+const esDumpPath = path.join(TEST_RESOURCES_DIR, esDumpName);
+await decompressFile(esDumpCompressedPath, esDumpPath);
+await maybeLoadElasticDump('telos-mainnet-200k-ebr', esConfig);
+
 
 // launch translator and verify generated data
 let isTranslatorDone = false;

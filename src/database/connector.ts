@@ -67,16 +67,6 @@ export interface ScrollOptions {
     size?: number;
 }
 
-export interface BlockBatch {
-    from: number;
-    to: number;
-    blocks: {
-        delta: StorageEosioDelta;
-        actions: StorageEosioAction[];
-    }[];
-}
-
-
 export class BlockScroller {
 
     private readonly conn: Connector;
@@ -91,7 +81,6 @@ export class BlockScroller {
     private endSuffNum: number;
 
     private deltaIndices = new Map<number, string>();
-    private actionIndices = new Map<number, string>();
     private done: boolean = false;
 
     private initialHits: StorageEosioDelta[];
@@ -200,18 +189,13 @@ export class BlockScroller {
         // get relevant indexes
         this.currentSuffNum = parseInt(this.conn.getSuffixForBlock(this.from));
         this.endSuffNum = parseInt(this.conn.getSuffixForBlock(this.to));
-        (await this.conn.getOrderedDeltaIndices()).forEach((index) => {
-            const indexSuffNum = indexToSuffixNum(index.index);
+        const relevantIndexes = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
+        relevantIndexes.forEach((index) => {
+            const indexSuffNum = indexToSuffixNum(index);
             if (indexSuffNum >= this.currentSuffNum && indexSuffNum <= this.endSuffNum)
-                this.deltaIndices.set(indexSuffNum, index.index);
+                this.deltaIndices.set(indexSuffNum, index);
         });
         if (this.deltaIndices.size == 0) throw new Error(`Could not find any delta indices to scroll`);
-        (await this.conn.getOrderedActionIndices()).forEach((index) => {
-            const indexSuffNum = indexToSuffixNum(index.index);
-            if (indexSuffNum >= this.currentSuffNum && indexSuffNum <= this.endSuffNum)
-                this.actionIndices.set(indexSuffNum, index.index);
-        });
-        if (this.actionIndices.size == 0) throw new Error(`Could not find any action indices to scroll`);
 
         // first scroll request
         const scrollInfo = await this.scrollRequest();
@@ -255,6 +239,10 @@ export class Connector {
     lastPushed: number = 0;
 
     writeCounter: number = 0;
+    lastDeltaIndexSuff: number = undefined;
+    lastActionIndexSuff: number = undefined;
+    private deltaIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
+    private actionIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
@@ -338,6 +326,8 @@ export class Connector {
     }
 
     async getOrderedDeltaIndices() {
+        if (this.deltaIndexCache) return this.deltaIndexCache;
+
         const deltaIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
             format: 'json'
@@ -351,10 +341,25 @@ export class Connector {
                 return 1;
             return 0;
         });
+
+        this.deltaIndexCache = deltaIndices;
+
         return deltaIndices;
     }
 
+    async getRelevantDeltaIndicesForRange(from: number, to: number): Promise<string[]> {
+        const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
+        const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
+        return (await this.getOrderedDeltaIndices()).map((index) => {
+            const indexSuffNum = indexToSuffixNum(index.index);
+            if (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
+                 return index.index;
+        });
+    }
+
     async getOrderedActionIndices() {
+        if (this.actionIndexCache) return this.actionIndexCache;
+
         const actionIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
             index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
             format: 'json'
@@ -368,7 +373,20 @@ export class Connector {
                 return 1;
             return 0;
         });
+
+        this.actionIndexCache = actionIndices;
+
         return actionIndices;
+    }
+
+    async getRelevantActionIndicesForRange(from: number, to: number): Promise<string[]> {
+        const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
+        const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
+        return (await this.getOrderedActionIndices()).map((index) => {
+            const indexSuffNum = indexToSuffixNum(index.index);
+            if (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
+                return index.index;
+        });
     }
 
     private unwrapSingleElasticResult(result) {
@@ -469,10 +487,11 @@ export class Connector {
     }
 
     async getTransactionsForRange(from: number, to: number): Promise<StorageEosioAction[]> {
+        const actionIndex = await this.getRelevantActionIndicesForRange(from, to);
         const hits = [];
         try {
             let result = await this.elastic.search({
-                index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
+                index: actionIndex,
                 query: {
                     range: {
                         '@raw.block': {
@@ -499,7 +518,8 @@ export class Connector {
                 });
                 scrollId = result._scroll_id;
             }
-            await this.elastic.clearScroll({scroll_id: scrollId});
+            if (hits.length)
+                await this.elastic.clearScroll({scroll_id: scrollId});
 
         } catch (e) {
             this.logger.error(`connector: elastic error when getting transactions in range:`);
@@ -958,12 +978,25 @@ export class Connector {
         this.opDrain.push({timestamp, lastNonForked, lastForked});
     }
 
-    async writeBlocks(ops: any[], blocks: any[]) {
+    async writeBlocks(ops: any[], blocks: IndexedBlockInfo[]) {
         const bulkResponse = await this.elastic.bulk<any, any>({
             refresh: true,
             operations: ops,
             error_trace: true
         });
+
+        const lastAdjusted = Math.floor(
+            blocks[blocks.length - 1].delta.block_num / this.config.elastic.docsPerIndex);
+
+        if (lastAdjusted !== this.lastDeltaIndexSuff) {
+            this.deltaIndexCache = undefined;
+            this.lastDeltaIndexSuff = lastAdjusted;
+        }
+
+        if (lastAdjusted !== this.lastActionIndexSuff) {
+            this.actionIndexCache = undefined;
+            this.lastActionIndexSuff = lastAdjusted;
+        }
 
         if (bulkResponse.errors) {
             const erroredDocuments: any[] = []

@@ -48,7 +48,7 @@ export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
 export const EMPTY_UNCLES = '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347';
 
-export const BLOCK_GAS_LIMIT_HEX = '0xffffffffffffff'; // '0x7fffffff';
+export const BLOCK_GAS_LIMIT_HEX = '0x7fffffff';
 
 export const BLOCK_GAS_LIMIT = BigInt(BLOCK_GAS_LIMIT_HEX);
 
