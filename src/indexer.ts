@@ -781,8 +781,8 @@ export class TEVMIndexer {
         const reindexConnector = new Connector(config, this.logger);
         await reindexConnector.init();
 
-        for (const index of (await reindexConnector.getOrderedDeltaIndices()))
-            await reindexConnector.elastic.indices.delete({index: index.index});
+        // for (const index of (await reindexConnector.getOrderedDeltaIndices()))
+        //    await reindexConnector.elastic.indices.delete({index: index.index});
 
         const blockScroller = await this.connector.blockScroll({
             from: config.startBlock,
