@@ -350,11 +350,10 @@ export class Connector {
     async getRelevantDeltaIndicesForRange(from: number, to: number): Promise<string[]> {
         const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
         const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
-        return (await this.getOrderedDeltaIndices()).map((index) => {
+        return (await this.getOrderedDeltaIndices()).filter((index) => {
             const indexSuffNum = indexToSuffixNum(index.index);
-            if (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
-                 return index.index;
-        });
+            return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
+        }).map(index => index.index);
     }
 
     async getOrderedActionIndices() {
@@ -382,11 +381,10 @@ export class Connector {
     async getRelevantActionIndicesForRange(from: number, to: number): Promise<string[]> {
         const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
         const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
-        return (await this.getOrderedActionIndices()).map((index) => {
+        return (await this.getOrderedActionIndices()).filter((index) => {
             const indexSuffNum = indexToSuffixNum(index.index);
-            if (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
-                return index.index;
-        });
+            return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum);
+        }).map(index => index.index);
     }
 
     private unwrapSingleElasticResult(result) {
