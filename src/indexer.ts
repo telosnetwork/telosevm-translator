@@ -804,8 +804,8 @@ export class TEVMIndexer {
                     '@receiptsRootHash',
                     'size'
                 ],
-                size: 4000,
-                scroll: '10s'
+                size: config.elastic.scrollSize,
+                scroll: config.elastic.scrollWindow
             }
         });
 

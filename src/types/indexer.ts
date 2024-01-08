@@ -9,6 +9,8 @@ export type ConnectorConfig = {
     },
     requestTimeout: number,
     docsPerIndex: number,
+    scrollSize: number,
+    scrollWindow: string,
     subfix: {
         delta: string;
         error: string;
@@ -69,7 +71,7 @@ export const DEFAULT_CONF = {
         "stallCounter": 5,
         "readerWorkerAmount": 4,
         "evmWorkerAmount": 4,
-        "elasticDumpSize": 2048
+        "elasticDumpSize": 2048,
     },
 
     "elastic": {
@@ -80,6 +82,8 @@ export const DEFAULT_CONF = {
         },
         "requestTimeout": 5 * 1000,
         "docsPerIndex": 10000000,
+        "scrollSize": 4000,
+        "scrollWindow": "3s",
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",
