@@ -26,7 +26,7 @@ import {ABI} from "@greymass/eosio";
 
 import EventEmitter from "events";
 
-import SegfaultHandler from 'segfault-handler';
+// import SegfaultHandler from 'segfault-handler';
 import {packageInfo, sleep} from "./utils/indexer.js";
 
 import workerpool from 'workerpool';
@@ -34,11 +34,10 @@ import * as evm from "@ethereumjs/common";
 import {TEVMBlockHeader} from "telos-evm-custom-ds";
 import {HandlerArguments} from "./workers/handlers";
 
-import logWhyIsNodeRunning from 'why-is-node-running';
+// import logWhyIsNodeRunning from 'why-is-node-running';
 import cloneDeep from "lodash.clonedeep";
 import {clearInterval} from "timers";
 import {Bloom} from "@ethereumjs/vm";
-import {bigIntToHex} from "@ethereumjs/util";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -127,8 +126,8 @@ export class TEVMIndexer {
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
-        SegfaultHandler.registerHandler(
-            `translator-segfault-${process.pid}.log`);
+        // SegfaultHandler.registerHandler(
+        //     `translator-segfault-${process.pid}.log`);
 
         process.on('unhandledRejection', error => {
             // @ts-ignore
@@ -784,6 +783,15 @@ export class TEVMIndexer {
         // for (const index of (await reindexConnector.getOrderedDeltaIndices()))
         //    await reindexConnector.elastic.indices.delete({index: index.index});
 
+        const reindexLastBlock = await reindexConnector.getLastIndexedBlock();
+
+        if (reindexLastBlock != null) {
+            config.startBlock = reindexLastBlock.block_num + 1;
+            config.evmPrevHash = reindexLastBlock['@evmBlockHash'];
+            config.evmValidateHash = '';
+        }
+        this.logger.info(`starting reindex from ${config.startBlock} with prev hash \"${config.evmPrevHash}\"`);
+
         const blockScroller = await this.connector.blockScroll({
             from: config.startBlock,
             to: config.stopBlock,
@@ -806,12 +814,12 @@ export class TEVMIndexer {
         let lastPushed = 0;
         const reindexPerfTask = setInterval(async () => {
             metrics.measure(blocksPushed);
-            this.logger.info(`reindex: ${lastPushed.toLocaleString()} @ ${metrics.average.toFixed(2)}`);
+            this.logger.info(`${lastPushed.toLocaleString()} @ ${metrics.average.toFixed(2)} blocks/s 10 sec avg`);
             blocksPushed = 0;
         }, 1000);
 
         try {
-            const initialHash = this.config.evmPrevHash ? this.config.evmPrevHash : ZERO_HASH;
+            const initialHash = config.evmPrevHash ? config.evmPrevHash : ZERO_HASH;
             let firstHash = '';
             let parentHash = hexStringToUint8Array(initialHash);
             for await (const blocks of blockScroller) {
@@ -823,11 +831,6 @@ export class TEVMIndexer {
                 for (const block of blocks) {
                     const evmBlockNum = block.block_num - this.config.evmBlockDelta;
 
-                    // const blockTimestamp = new Date(block['@timestamp']);
-                    // // blockTimestamp.setHours(blockTimestamp.getHours() - 3);
-                    // block['@timestamp'] = blockTimestamp.toISOString();
-                    // const ts = bigIntToHex(BigInt(moment.utc(blockTimestamp).unix()));
-
                     const blockTxs = [];
                     while (txIndex < rangeTxs.length && rangeTxs[txIndex]['@raw'].block == evmBlockNum)
                         blockTxs.push(rangeTxs[txIndex++]);
@@ -836,9 +839,9 @@ export class TEVMIndexer {
 
                     if (firstHash === '') {
                         firstHash = storableBlock.delta['@evmBlockHash'];
-                        if (this.config.evmValidateHash &&
-                            firstHash !== this.config.evmValidateHash)
-                            throw new Error(`initial hash validation failed: got ${firstHash} and expected ${this.config.evmValidateHash}`);
+                        if (config.evmValidateHash &&
+                            firstHash !== config.evmValidateHash)
+                            throw new Error(`initial hash validation failed: got ${firstHash} and expected ${config.evmValidateHash}`);
                     }
 
                     parentHash = hexStringToUint8Array(storableBlock.delta['@evmBlockHash']);
@@ -904,8 +907,8 @@ export class TEVMIndexer {
             }
         }
 
-        if (process.env.LOG_LEVEL == 'debug')
-            setTimeout(logWhyIsNodeRunning, 5000);
+        // if (process.env.LOG_LEVEL == 'debug')
+        //     setTimeout(logWhyIsNodeRunning, 5000);
     }
 
     /*

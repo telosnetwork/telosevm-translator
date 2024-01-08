@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import path from 'path';
-import fs from "fs";
+import path from 'node:path';
+import fs from 'node:fs';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const packageJsonFile = path.join(currentDir, '../package.json');

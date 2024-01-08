@@ -891,15 +891,8 @@ export class Connector {
 
     async flush() {
         if (this.opDrain.length == 0) return;
-
-        const ops = this.opDrain;
-        const blocks = this.blockDrain;
-
-        this.opDrain = [];
-        this.blockDrain = [];
         this.writeCounter++;
-
-        await this.writeBlocks(ops, blocks);
+        await this.writeBlocks();
     }
 
     async pushBlock(blockInfo: IndexedBlockInfo) {
@@ -918,13 +911,18 @@ export class Connector {
         const errOperations = blockInfo.errors.flatMap(
             doc => [{index: {_index: errIndex}}, doc]);
 
-        const operations = [
-            ...errOperations,
-            ...txOperations,
-            {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
-        ];
+        // const operations = [
+        //     ...errOperations,
+        //     ...txOperations,
+        //     {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
+        // ];
+        const operations = [];
+        Array.prototype.push.apply(operations, errOperations);
+        Array.prototype.push.apply(operations, txOperations);
+        operations.push({create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta);
 
-        this.opDrain = [...this.opDrain, ...operations];
+        // this.opDrain = [...this.opDrain, ...operations];
+        Array.prototype.push.apply(this.opDrain, operations);
         this.blockDrain.push(blockInfo);
 
         this.lastPushed = currentBlock;
@@ -932,10 +930,7 @@ export class Connector {
 
         if (this.state == IndexerState.HEAD ||
             this.opDrain.length >= (this.config.perf.elasticDumpSize * 2)) {
-            if (this.state == IndexerState.HEAD)
-                await this.flush();
-            else
-                void this.flush();
+            await this.flush();
         }
     }
 
@@ -976,15 +971,16 @@ export class Connector {
         this.opDrain.push({timestamp, lastNonForked, lastForked});
     }
 
-    async writeBlocks(ops: any[], blocks: IndexedBlockInfo[]) {
-        const bulkResponse = await this.elastic.bulk<any, any>({
-            refresh: true,
-            operations: ops,
+    async writeBlocks() {
+        const bulkResponse = await this.elastic.bulk({
+            operations: this.opDrain,
             error_trace: true
-        });
+        })
 
-        const lastAdjusted = Math.floor(
-            blocks[blocks.length - 1].delta.block_num / this.config.elastic.docsPerIndex);
+        const first = this.blockDrain[0].delta.block_num;
+        const last = this.blockDrain[this.blockDrain.length - 1].delta.block_num;
+
+        const lastAdjusted = Math.floor(last / this.config.elastic.docsPerIndex);
 
         if (lastAdjusted !== this.lastDeltaIndexSuff) {
             this.deltaIndexCache = undefined;
@@ -1014,32 +1010,35 @@ export class Connector {
                         status: action[operation].status,
                         // @ts-ignore
                         error: action[operation].error,
-                        operation: ops[i * 2],
-                        document: ops[i * 2 + 1]
+                        operation: this.opDrain[i * 2],
+                        document: this.opDrain[i * 2 + 1]
                     })
                 }
             });
 
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
-        this.logger.info(`drained ${ops.length} operations.`);
+        this.logger.info(`drained ${this.opDrain.length} operations.`);
         if (this.isBroadcasting) {
-            this.logger.info(`broadcasting ${blocks.length} blocks...`)
+            this.logger.info(`broadcasting ${this.opDrain.length} blocks...`)
 
-            for (const block of blocks)
+            for (const block of this.blockDrain)
                 this.broadcast.broadcastBlock(block);
         }
 
         this.logger.info('done.');
 
+        this.opDrain = [];
+        this.blockDrain = [];
+
         this.writeCounter--;
 
         this.events.emit('write', {
-            from: blocks[0].delta.block_num,
-            to: blocks[blocks.length - 1].delta.block_num
+            from: first,
+            to: last
         });
 
-        if (global.gc) {global.gc();}
+        // if (global.gc) {global.gc();}
     }
 
     async blockScroll(params: {

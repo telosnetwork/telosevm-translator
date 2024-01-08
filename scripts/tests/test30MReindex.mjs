@@ -1,13 +1,12 @@
 import {Client} from "@elastic/elasticsearch";
-import path from "path";
-import {readFileSync} from "fs";
+import path from "node:path";
+import {readFileSync} from "node:fs";
 import {sleep} from "../../build/utils/indexer.js";
 import {TEVMIndexer} from "../../build/indexer.js";
-import {assert, expect} from "chai";
-import {StorageEosioActionSchema, StorageEosioDeltaSchema} from "../../build/types/evm.js";
+
 import {
     decompressFile,
-    getElasticActions, getElasticDeltas, maybeLoadElasticDump,
+    maybeLoadElasticDump,
     SCRIPTS_DIR, TEST_RESOURCES_DIR,
 } from "../utils.mjs";
 import moment from "moment";
@@ -47,9 +46,9 @@ translatorConfig.chainName = 'telos-mainnet-verification';
 translatorConfig.startBlock = startBlock;
 translatorConfig.stopBlock = endBlock;
 translatorConfig.evmPrevHash = translatorTestConfig.evmPrevHash;
-// translatorConfig.evmValidateHash = '13f28fe4d164354cbcb0b9d8d43dff5d8e4b180e440579a55505a5fc96831c6b';
+translatorConfig.evmValidateHash = '36fe7024b760365e3970b7b403e161811c1e626edd68460272fcdfa276272563';
 
-translatorConfig.perf.elasticDumpSize = 800;
+translatorConfig.perf.elasticDumpSize = 2000;
 
 const adjustedNum = Math.floor(startBlock / translatorConfig.elastic.docsPerIndex);
 const numericIndexSuffix = String(adjustedNum).padStart(8, '0');

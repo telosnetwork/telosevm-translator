@@ -11,7 +11,7 @@ export default class RPCBroadcaster {
     logger: Logger;
     broadcastServer: TemplatedApp;
 
-    private sockets: {[key: string]: uWS.WebSocket} = {};
+    private sockets: {[key: string]: uWS.WebSocket<Uint8Array>} = {};
     private listenSocket: uWS.us_listen_socket;
 
     constructor(config: BroadcasterConfig, logger: Logger) {
@@ -29,7 +29,7 @@ export default class RPCBroadcaster {
                 maxPayloadLength: 16 * 1024 * 1024,
                 /* We need a slightly higher timeout for this crazy example */
                 idleTimeout: 60,
-                open: (ws) => {
+                open: (ws: uWS.WebSocket<Uint8Array>) => {
                     const ip: string = new TextDecoder('utf-8').decode(ws.getRemoteAddressAsText());
                     this.sockets[ip] = ws;
                     ws.subscribe('broadcast')
