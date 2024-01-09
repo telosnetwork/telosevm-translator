@@ -326,7 +326,7 @@ export class Connector {
     }
 
     async getOrderedDeltaIndices() {
-        if (this.deltaIndexCache) return this.deltaIndexCache;
+        // if (this.deltaIndexCache) return this.deltaIndexCache;
 
         const deltaIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
@@ -342,7 +342,7 @@ export class Connector {
             return 0;
         });
 
-        this.deltaIndexCache = deltaIndices;
+        // this.deltaIndexCache = deltaIndices;
 
         return deltaIndices;
     }
@@ -357,7 +357,7 @@ export class Connector {
     }
 
     async getOrderedActionIndices() {
-        if (this.actionIndexCache) return this.actionIndexCache;
+        // if (this.actionIndexCache) return this.actionIndexCache;
 
         const actionIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
             index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
@@ -373,7 +373,7 @@ export class Connector {
             return 0;
         });
 
-        this.actionIndexCache = actionIndices;
+        // this.actionIndexCache = actionIndices;
 
         return actionIndices;
     }
