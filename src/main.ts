@@ -25,6 +25,27 @@ program
             mergeDeep(conf, userConf);
         } catch (e) { }
 
+        if (options.skipIntegrityCheck)
+            conf.runtime.skipIntegrityCheck = options.skipIntegrityCheck;
+
+        if (options.onlyDBCheck)
+            conf.runtime.onlyDBCheck = options.onlyDBCheck;
+
+        if (options.gapsPurge)
+            conf.runtime.gapsPurge = options.gapsPurge;
+
+        if (options.skipStartBlockCheck)
+            conf.runtime.skipStartBlockCheck = options.skipStartBlockCheck;
+
+        if (options.skipRemoteCheck)
+            conf.runtime.skipRemoteCheck = options.skipRemoteCheck;
+
+        if (options.reindexInto)
+            conf.runtime.reindexInto = options.reindexInto;
+
+        if (options.trimFrom)
+            conf.runtime.trimFrom = parseInt(options.trimFrom, 10);
+
         if (process.env.LOG_LEVEL)
             conf.logLevel = process.env.LOG_LEVEL;
 
@@ -88,7 +109,7 @@ program
         if (process.env.EVM_WORKER_AMOUNT)
             conf.perf.evmWorkerAmount = parseInt(process.env.EVM_WORKER_AMOUNT, 10);
 
-        await new TEVMIndexer(conf).launch(options);
+        await new TEVMIndexer(conf).launch();
     });
 
 program.parse(process.argv);

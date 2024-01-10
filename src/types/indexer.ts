@@ -29,6 +29,17 @@ export type IndexerConfig = {
     readerLogLevel: string;
     chainName: string;
     chainId: number;
+
+    runtime: {
+        trimFrom?: number;
+        skipIntegrityCheck?: boolean;
+        onlyDBCheck?: boolean;
+        gapsPurge?: boolean;
+        skipStartBlockCheck?: boolean;
+        skipRemoteCheck?: boolean;
+        reindexInto?: string;
+    };
+
     endpoint: string;
     remoteEndpoint: string;
     wsEndpoint: string;
@@ -54,6 +65,8 @@ export const DEFAULT_CONF = {
     "readerLogLevel": "info",
     "chainName": "telos-local",
     "chainId": 41,
+
+    "runtime": {},
 
     "endpoint": "http://127.0.0.1:8888",
     "remoteEndpoint": "http://127.0.0.1:8888",

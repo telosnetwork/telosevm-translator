@@ -41,17 +41,6 @@ import {Bloom} from "@ethereumjs/vm";
 
 EventEmitter.defaultMaxListeners = 1000;
 
-export interface TEVMIndexerOptions {
-    config: string;
-    trimFrom: string | undefined;
-    skipIntegrityCheck: boolean;
-    onlyDbCheck: boolean;
-    gapsPurge: boolean;
-    skipStartBlockCheck: boolean;
-    skipRemoteCheck: boolean;
-    reindexInto: string | undefined;
-};
-
 export class TEVMIndexer {
     endpoint: string;  // nodeos http rpc endpoint
     wsEndpoint: string;  // nodoes ship ws endpoint
@@ -514,7 +503,7 @@ export class TEVMIndexer {
     /*
      * Entry point
      */
-    async launch(options: Partial<TEVMIndexerOptions>) {
+    async launch() {
         this.printIntroText();
 
         let startBlock = this.startBlock;
@@ -522,8 +511,8 @@ export class TEVMIndexer {
 
         await this.connector.init();
 
-        if (options.trimFrom) {
-            const trimBlockNum = parseInt(options.trimFrom, 10);
+        if (this.config.runtime.trimFrom) {
+            const trimBlockNum = this.config.runtime.trimFrom;
             await this.connector.purgeNewerThan(trimBlockNum);
         }
 
@@ -531,7 +520,7 @@ export class TEVMIndexer {
         let lastBlock = await this.connector.getLastIndexedBlock();
 
         let gap = null;
-        if (!options.skipIntegrityCheck) {
+        if (!this.config.runtime.skipIntegrityCheck) {
             if (lastBlock != null) {
                 this.logger.debug('performing integrity check...');
                 gap = await this.connector.fullIntegrityCheck();
@@ -543,20 +532,20 @@ export class TEVMIndexer {
                     this.logger.info(JSON.stringify(gap, null, 4));
                 }
             } else {
-                if (options.onlyDbCheck) {
+                if (this.config.runtime.onlyDBCheck) {
                     this.logger.warn('--only-db-check on empty database...');
                 }
             }
         }
 
-        if (options.onlyDbCheck) {
+        if (this.config.runtime.onlyDBCheck) {
             this.logger.info('--only-db-check passed exiting...');
             await this.connector.deinit();
             return;
         }
 
-        if (options.reindexInto) {
-            const res = await this.reindex(options.reindexInto);
+        if (this.config.runtime.reindexInto) {
+            const res = await this.reindex(this.config.runtime.reindexInto);
             this.logger.info(`Re-index result: ${res}`);
             await this.connector.deinit();
             return;
@@ -569,7 +558,7 @@ export class TEVMIndexer {
             if (gap == null) {
                 ({startBlock, prevHash} = await this.getBlockInfoFromLastBlock(lastBlock));
             } else {
-                if (options.gapsPurge)
+                if (this.config.runtime.gapsPurge)
                     ({startBlock, prevHash} = await this.getBlockInfoFromGap(gap));
                 else
                     throw new Error(
@@ -597,7 +586,7 @@ export class TEVMIndexer {
             await this.genesisBlockInitialization();
         }
 
-        if (!options.skipStartBlockCheck) {
+        if (!this.config.runtime.skipStartBlockCheck) {
             // check node actually contains first block
             try {
                 await this.rpc.get_block(startBlock);
@@ -607,7 +596,7 @@ export class TEVMIndexer {
             }
         }
 
-        if (!options.skipRemoteCheck) {
+        if (!this.config.runtime.skipRemoteCheck) {
             // check remote node is up
             try {
                 await this.remoteRpc.get_info();
