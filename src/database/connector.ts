@@ -150,6 +150,10 @@ export class BlockScroller {
             let hits = deltaScrollResponse.hits.hits;
 
             if (hits.length === 0) {
+                // clear current scroll context
+                await this.conn.elastic.clearScroll({
+                    scroll_id: this.currentDeltaScrollId
+                });
                 // is scroll done?
                 if (this.last == this.to)
                     this.done = true;
