@@ -1,16 +1,16 @@
-import { copyFileSync } from 'node:fs';
-import path from 'path';
-import fs from 'fs';
-import {SCRIPTS_DIR} from "./utils.mjs";
+import path from 'node:path';
+import {fileURLToPath} from "node:url";
+import fs, { copyFileSync } from 'node:fs';
 
+
+export const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+``
 function makeDirectory(directoryPath) {
     const resolvedPath = path.resolve(directoryPath);
 
     if (!fs.existsSync(resolvedPath)) {
         fs.mkdirSync(resolvedPath, { recursive: true });
         console.log(`Directory created: ${resolvedPath}`);
-    } else {
-        console.log(`Directory already exists: ${resolvedPath}`);
     }
 }
 

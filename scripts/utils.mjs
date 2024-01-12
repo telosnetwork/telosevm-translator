@@ -27,8 +27,6 @@ export function makeDirectory(directoryPath) {
     if (!fs.existsSync(resolvedPath)) {
         fs.mkdirSync(resolvedPath, { recursive: true });
         console.log(`Directory created: ${resolvedPath}`);
-    } else {
-        console.log(`Directory already exists: ${resolvedPath}`);
     }
 }
 
