@@ -1,4 +1,4 @@
-import {IndexerState, IndexerConfig, IndexedBlockInfo} from "../types/indexer.js";
+import {IndexerState, IndexerConfig} from "../types/indexer.js";
 import {TEVMIndexer} from "../indexer.js";
 import {Connector} from "../database/connector.js";
 

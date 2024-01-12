@@ -1,6 +1,6 @@
 import {readFileSync} from "node:fs";
 
-import {HyperionSequentialReader, ThroughputMeasurer} from "@eosrio/hyperion-sequential-reader";
+import {HyperionSequentialReader, ThroughputMeasurer} from "@telosnetwork/hyperion-sequential-reader";
 
 import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
 

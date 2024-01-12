@@ -29,7 +29,7 @@
   "type": "module",
   "dependencies": {
     "@elastic/elasticsearch": "8.11.0",
-    "@eosrio/hyperion-sequential-reader": "file:./eosrio-hyperion-sequential-reader-1.2.6.tgz",
+    "@telosnetwork/hyperion-sequential-reader": "1.2.6",
     "@ethereumjs/block": "5.0.1",
     "@ethereumjs/common": "4.1.0",
     "@ethereumjs/tx": "5.1.0",
@@ -58,7 +58,7 @@
     "chai": "^4.3.10",
     "depcheck": "^1.4.7",
     "elasticdump": "^6.110.0",
-    "leap-mock": "0.1.6",
+    "leap-mock": "0.1.7",
     "lzma-native": "^8.0.6",
     "mocha": "^10.2.0",
     "simple-zstd": "^1.4.2",
