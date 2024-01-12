@@ -84,7 +84,7 @@ export const DEFAULT_CONF = {
         "stallCounter": 5,
         "readerWorkerAmount": 4,
         "evmWorkerAmount": 4,
-        "elasticDumpSize": 2048,
+        "elasticDumpSize": 2 * 1000,
     },
 
     "elastic": {
@@ -95,8 +95,8 @@ export const DEFAULT_CONF = {
         },
         "requestTimeout": 5 * 1000,
         "docsPerIndex": 10000000,
-        "scrollSize": 4000,
-        "scrollWindow": "3s",
+        "scrollSize": 6000,
+        "scrollWindow": "8s",
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

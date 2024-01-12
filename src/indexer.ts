@@ -262,7 +262,7 @@ export class TEVMIndexer {
         // SYNC & HEAD mode switch detection
         try {
             this.headBlock = (await this.remoteRpc.get_info()).head_block_num;
-            const isHeadTarget = this.stopBlock >= this.headBlock;
+            const isHeadTarget = this.headBlock >= this.stopBlock;
             const targetBlock = isHeadTarget ? this.headBlock : this.stopBlock;
 
             const blocksUntilHead = targetBlock - this.lastBlock;
@@ -311,7 +311,7 @@ export class TEVMIndexer {
             return;
         }
 
-        if (currentBlock > this.stopBlock)
+        if (this.stopBlock > 0 && currentBlock > this.stopBlock)
             return;
 
         if (currentBlock > this.lastBlock + 1)
@@ -678,7 +678,7 @@ export class TEVMIndexer {
                 '@evmBlockHash': this.ethGenesisHash,
                 "@receiptsRootHash": EMPTY_TRIE,
                 "@transactionsRoot": EMPTY_TRIE,
-                "gasUsed": "0x0",
+                "gasUsed": "0",
                 "gasLimit": BLOCK_GAS_LIMIT.toString(),
                 "size": "0"
             },
