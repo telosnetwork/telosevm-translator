@@ -1,13 +1,14 @@
-import {Connector} from "../../database/connector";
-import {DEFAULT_CONF} from "../../types/indexer";
-import cloneDeep from "lodash.clonedeep";
-import {assert, expect} from "chai";
+import {Connector} from "../../database/connector.js";
+import {DEFAULT_CONF} from "../../types/indexer.js";
 import {
     isStorableDocument,
     StorageEosioActionSchema,
     StorageEosioDeltaSchema
-} from "../../types/evm";
-import {sampleActionDocument, sampleDeltaDocument, sampleIndexedBlock} from "../samples";
+} from "../../types/evm.js";
+import {sampleActionDocument, sampleDeltaDocument, sampleIndexedBlock} from "../samples.js";
+
+import cloneDeep from "lodash.clonedeep";
+import {assert, expect} from "chai";
 
 
 describe('Elastic Connector', function() {
