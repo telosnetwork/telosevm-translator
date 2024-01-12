@@ -100,7 +100,7 @@ export const StorageEosioActionSchema = z.object({
         message: "Invalid trx_id format",
     }),
     action_ordinal: z.number(),
-    signatures: z.array(z.string()),
+    signatures: z.array(z.string()).optional(),
     "@raw": StorageEvmTransactionSchema,
 });
 
@@ -138,8 +138,8 @@ export const StorageEosioDeltaSchema = z.object({
     size: z.string().refine(isInteger, {
         message: "Invalid size format",
     }),
-    code: z.string(),
-    table: z.string(),
+    code: z.string().optional(),
+    table: z.string().optional(),
 });
 
 export type StorageEosioDelta = z.infer<typeof StorageEosioDeltaSchema>;

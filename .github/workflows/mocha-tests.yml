@@ -28,9 +28,6 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Build
-      run: npm run build
-
     - name: Unit Tests
       run: npm run test-unit
       env:

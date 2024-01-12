@@ -432,7 +432,7 @@ export class TEVMIndexer {
         });
 
         // fork handling
-        if (currentBlock != this.lastBlock + 1)
+        if (currentBlock < this.lastBlock + 1)
             await this.handleFork(newestBlock);
 
         const storableBlockInfo = await this.hashBlock(newestBlock);
@@ -480,7 +480,8 @@ export class TEVMIndexer {
             tableWhitelist: {},
             irreversibleOnly: this.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
-            maxPayloadMb: Math.floor(1024 * 1.5)
+            maxPayloadMb: Math.floor(1024 * 1.5),
+            skipInitialBlockCheck: true
         });
 
         this.reader.addContracts(this.readerAbis);

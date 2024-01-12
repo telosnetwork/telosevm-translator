@@ -977,6 +977,7 @@ export class Connector {
 
     async writeBlocks() {
         const bulkResponse = await this.elastic.bulk({
+            refresh: true,
             operations: this.opDrain,
             error_trace: true
         })
