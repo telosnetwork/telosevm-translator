@@ -47,7 +47,7 @@ export function getTemplatesForChain(chain: string) {
         settings: actionSettings,
         mappings: {
             properties: {
-                "@timestamp": {"type": "date"},
+                "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "ds_error": {"type": "boolean"},
                 "global_sequence": {"type": "long"},
                 "account_ram_deltas.delta": {"type": "integer"},
@@ -140,93 +140,6 @@ export function getTemplatesForChain(chain: string) {
                         },
                     }
                 },
-
-                // eosio::newaccount
-                "@newaccount": {
-                    "properties": {
-                        "active": {"type": "object"},
-                        "owner": {"type": "object"},
-                        "newact": {"type": "keyword"}
-                    }
-                },
-
-                // eosio::updateauth
-                "@updateauth": {
-                    "properties": {
-                        "permission": {"type": "keyword"},
-                        "parent": {"type": "keyword"},
-                        "auth": {"type": "object"}
-                    }
-                },
-
-                // *::transfer
-                "@transfer": {
-                    "properties": {
-                        "from": {"type": "keyword"},
-                        "to": {"type": "keyword"},
-                        "amount": {"type": "float"},
-                        "symbol": {"type": "keyword"},
-                        "memo": {"type": "text"}
-                    }
-                },
-
-                // eosio::unstaketorex
-                "@unstaketorex": {
-                    "properties": {
-                        "owner": {"type": "keyword"},
-                        "receiver": {"type": "keyword"},
-                        "amount": {"type": "float"}
-                    }
-                },
-
-                // eosio::buyrex
-                "@buyrex": {
-                    "properties": {
-                        "from": {"type": "keyword"},
-                        "amount": {"type": "float"}
-                    }
-                },
-
-                // eosio::buyram
-                "@buyram": {
-                    "properties": {
-                        "payer": {"type": "keyword"},
-                        "receiver": {"type": "keyword"},
-                        "quant": {"type": "float"}
-                    }
-                },
-
-                // eosio::buyrambytes
-                "@buyrambytes": {
-                    "properties": {
-                        "payer": {"type": "keyword"},
-                        "receiver": {"type": "keyword"},
-                        "bytes": {"type": "long"}
-                    }
-                },
-
-                // eosio::delegatebw
-                "@delegatebw": {
-                    "properties": {
-                        "from": {"type": "keyword"},
-                        "receiver": {"type": "keyword"},
-                        "stake_cpu_quantity": {"type": "float"},
-                        "stake_net_quantity": {"type": "float"},
-                        "transfer": {"type": "boolean"},
-                        "amount": {"type": "float"}
-                    }
-                },
-
-                // eosio::undelegatebw
-                "@undelegatebw": {
-                    "properties": {
-                        "from": {"type": "keyword"},
-                        "receiver": {"type": "keyword"},
-                        "unstake_cpu_quantity": {"type": "float"},
-                        "unstake_net_quantity": {"type": "float"},
-                        "amount": {"type": "float"}
-                    }
-                }
             }
         }
     };
@@ -257,7 +170,7 @@ export function getTemplatesForChain(chain: string) {
             "properties": {
 
                 // base fields
-                "@timestamp": {"type": "date"},
+                "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "ds_error": {"type": "boolean"},
                 "block_id": {"type": "keyword"},
                 "block_num": {"type": "long"},

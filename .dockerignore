@@ -1,0 +1,7 @@
+.github
+.idea
+.nyc_output
+build
+node_modules
+config.json
+telosevm-translator.iml

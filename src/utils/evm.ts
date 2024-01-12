@@ -11,14 +11,6 @@ import {nameToUint64} from "./eosio.js";
 import {sleep} from "./indexer.js";
 import moment from "moment";
 
-export function numberToHex(num: number): string {
-    let hex = num.toString(16);
-    if (hex.length % 2 !== 0) {
-        hex = '0' + hex;
-    }
-    return '0x' + hex;
-}
-
 export function arrayToHex(array: Uint8Array) {
     if (!array)
         return '';
@@ -50,22 +42,25 @@ export function hexStringToUint8Array(hexString: string): Uint8Array {
 }
 
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
-export const NULL_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
+export const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
 export const EMPTY_TRIE_BUF = new Trie().EMPTY_TRIE_ROOT;
 export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
-// 1,000,000,000
-export const BLOCK_GAS_LIMIT = '0x3b9aca00'
+export const EMPTY_UNCLES = '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347';
+
+export const BLOCK_GAS_LIMIT_HEX = '0x7fffffff';
+
+export const BLOCK_GAS_LIMIT = BigInt(BLOCK_GAS_LIMIT_HEX);
 
 export const NEW_HEADS_TEMPLATE = {
     difficulty: "0x0",
-    extraData: NULL_HASH,
-    gasLimit: BLOCK_GAS_LIMIT,
+    extraData: ZERO_HASH,
+    gasLimit: BLOCK_GAS_LIMIT_HEX,
     miner: ZERO_ADDR,
     nonce: "0x0000000000000000",
-    parentHash: NULL_HASH,
+    parentHash: ZERO_HASH,
     receiptsRoot: EMPTY_TRIE,
-    sha3Uncles: NULL_HASH,
+    sha3Uncles: EMPTY_UNCLES,
     stateRoot: EMPTY_TRIE,
     transactionsRoot: EMPTY_TRIE,
 };
@@ -100,61 +95,10 @@ export function generateUniqueVRS(
 }
 
 export interface EVMTxWrapper {
-    trx_id: string,
     action_ordinal: number,
-    signatures: string[],
+    trx_id: string,
     evmTx: StorageEvmTransaction
 };
-
-
-export const DS_TYPES = [
-    'transaction',
-    'code_id',
-    'account_v0',
-    'account_metadata_v0',
-    'code_v0',
-    'contract_table_v0',
-    'contract_row_v0',
-    'contract_index64_v0',
-    'contract_index128_v0',
-    'contract_index256_v0',
-    'contract_index_double_v0',
-    'contract_index_long_double_v0',
-    'account',
-    'account_metadata',
-    'code',
-    'contract_table',
-    'contract_row',
-    'contract_index64',
-    'contract_index128',
-    'contract_index256',
-    'contract_index_double',
-    'contract_index_long_double'
-];
-
-
-export class StorageEosioDelta {
-    "@timestamp": string;
-    block_num: number;
-    "@global": {
-        block_num: number
-    };
-    "@blockHash": string;
-    "@evmBlockHash": string;
-    "@evmPrevBlockHash": string;
-    "@receiptsRootHash": string;
-    "@transactionsRoot": string;
-    gasUsed: string;
-    gasLimit: string;
-    size: string;
-
-    code: string;
-    table: string;
-
-    constructor(obj: Partial<StorageEosioDelta>) {
-        Object.assign(this, obj);
-    }
-}
 
 export class ProcessedBlock {
     nativeBlockHash: string;
@@ -171,14 +115,12 @@ export class ProcessedBlock {
 
 export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
     let gasUsed = BigInt(0);
-    let gasLimit = BigInt(0);
     let size = BigInt(0);
     const txsRootHash = new Trie();
     const receiptsTrie = new Trie();
     const blockBloom = new Bloom();
     for (const [i, tx] of evmTxs.entries()) {
         gasUsed += BigInt(tx.evmTx.gasused);
-        gasLimit += BigInt(tx.evmTx.gas_limit);
         size += BigInt(tx.evmTx.raw.length);
 
         const logs: Log[] = [];
@@ -216,8 +158,9 @@ export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         const encodedReceipt = encodeReceipt(receipt, TransactionType.Legacy);
         await receiptsTrie.put(RLP.encode(i), encodedReceipt);
     }
+
     return {
-        gasUsed, gasLimit, size,
+        gasUsed, size,
         txsRootHash, receiptsTrie, blockBloom
     };
 }
@@ -261,10 +204,9 @@ export async function queryAddress(
     logger: Logger
 ) {
     const acctInt = nameToUint64(accountName);
-    let retry = 5;
+    let retry = true;
     let result = null;
-    while (retry > 0) {
-        retry--;
+    while (retry) {
         try {
             result = await rpc.get_table_rows({
                 code: 'eosio.evm',
@@ -285,13 +227,19 @@ export async function queryAddress(
         } catch (error) {
             logger.error(`queryAddress failed for account ${accountName}, int: ${acctInt}`);
             logger.error(error);
-            if (retry == 0)
+            try {
+                await sleep(200);
+                await rpc.get_info();
+                logger.error(`seems get info succeded, queryAddress error is not network related, throw...`);
                 throw error;
+            } catch (innerError) {
+                logger.warn(`seems get info failed, queryAddress error is likely network related, retrying soon...`);
+            }
         }
 
-        logger.warn(`queryAddress returned null for account ${accountName}, int: ${acctInt}, retrying...`);
         await sleep(500);
     }
 
     throw new Error(`failed to get eth addr for ${accountName}, int: ${acctInt}`);
 }
+

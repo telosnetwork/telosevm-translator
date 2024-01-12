@@ -7,7 +7,7 @@
 
     "endpoint": "http://127.0.0.1:8888",
     "remoteEndpoint": "http://mainnet.telos.net",
-    "wsEndpoint": "ws://api1.hosts.caleos.io:18999",
+    "wsEndpoint": "ws://127.0.0.1:29999",
 
     "evmBlockDelta": 36,
     "evmPrevHash": "cfa67996f5d4f1e9e2b8b13a8984e1d8997091060748c3345f160b39050809b6",
@@ -16,6 +16,7 @@
     "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
+        "stallCounter": 5,
         "readerWorkerAmount": 4,
         "evmWorkerAmount": 4,
         "elasticDumpSize": 2048

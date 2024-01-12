@@ -3,7 +3,7 @@ import {EosioEvmDeposit, EosioEvmRaw, EosioEvmWithdraw, StorageEvmTransaction} f
 import {
     arrayToHex,
     generateUniqueVRS, hexStringToUint8Array, KEYWORD_STRING_TRIM_SIZE,
-    queryAddress, RECEIPT_LOG_END, RECEIPT_LOG_START, removeHexPrefix,
+    queryAddress, RECEIPT_LOG_END, RECEIPT_LOG_START,
     stdGasLimit,
     stdGasPrice,
     TxDeserializationError,
@@ -39,17 +39,27 @@ logger.add(new transports.Console({
     level: process.env.LOG_LEVEL
 }));
 
-async function createEvm(
-    nativeBlockHash: string,
-    trx_index: number,
-    blockNum: number,
-    tx: EosioEvmRaw,
-    consoleLog: string
-): Promise<StorageEvmTransaction | TxDeserializationError> {
+export interface HandlerArguments {
+    nativeBlockHash: string;
+    trx_index: number;
+    blockNum: number;
+    tx: EosioEvmRaw | EosioEvmDeposit | EosioEvmWithdraw;
+    consoleLog?: string;
+}
+
+async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction | TxDeserializationError> {
+    const tx = args.tx as EosioEvmRaw;
+    if (!args.consoleLog || args.consoleLog.length == 0) {
+        return new TxDeserializationError(
+            `consoleLog undefined or empty string: ${args}`,
+            {}
+        );
+    }
+
     try {
-        let receiptLog = consoleLog.slice(
-            consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
-            consoleLog.indexOf(RECEIPT_LOG_END)
+        let receiptLog = args.consoleLog.slice(
+            args.consoleLog.indexOf(RECEIPT_LOG_START) + RECEIPT_LOG_START.length,
+            args.consoleLog.indexOf(RECEIPT_LOG_END)
         );
 
         let receipt: {
@@ -87,9 +97,9 @@ async function createEvm(
             return new TxDeserializationError(
                 'Raw EVM deserialization error',
                 {
-                    'nativeBlockHash': nativeBlockHash,
+                    'nativeBlockHash': args.nativeBlockHash,
                     'tx': tx,
-                    'block_num': blockNum,
+                    'block_num': args.blockNum,
                     'error': error.message,
                     'stack': error.stack
                 }
@@ -116,7 +126,7 @@ async function createEvm(
                 senderAddr = `0x${senderAddr}`;
 
             [v, r, s] = generateUniqueVRS(
-                nativeBlockHash, senderAddr, trx_index);
+                args.nativeBlockHash, senderAddr, args.trx_index);
 
             evmTxParams.v = v;
             evmTxParams.r = r;
@@ -131,9 +141,9 @@ async function createEvm(
                 return new TxDeserializationError(
                     'Raw EVM deserialization error',
                     {
-                        'nativeBlockHash': nativeBlockHash,
+                        'nativeBlockHash': args.nativeBlockHash,
                         'tx': tx,
-                        'block_num': blockNum,
+                        'block_num': args.blockNum,
                         'error': `error deserializing address \'${tx.sender}\'`
                     }
                 );
@@ -157,8 +167,8 @@ async function createEvm(
 
         const txBody: StorageEvmTransaction = {
             hash: '0x' + arrayToHex(evmTx.hash()),
-            trx_index: trx_index,
-            block: blockNum,
+            trx_index: args.trx_index,
+            block: args.blockNum,
             block_hash: "",
             to: evmTx.to?.toString(),
             input_data: '0x' + inputData,
@@ -221,22 +231,18 @@ async function createEvm(
         return new TxDeserializationError(
             'Raw EVM deserialization error',
             {
-                'nativeBlockHash': nativeBlockHash,
+                'nativeBlockHash': args.nativeBlockHash,
                 'tx': tx,
-                'block_num': blockNum,
+                'block_num': args.blockNum,
                 'error': error.message,
-                'stacl': error.stack
+                'stack': error.stack
             }
         );
     }
 }
 
-async function createDeposit(
-    nativeBlockHash: string,
-    trx_index: number,
-    blockNum: number,
-    tx: EosioEvmDeposit
-): Promise<StorageEvmTransaction | TxDeserializationError> {
+async function createDeposit(args: HandlerArguments): Promise<StorageEvmTransaction | TxDeserializationError> {
+    const tx = args.tx as EosioEvmDeposit;
     const quantity = parseAsset(tx.quantity);
 
     let toAddr = null;
@@ -249,9 +255,9 @@ async function createDeposit(
             return new TxDeserializationError(
                 "User deposited without registering",
                 {
-                    'nativeBlockHash': nativeBlockHash,
+                    'nativeBlockHash': args.nativeBlockHash,
                     'tx': tx,
-                    'block_num': blockNum
+                    'block_num': args.blockNum
                 });
         }
     } else {
@@ -265,9 +271,9 @@ async function createDeposit(
                 return new TxDeserializationError(
                     "User deposited to an invalid address",
                     {
-                        'nativeBlockHash': nativeBlockHash,
+                        'nativeBlockHash': args.nativeBlockHash,
                         'tx': tx,
-                        'block_num': blockNum
+                        'block_num': args.blockNum
                     });
             }
 
@@ -276,7 +282,7 @@ async function createDeposit(
     }
 
     const [v, r, s] = generateUniqueVRS(
-        nativeBlockHash, ZERO_ADDR, trx_index);
+        args.nativeBlockHash, ZERO_ADDR, args.trx_index);
 
     const txParams = {
         nonce: 0,
@@ -293,11 +299,11 @@ async function createDeposit(
     try {
         const evmTx = TEVMTransaction.fromTxData(txParams, {common});
         const inputData = '0x' + arrayToHex(evmTx.data);
-        const txBody: StorageEvmTransaction = {
+        return {
             hash: '0x' + arrayToHex(evmTx.hash()),
             from: ZERO_ADDR,
-            trx_index: trx_index,
-            block: blockNum,
+            trx_index: args.trx_index,
+            block: args.blockNum,
             block_hash: "",
             to: evmTx.to?.toString(),
             input_data: inputData,
@@ -308,7 +314,7 @@ async function createDeposit(
             gas_price: evmTx.gasPrice?.toString(),
             gas_limit: evmTx.gasLimit.toString(),
             status: 1,
-            itxs: new Array(),
+            itxs: [],
             epoch: 0,
             createdaddr: "",
             gasused: stdGasLimit.toString(),
@@ -321,89 +327,81 @@ async function createDeposit(
             s: unpadHex(bigIntToHex(s))
         };
 
-        return txBody;
-
     } catch (error) {
         return new TxDeserializationError(
             error.message,
             {
-                'nativeBlockHash': nativeBlockHash,
+                'nativeBlockHash': args.nativeBlockHash,
                 'tx': tx,
-                'block_num': blockNum,
+                'block_num': args.blockNum,
                 'error': error.message,
                 'stack': error.stack
             });
     }
 }
 
-async function createWithdraw(
-    nativeBlockHash: string,
-    trx_index: number,
-    blockNum: number,
-    tx: EosioEvmWithdraw
-): Promise<StorageEvmTransaction | TxDeserializationError> {
-        const address = await queryAddress(tx.to, rpc, logger);
+async function createWithdraw(args: HandlerArguments): Promise<StorageEvmTransaction | TxDeserializationError> {
+    const tx = args.tx as EosioEvmWithdraw;
+    const address = await queryAddress(tx.to, rpc, logger);
 
-        const quantity = parseAsset(tx.quantity);
+    const quantity = parseAsset(tx.quantity);
 
-        const [v, r, s] = generateUniqueVRS(
-            nativeBlockHash, address, trx_index);
+    const [v, r, s] = generateUniqueVRS(
+        args.nativeBlockHash, address, args.trx_index);
 
-        const txParams = {
-            nonce: 0,
-            gasPrice: stdGasPrice,
-            gasLimit: stdGasLimit,
-            to: ZERO_ADDR,
-            value: BigInt(quantity.amount) * BigInt('100000000000000'),
-            data: "0x",
-            v: v,
-            r: r,
-            s: s
+    const txParams = {
+        nonce: 0,
+        gasPrice: stdGasPrice,
+        gasLimit: stdGasLimit,
+        to: ZERO_ADDR,
+        value: BigInt(quantity.amount) * BigInt('100000000000000'),
+        data: "0x",
+        v: v,
+        r: r,
+        s: s
+    };
+    try {
+        const evmTx = new TEVMTransaction(txParams, {common});
+        const inputData = '0x' + arrayToHex(evmTx.data);
+        return {
+            hash: '0x' + arrayToHex(evmTx.hash()),
+            from: '0x' + address.toLowerCase(),
+            trx_index: args.trx_index,
+            block: args.blockNum,
+            block_hash: "",
+            to: evmTx.to?.toString(),
+            input_data: inputData,
+            input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
+            value: evmTx.value?.toString(16),
+            value_d: tx.quantity,
+            nonce: evmTx.nonce?.toString(),
+            gas_price: evmTx.gasPrice?.toString(),
+            gas_limit: evmTx.gasLimit?.toString(),
+            status: 1,
+            itxs: [],
+            epoch: 0,
+            createdaddr: "",
+            gasused: stdGasLimit.toString(),
+            gasusedblock: '',
+            charged_gas_price: '0',
+            output: "",
+            raw: evmTx.serialize(),
+            v: v.toString(),
+            r: unpadHex(bigIntToHex(r)),
+            s: unpadHex(bigIntToHex(s))
         };
-        try {
-            const evmTx = new TEVMTransaction(txParams, {common});
-            const inputData = '0x' + arrayToHex(evmTx.data);
-            const txBody: StorageEvmTransaction = {
-                hash: '0x' + arrayToHex(evmTx.hash()),
-                from: '0x' + address.toLowerCase(),
-                trx_index: trx_index,
-                block: blockNum,
-                block_hash: "",
-                to: evmTx.to?.toString(),
-                input_data: inputData,
-                input_trimmed: inputData.substring(0, KEYWORD_STRING_TRIM_SIZE),
-                value: evmTx.value?.toString(16),
-                value_d: tx.quantity,
-                nonce: evmTx.nonce?.toString(),
-                gas_price: evmTx.gasPrice?.toString(),
-                gas_limit: evmTx.gasLimit?.toString(),
-                status: 1,
-                itxs: new Array(),
-                epoch: 0,
-                createdaddr: "",
-                gasused: stdGasLimit.toString(),
-                gasusedblock: '',
-                charged_gas_price: '0',
-                output: "",
-                raw: evmTx.serialize(),
-                v: v.toString(),
-                r: unpadHex(bigIntToHex(r)),
-                s: unpadHex(bigIntToHex(s))
-            };
 
-            return txBody;
-
-        } catch (error) {
-            return new TxDeserializationError(
-                error.message,
-                {
-                    'nativeBlockHash': nativeBlockHash,
-                    'tx': tx,
-                    'block_num': blockNum,
-                    'error': error.message,
-                    'stack': error.stack
-                });
-        }
+    } catch (error) {
+        return new TxDeserializationError(
+            error.message,
+            {
+                'nativeBlockHash': args.nativeBlockHash,
+                'tx': tx,
+                'block_num': args.blockNum,
+                'error': error.message,
+                'stack': error.stack
+            });
+    }
 }
 
 workerpool.worker({

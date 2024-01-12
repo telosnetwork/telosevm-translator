@@ -1,72 +1,13 @@
-import {spawn} from "child_process";
+import {buildDocker, runDocker, TEST_RESOURCES_DIR} from "./utils.mjs";
+import path from "path";
 
+const esDataMountPath = path.join(TEST_RESOURCES_DIR, 'elastic-data');
 
-// Spawn the process
-const process = spawn(
-    'docker',
-    ['build', '-t', `telosevm-translator:elastic`, 'docker/elastic']
-);
-
-// Handle standard output
-process.stdout.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.log(line);
-        }
-    });
-});
-
-// Handle standard error
-process.stderr.on('data', (data) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach((line) => {
-        if (line) {
-            console.error(line);
-        }
-    });
-});
-
-// Handle process exit
-process.on('close', (code) => {
-    console.log(`Build exited with code ${code}`);
-
-    // Spawn the process
-    const launchProcess = spawn(
-        'docker',
-       [
-           'run',
-           '-d',
-            '--rm',
-            '--network=host',
-            '--name=telosevm-translator-elastic',
-            '--env', 'xpack.security.enabled=false',
-            'telosevm-translator:elastic'
-       ]
-    );
-
-    // Handle standard output
-    launchProcess.stdout.on('data', (data) => {
-        const lines = data.toString().split(/\r?\n/);
-        lines.forEach((line) => {
-            if (line) {
-                console.log(line);
-            }
-        });
-    });
-
-    // Handle standard error
-    launchProcess.stderr.on('data', (data) => {
-        const lines = data.toString().split(/\r?\n/);
-        lines.forEach((line) => {
-            if (line) {
-                console.error(line);
-            }
-        });
-    });
-
-    // Handle process exit
-    launchProcess.on('close', (code) => {
-        console.log(`Process exited with code ${code}`);
-    });
-});
+await buildDocker('elastic', 'docker/elastic');
+await runDocker('elastic', [
+    '-d',
+    '--rm',
+    '--mount', `type=bind,source=${esDataMountPath},target=/home/elasticsearch/data`,
+    '--network=host',
+    '--env', 'xpack.security.enabled=false'
+]);

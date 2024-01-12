@@ -4,6 +4,7 @@ logs
 node_modules
 package-lock.json
 .idea
+**/*.iml
 **/*.js
 **/*.js.map
 config.json

@@ -28,10 +28,12 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Build
-      run: npm run build
+    - name: Unit Tests
+      run: npm run test-unit
+      env:
+        LOG_LEVEL: debug
 
-    - name: Tests
-      run: npm run test
+    - name: Mock Tests
+      run: npm run test-mock
       env:
         LOG_LEVEL: debug

@@ -3,23 +3,229 @@ import {IndexedBlockInfo, IndexerConfig, IndexerState} from '../types/indexer.js
 import {getTemplatesForChain} from './templates.js';
 
 import {Client, estypes} from '@elastic/elasticsearch';
-import {StorageEosioDelta} from '../utils/evm.js';
-import {StorageEosioAction} from '../types/evm.js';
+import {
+    isStorableDocument, StorageEosioAction, StorageEosioActionSchema,
+    StorageEosioDelta,
+    StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
+} from '../types/evm.js';
 import {Logger} from "winston";
+import EventEmitter from "events";
 
 
 interface ConfigInterface {
     [key: string]: any;
 };
 
-function getSuffix(blockNum: number, docsPerIndex: number) {
-    return String(Math.floor(blockNum / docsPerIndex)).padStart(8, '0');
-}
-
 function indexToSuffixNum(index: string) {
     const spltIndex = index.split('-');
     const suffix = spltIndex[spltIndex.length - 1];
     return parseInt(suffix);
+}
+
+
+// export class ElasticScroller {
+//     elastic: Client;
+//     scrollId: string;
+//     done: boolean = false;
+//     readonly initialDocs: any[];
+//
+//     constructor(elastic: Client, scrollResponse: SearchResponse) {
+//         this.elastic = elastic;
+//         this.initialDocs = scrollResponse.hits.hits.map(h => h._source);
+//         this.scrollId = scrollResponse._scroll_id;
+//     }
+//
+//     async nextScroll() {
+//         const scrollResponse = await this.elastic.scroll({
+//             scroll_id: this.scrollId,
+//             scroll: '1s'
+//         });
+//
+//         const hits = scrollResponse.hits.hits;
+//
+//         if (hits.length === 0) {
+//             this.done = true;
+//             return [];
+//         }
+//
+//         return hits.map(hit => hit._source);
+//     }
+//
+//     async *[Symbol.asyncIterator]() {
+//         yield this.initialDocs;
+//
+//         while (!this.done) {
+//             const hits = await this.nextScroll();
+//             if (hits.length > 0) yield hits;
+//         }
+//     }
+// }
+
+export interface ScrollOptions {
+    fields?: string[];
+    scroll?: string;
+    size?: number;
+}
+
+export class BlockScroller {
+
+    private readonly conn: Connector;
+    private readonly from: number;
+    private readonly to: number;
+    private readonly validate: boolean;
+    private readonly scrollOpts: ScrollOptions;
+
+    private last: number;
+    private currentSuffNum: number;
+    private currentDeltaScrollId: string;
+    private endSuffNum: number;
+
+    private deltaIndices = new Map<number, string>();
+    private done: boolean = false;
+
+    private initialHits: StorageEosioDelta[];
+
+    constructor(
+        connector: Connector,
+        params: {
+            from: number,
+            to: number,
+            validate?: boolean,
+            scrollOpts?: ScrollOptions
+        }
+    ) {
+        this.conn = connector;
+        this.from = params.from;
+        this.to = params.to;
+        this.scrollOpts = params.scrollOpts ? params.scrollOpts : {};
+        this.validate = params.validate ? params.validate : false;
+    }
+
+    private unwrapDeltaHit(hit): StorageEosioDelta {
+        const doc = hit._source;
+        if (this.validate)
+            return StorageEosioGenesisDeltaSchema.parse(doc);
+
+        return doc
+    }
+
+    /*
+     * Perform initial scroll/search request on current index
+     */
+    private async scrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
+        const deltaResponse = await this.conn.elastic.search({
+            index: this.deltaIndices.get(this.currentSuffNum),
+            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
+            size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
+            sort: [{'block_num': 'asc'}],
+            query: {
+                range: {
+                    block_num: {
+                        gte: this.from,
+                        lte: this.to
+                    }
+                }
+            },
+            _source: this.scrollOpts.fields
+        });
+        const deltaScrollInfo = {
+            scrollId: deltaResponse._scroll_id,
+            hits: deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h))
+        };
+        return deltaScrollInfo;
+    }
+
+    /*
+     * Scroll an already open request, if we got 0 hits
+     * check if reached end, if not try to move to next delta index
+     */
+    private async nextScroll(): Promise<StorageEosioDelta[]> {
+        let blockDocs = [];
+
+        try {
+            const deltaScrollResponse = await this.conn.elastic.scroll({
+                scroll_id: this.currentDeltaScrollId,
+                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s'
+            });
+            let hits = deltaScrollResponse.hits.hits;
+
+            if (hits.length === 0) {
+                // clear current scroll context
+                await this.conn.elastic.clearScroll({
+                    scroll_id: this.currentDeltaScrollId
+                });
+                // is scroll done?
+                if (this.last == this.to)
+                    this.done = true;
+                else {
+                    this.currentSuffNum++;
+                    // are indexes exhausted?
+                    if (this.currentSuffNum > this.endSuffNum)
+                        throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
+
+                    // open new scroll & return hits from next one
+                    const scrollInfo = await this.scrollRequest();
+                    this.currentDeltaScrollId = scrollInfo.scrollId;
+                    blockDocs = scrollInfo.hits;
+                }
+            } else
+                blockDocs = hits.map(h => this.unwrapDeltaHit(h));
+
+            if (blockDocs.length > 0) {
+                // @ts-ignore
+                this.last = blockDocs[blockDocs.length - 1].block_num;
+            }
+
+        } catch (e) {
+            this.conn.logger.error('BlockScroller error while fetching next batch:')
+            this.conn.logger.error(e.message);
+            throw e;
+        }
+
+        return blockDocs;
+    }
+
+    /*
+     * Setup index map with index names necessary for full scroll,
+     * then perform first scroll request and seed initialHits property
+     */
+    async init() {
+        // get relevant indexes
+        this.currentSuffNum = parseInt(this.conn.getSuffixForBlock(this.from));
+        this.endSuffNum = parseInt(this.conn.getSuffixForBlock(this.to));
+        const relevantIndexes = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
+        relevantIndexes.forEach((index) => {
+            const indexSuffNum = indexToSuffixNum(index);
+            if (indexSuffNum >= this.currentSuffNum && indexSuffNum <= this.endSuffNum)
+                this.deltaIndices.set(indexSuffNum, index);
+        });
+        if (this.deltaIndices.size == 0) throw new Error(`Could not find any delta indices to scroll`);
+
+        // first scroll request
+        const scrollInfo = await this.scrollRequest();
+        this.initialHits = scrollInfo.hits;
+        this.currentDeltaScrollId = scrollInfo.scrollId;
+
+        // bail early if no hits
+        if (this.initialHits.length > 0)
+            this.last = this.initialHits[this.initialHits.length - 1].block_num;
+        else
+            this.done = true;
+    }
+
+    /*
+     * Important before using this in a for..of statement,
+     * call this.init! class gets info about indexes needed
+     * for scroll from elastic
+     */
+    async *[Symbol.asyncIterator](): AsyncIterableIterator<StorageEosioDelta[]> {
+        yield this.initialHits;
+
+        while (!this.done) {
+            const hits = await this.nextScroll();
+            if (hits.length > 0) yield hits;
+        }
+    }
 }
 
 export class Connector {
@@ -30,16 +236,22 @@ export class Connector {
 
     state: IndexerState;
 
-    blockDrain: any[];
+    blockDrain: IndexedBlockInfo[];
     opDrain: any[];
 
     totalPushed: number = 0;
     lastPushed: number = 0;
 
     writeCounter: number = 0;
+    lastDeltaIndexSuff: number = undefined;
+    lastActionIndexSuff: number = undefined;
+    private deltaIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
+    private actionIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
+
+    events = new EventEmitter();
 
     constructor(config: IndexerConfig, logger: Logger) {
         this.config = config;
@@ -53,6 +265,11 @@ export class Connector {
         this.blockDrain = [];
 
         this.state = IndexerState.SYNC;
+    }
+
+    getSuffixForBlock(blockNum: number) {
+        const adjustedNum = Math.floor(blockNum / this.config.elastic.docsPerIndex);
+        return String(adjustedNum).padStart(8, '0');
     }
 
     async init() {
@@ -104,6 +321,8 @@ export class Connector {
     }
 
     async deinit() {
+        await this.flush();
+
         if (this.isBroadcasting)
             this.stopBroadcast();
 
@@ -111,6 +330,8 @@ export class Connector {
     }
 
     async getOrderedDeltaIndices() {
+        // if (this.deltaIndexCache) return this.deltaIndexCache;
+
         const deltaIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
             index: `${this.chainName}-${this.config.elastic.subfix.delta}-*`,
             format: 'json'
@@ -124,11 +345,78 @@ export class Connector {
                 return 1;
             return 0;
         });
+
+        // this.deltaIndexCache = deltaIndices;
+
         return deltaIndices;
     }
 
-    async getIndexedBlock(blockNum: number) {
-        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+    async getRelevantDeltaIndicesForRange(from: number, to: number): Promise<string[]> {
+        const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
+        const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
+        return (await this.getOrderedDeltaIndices()).filter((index) => {
+            const indexSuffNum = indexToSuffixNum(index.index);
+            return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
+        }).map(index => index.index);
+    }
+
+    async getOrderedActionIndices() {
+        // if (this.actionIndexCache) return this.actionIndexCache;
+
+        const actionIndices: estypes.CatIndicesResponse = await this.elastic.cat.indices({
+            index: `${this.chainName}-${this.config.elastic.subfix.transaction}-*`,
+            format: 'json'
+        });
+        actionIndices.sort((a, b) => {
+            const aNum = indexToSuffixNum(a.index);
+            const bNum = indexToSuffixNum(b.index);
+            if (aNum < bNum)
+                return -1;
+            if (aNum > bNum)
+                return 1;
+            return 0;
+        });
+
+        // this.actionIndexCache = actionIndices;
+
+        return actionIndices;
+    }
+
+    async getRelevantActionIndicesForRange(from: number, to: number): Promise<string[]> {
+        const startSuffNum = Math.floor(from / this.config.elastic.docsPerIndex);
+        const endSuffNum = Math.floor(to / this.config.elastic.docsPerIndex);
+        return (await this.getOrderedActionIndices()).filter((index) => {
+            const indexSuffNum = indexToSuffixNum(index.index);
+            return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum);
+        }).map(index => index.index);
+    }
+
+    private unwrapSingleElasticResult(result) {
+        const hits = result?.hits?.hits;
+
+        if (!hits)
+            throw new Error(`Elastic unwrap error hits undefined`);
+
+        if (hits.length != 1)
+            throw new Error(`Elastic unwrap error expected one and got ${hits.length}`);
+
+        const document = hits[0]._source;
+
+        this.logger.debug(`elastic unwrap document:\n${JSON.stringify(document, null, 4)}`);
+
+        let parseResult = StorageEosioDeltaSchema.safeParse(document);
+        if (parseResult.success)
+            return parseResult.data;
+
+        parseResult = StorageEosioGenesisDeltaSchema.safeParse(document);
+        if (parseResult.success)
+            return parseResult.data;
+
+        throw new Error(`Document is not a valid StorageEosioDelta!`);
+    }
+
+    async getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta> {
+        const suffix = this.getSuffixForBlock(blockNum);
         try {
             const result = await this.elastic.search({
                 index: `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`,
@@ -141,41 +429,14 @@ export class Connector {
                 }
             });
 
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
+            return this.unwrapSingleElasticResult(result);
 
         } catch (error) {
             return null;
         }
     }
 
-    async getIndexedBlockEVM(blockNum: number) {
-        const suffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
-        const sufNum = indexToSuffixNum(suffix);
-        const indices: Array<string> = (await this.getOrderedDeltaIndices())
-            .filter((val) =>
-                Math.abs(indexToSuffixNum(val.index) - sufNum) <= 1)
-            .map((val) => val.index);
-
-        try {
-            const result = await this.elastic.search({
-                index: indices,
-                query: {
-                    match: {
-                        '@global.block_num': {
-                            query: blockNum
-                        }
-                    }
-                }
-            });
-
-            return new StorageEosioDelta(result?.hits?.hits[0]?._source);
-
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async getFirstIndexedBlock() {
+    async getFirstIndexedBlock() : Promise<StorageEosioDelta> {
         const indices = await this.getOrderedDeltaIndices();
 
         if (indices.length == 0)
@@ -191,20 +452,14 @@ export class Connector {
                 ]
             });
 
-            if (result?.hits?.hits?.length == 0)
-                return null;
-
-            const blockDoc = result?.hits?.hits[0]?._source;
-            this.logger.debug(`getFirstIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
-
-            return new StorageEosioDelta(blockDoc);
+            return this.unwrapSingleElasticResult(result);
 
         } catch (error) {
             return null;
         }
     }
 
-    async getLastIndexedBlock() {
+    async getLastIndexedBlock() : Promise<StorageEosioDelta> {
         const indices = await this.getOrderedDeltaIndices();
         if (indices.length == 0)
             return null;
@@ -219,15 +474,10 @@ export class Connector {
                         {"block_num": {"order": "desc"}}
                     ]
                 });
-
-                const blockDoc = result?.hits?.hits[0]?._source;
-
-                this.logger.debug(`getLastIndexedBlock:\n${JSON.stringify(blockDoc, null, 4)}`);
-
                 if (result?.hits?.hits?.length == 0)
                     continue;
 
-                return new StorageEosioDelta(blockDoc);
+                return this.unwrapSingleElasticResult(result);
 
             } catch (error) {
                 this.logger.error(error);
@@ -236,6 +486,49 @@ export class Connector {
         }
 
         return null;
+    }
+
+    async getTransactionsForRange(from: number, to: number): Promise<StorageEosioAction[]> {
+        const actionIndex = await this.getRelevantActionIndicesForRange(from, to);
+        const hits = [];
+        try {
+            let result = await this.elastic.search({
+                index: actionIndex,
+                query: {
+                    range: {
+                        '@raw.block': {
+                            gte: from - this.config.evmBlockDelta,
+                            lte: to - this.config.evmBlockDelta
+                        }
+                    }
+                },
+                size: 4000,
+                sort: [{'@raw.block': 'asc'}, {'@raw.trx_index': 'asc'}],
+                scroll: '1s'
+            });
+
+            let scrollId = result._scroll_id;
+            while (result.hits.hits.length) {
+                try {
+                    result.hits.hits.forEach(hit => hits.push(StorageEosioActionSchema.parse(hit._source)));
+                } catch (e) {
+                    throw new Error("parsing error");
+                }
+                result = await this.elastic.scroll({
+                    scroll_id: scrollId,
+                    scroll: '1s'
+                });
+                scrollId = result._scroll_id;
+            }
+            if (hits.length)
+                await this.elastic.clearScroll({scroll_id: scrollId});
+
+        } catch (e) {
+            this.logger.error(`connector: elastic error when getting transactions in range:`);
+            this.logger.error(e.message);
+        }
+
+        return hits;
     }
 
     async findGapInIndices() {
@@ -502,7 +795,7 @@ export class Connector {
     }
 
     async _deleteBlocksInRange(startBlock: number, endBlock: number) {
-        const targetSuffix = getSuffix(endBlock, this.config.elastic.docsPerIndex);
+        const targetSuffix = this.getSuffixForBlock(endBlock);
         const deltaIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${targetSuffix}`;
         const actionIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${targetSuffix}`;
 
@@ -562,7 +855,7 @@ export class Connector {
 
     async _purgeIndicesNewerThan(blockNum: number) {
         this.logger.info(`purging indices in db from block ${blockNum}...`);
-        const targetSuffix = getSuffix(blockNum, this.config.elastic.docsPerIndex);
+        const targetSuffix = this.getSuffixForBlock(blockNum);
         const targetNum = parseInt(targetSuffix);
 
         const deleteList = [];
@@ -600,12 +893,18 @@ export class Connector {
         await this._purgeBlocksNewerThan(blockNum);
     }
 
+    async flush() {
+        if (this.opDrain.length == 0) return;
+        this.writeCounter++;
+        await this.writeBlocks();
+    }
+
     async pushBlock(blockInfo: IndexedBlockInfo) {
         const currentBlock = blockInfo.delta.block_num;
         if (this.totalPushed != 0 && currentBlock != this.lastPushed + 1)
             throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentBlock}`);
 
-        const suffix = getSuffix(blockInfo.delta.block_num, this.config.elastic.docsPerIndex);
+        const suffix = this.getSuffixForBlock(blockInfo.delta.block_num);
         const txIndex = `${this.chainName}-${this.config.elastic.subfix.transaction}-${suffix}`;
         const dtIndex = `${this.chainName}-${this.config.elastic.subfix.delta}-${suffix}`;
         const errIndex = `${this.chainName}-${this.config.elastic.subfix.error}-${suffix}`;
@@ -616,13 +915,18 @@ export class Connector {
         const errOperations = blockInfo.errors.flatMap(
             doc => [{index: {_index: errIndex}}, doc]);
 
-        const operations = [
-            ...errOperations,
-            ...txOperations,
-            {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
-        ];
+        // const operations = [
+        //     ...errOperations,
+        //     ...txOperations,
+        //     {create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta
+        // ];
+        const operations = [];
+        Array.prototype.push.apply(operations, errOperations);
+        Array.prototype.push.apply(operations, txOperations);
+        operations.push({create: {_index: dtIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.delta);
 
-        this.opDrain = [...this.opDrain, ...operations];
+        // this.opDrain = [...this.opDrain, ...operations];
+        Array.prototype.push.apply(this.opDrain, operations);
         this.blockDrain.push(blockInfo);
 
         this.lastPushed = currentBlock;
@@ -630,18 +934,7 @@ export class Connector {
 
         if (this.state == IndexerState.HEAD ||
             this.opDrain.length >= (this.config.perf.elasticDumpSize * 2)) {
-
-            const ops = this.opDrain;
-            const blocks = this.blockDrain;
-
-            this.opDrain = [];
-            this.blockDrain = [];
-            this.writeCounter++;
-
-            if (this.state == IndexerState.HEAD)
-                await this.writeBlocks(ops, blocks);
-            else
-                void this.writeBlocks(ops, blocks);
+            await this.flush();
         }
     }
 
@@ -654,16 +947,15 @@ export class Connector {
         this.lastPushed = lastNonForked;
 
         // clear elastic operations drain
-        let i = this.opDrain.length;
+        let i = this.opDrain.length - 1;
         while (i > 0) {
             const op = this.opDrain[i];
-            if (op && (Object.getPrototypeOf(op) == StorageEosioDelta.prototype ||
-                Object.getPrototypeOf(op) == StorageEosioAction.prototype) &&
+            if (op && isStorableDocument(op) &&
                 op.block_num > lastNonForked) {
                 this.opDrain.splice(i - 1); // delete indexing info
                 this.opDrain.splice(i);     // delete the document
             }
-            i--;
+            i -= 2;
         }
 
         // clear broadcast queue
@@ -677,18 +969,33 @@ export class Connector {
         }
 
         // write information about fork event
-        const suffix = getSuffix(lastNonForked, this.config.elastic.docsPerIndex);
+        const suffix = this.getSuffixForBlock(lastNonForked);
         const frkIndex = `${this.chainName}-${this.config.elastic.subfix.fork}-${suffix}`;
         this.opDrain.push({index: {_index: frkIndex}});
         this.opDrain.push({timestamp, lastNonForked, lastForked});
     }
 
-    async writeBlocks(ops: any[], blocks: any[]) {
-        const bulkResponse = await this.elastic.bulk<any, any>({
+    async writeBlocks() {
+        const bulkResponse = await this.elastic.bulk({
             refresh: true,
-            operations: ops,
+            operations: this.opDrain,
             error_trace: true
-        });
+        })
+
+        const first = this.blockDrain[0].delta.block_num;
+        const last = this.blockDrain[this.blockDrain.length - 1].delta.block_num;
+
+        const lastAdjusted = Math.floor(last / this.config.elastic.docsPerIndex);
+
+        if (lastAdjusted !== this.lastDeltaIndexSuff) {
+            this.deltaIndexCache = undefined;
+            this.lastDeltaIndexSuff = lastAdjusted;
+        }
+
+        if (lastAdjusted !== this.lastActionIndexSuff) {
+            this.actionIndexCache = undefined;
+            this.lastActionIndexSuff = lastAdjusted;
+        }
 
         if (bulkResponse.errors) {
             const erroredDocuments: any[] = []
@@ -708,25 +1015,46 @@ export class Connector {
                         status: action[operation].status,
                         // @ts-ignore
                         error: action[operation].error,
-                        operation: ops[i * 2],
-                        document: ops[i * 2 + 1]
+                        operation: this.opDrain[i * 2],
+                        document: this.opDrain[i * 2 + 1]
                     })
                 }
             });
 
             throw new Error(JSON.stringify(erroredDocuments, null, 4));
         }
-        this.logger.info(`drained ${ops.length} operations.`);
-        this.logger.info(`broadcasting ${blocks.length} blocks...`)
+        this.logger.info(`drained ${this.opDrain.length} operations.`);
+        if (this.isBroadcasting) {
+            this.logger.info(`broadcasting ${this.opDrain.length} blocks...`)
 
-        for (const block of blocks)
-            this.broadcast.broadcastBlock(block);
+            for (const block of this.blockDrain)
+                this.broadcast.broadcastBlock(block);
+        }
 
         this.logger.info('done.');
 
+        this.opDrain = [];
+        this.blockDrain = [];
+
         this.writeCounter--;
 
-        if (global.gc) {global.gc();}
+        this.events.emit('write', {
+            from: first,
+            to: last
+        });
+
+        // if (global.gc) {global.gc();}
     }
 
-};
+    async blockScroll(params: {
+        from: number,
+        to: number,
+        validate?: boolean,
+        scrollOpts?: ScrollOptions
+    }) {
+        const scroller = new BlockScroller(this, params);
+        await scroller.init();
+        return scroller;
+    }
+
+}
