@@ -1,4 +1,6 @@
 import os
+import re
+import pdbp
 import json
 import subprocess
 import tarfile
@@ -29,6 +31,8 @@ def clone_and_dump_indexes(old_prefix, new_prefix, es_host, from_block, to_block
 
     all_indexes = delta_indexes + action_indexes
 
+    print(f"going to clone:\n{json.dumps(all_indexes, indent=4)}")
+
     # Check if indexes exist in Elasticsearch
     existing_indexes = check_indexes_existence(es_client, all_indexes)
     if not existing_indexes:
@@ -37,10 +41,30 @@ def clone_and_dump_indexes(old_prefix, new_prefix, es_host, from_block, to_block
 
     for index in existing_indexes:
         new_index = new_prefix + index[len(old_prefix):]
-        es_client.indices.clone(index=index, target=new_index)
-        print(f"Cloned index {index} to {new_index}")
 
-        doc_count = es_client.cat.count(new_index, params={"format": "json"})
+        set_writable(es_client, index, False)
+
+        if not es_client.indices.exists(index=new_index):
+            es_client.indices.clone(index=index, target=new_index)
+            print(f"Cloned index {index} to {new_index}.")
+
+        else:
+            print(f'Skipping clone {index} to {new_index}, exists.')
+
+        set_writable(es_client, new_index, True)
+
+        # Delete documents out of range
+        if "action" in new_index:
+            delete_docs_out_of_range(es_client, new_index, "@raw.block", min_block=from_block-evm_block_delta)
+            delete_docs_out_of_range(es_client, new_index, "@raw.block", max_block=to_block-evm_block_delta)
+
+        elif "delta" in new_index:
+            delete_docs_out_of_range(es_client, new_index, "block_num", min_block=from_block)
+            delete_docs_out_of_range(es_client, new_index, "block_num", max_block=to_block)
+    
+        set_writable(es_client, new_index, False)
+
+        doc_count = es_client.cat.count(index=new_index, format="json")
         size = int(doc_count[0]['count'])
 
         manifest[new_index] = {
@@ -49,7 +73,15 @@ def clone_and_dump_indexes(old_prefix, new_prefix, es_host, from_block, to_block
             "size": size
         }
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    temp_dir = os.path.join(os.getcwd(), new_prefix)
+
+    # Create temporary directory if it doesn't exist
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    else:
+        print(f"Temporary directory {temp_dir} already exists. Using existing directory.")
+
+    try:
         manifest_path = os.path.join(temp_dir, "manifest.json")
         with open(manifest_path, 'w') as file:
             json.dump(manifest, file, indent=4)
@@ -64,12 +96,20 @@ def clone_and_dump_indexes(old_prefix, new_prefix, es_host, from_block, to_block
             # Dumping data and streaming output
             run_elasticdump(f"{es_host}/{new_index}", data_file, "data", limit="4000")
 
+        # Create a compressed tar file of the temporary directory
         output_tar_zst = os.path.join(os.getcwd(), new_prefix + "_data.tar.zst")
         compress_directory(temp_dir, output_tar_zst)
         print(f"Compressed tar.zst file created at {output_tar_zst}")
 
+    finally:
+        # Optionally: Clean up the temporary directory if desired
+        # Uncomment the following line if you want to delete the temp directory after use
+        # shutil.rmtree(temp_dir)
+        pass
+
 def generate_index_range(start_block, end_block, index_type, prefix, version):
-    return [f"{prefix}-{index_type}-{version}-{str(block_num).zfill(8)}" for block_num in range(start_block // 10**8, end_block // 10**8 + 1)]
+    docs_per_index = 10 ** 7
+    return [f"{prefix}-{index_type}-{version}-{str(block_num).zfill(8)}" for block_num in range(start_block // docs_per_index, end_block // docs_per_index + 1)]
 
 def check_indexes_existence(es_client, indexes):
     existing_indexes = []
@@ -80,11 +120,65 @@ def check_indexes_existence(es_client, indexes):
             print(f"Index {index} does not exist.")
     return existing_indexes
 
+def set_writable(es_client, index_name, writable):
+    settings = {
+        "index": {
+            "blocks.write": not writable
+        }
+    }
+
+    # Update index settings
+    response = es_client.indices.put_settings(index=index_name, body=settings)
+    print(response)
+
+def delete_docs_out_of_range(es_client, index, range_field, min_block=None, max_block=None, batch_size=100000):
+    """
+    Deletes documents from an index that are outside of the specified block range in batches using a scroll request.
+    :param es_client: Elasticsearch client object
+    :param index: Index to perform the delete operation on
+    :param range_field: The field in the documents representing the block number
+    :param min_block: Minimum block number (documents with block number less than this will be deleted)
+    :param max_block: Maximum block number (documents with block number greater than this will be deleted)
+    :param batch_size: Number of documents to delete in each batch
+    :param scroll: Time to keep the scroll window open
+    """
+    query = {"range": {range_field: {}}}
+    if min_block is not None:
+        query["range"][range_field]["lt"] = min_block
+    if max_block is not None:
+        query["range"][range_field]["gt"] = max_block
+
+    initial_count = es_client.count(index=index, query=query)['count']
+    deleted_count = 0
+
+    print(f"Initial count: {initial_count}")
+    print(f"Query:\n{json.dumps(query, indent=4)}")
+
+    while True:
+        response = es_client.delete_by_query(
+            index=index,
+            query=query,
+            max_docs=batch_size,
+            refresh=True
+        )
+        batch_deleted = response['deleted']
+        deleted_count += batch_deleted
+
+        if batch_deleted == 0:
+            break
+
+        remaining = initial_count - deleted_count
+        progress = (deleted_count / initial_count) * 100 if initial_count > 0 else 100
+        print(f"Progress: {progress:.2f}% - Deleted {deleted_count} documents, {remaining} remaining")
+
+    print(f"Completed trimming of index {index}. Total deleted: {deleted_count}")
+
 def run_elasticdump(input_url, output_file, dump_type, limit=None):
     cmd = ["elasticdump", "--input", input_url, "--output", output_file, "--type", dump_type]
     if limit:
         cmd.extend(["--limit", limit])
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    subprocess.run(cmd, text=True)
+
 
 def compress_directory(input_path, output_path):
     with tempfile.NamedTemporaryFile(delete=False) as temp_tar:
