@@ -96,7 +96,7 @@ export const DEFAULT_CONF = {
         "requestTimeout": 5 * 1000,
         "docsPerIndex": 10000000,
         "scrollSize": 6000,
-        "scrollWindow": "8s",
+        "scrollWindow": "1m",
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

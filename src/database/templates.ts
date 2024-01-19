@@ -2,42 +2,24 @@ export function getTemplatesForChain(chain: string) {
     const shards = 2;
     const replicas = 0;
     const refresh = "1s";
-    let defaultLifecyclePolicy = "200G";
 
     // LZ4 Compression
     // const compression = 'default';
     // DEFLATE
     const compression = "best_compression";
 
-    const defaultIndexSettings = {
-        "index": {
-            "number_of_shards": shards,
-            "refresh_interval": refresh,
-            "number_of_replicas": replicas,
-            "codec": compression
-        }
-    };
-
     const actionSettings = {
         index: {
-            lifecycle: {
-                "name": defaultLifecyclePolicy,
-                "rollover_alias": chain + "-action"
-            },
             codec: compression,
             refresh_interval: refresh,
             number_of_shards: shards * 2,
             number_of_replicas: replicas,
             sort: {
-                field: "global_sequence",
-                order: "desc"
+                field: ["@raw.block", "action_ordinal"],
+                order: ["asc", "asc"]
             }
         }
     };
-
-    // if (cm.config.settings.hot_warm_policy) {
-    //     actionSettings["routing"] = {"allocation": {"exclude": {"data": "warm"}}};
-    // }
 
     const action = {
         order: 0,
@@ -48,42 +30,8 @@ export function getTemplatesForChain(chain: string) {
         mappings: {
             properties: {
                 "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                "ds_error": {"type": "boolean"},
-                "global_sequence": {"type": "long"},
-                "account_ram_deltas.delta": {"type": "integer"},
-                "account_ram_deltas.account": {"type": "keyword"},
-                "act.authorization.permission": {"enabled": false},
-                "act.authorization.actor": {"type": "keyword"},
-                "act.account": {"type": "keyword"},
-                "act.name": {"type": "keyword"},
-                "act.data": {"enabled": false},
-                "block_num": {"type": "long"},
                 "action_ordinal": {"type": "long"},
-                "creator_action_ordinal": {"type": "long"},
-                "cpu_usage_us": {"type": "integer"},
-                "net_usage_words": {"type": "integer"},
-                "code_sequence": {"type": "integer"},
-                "abi_sequence": {"type": "integer"},
                 "trx_id": {"type": "keyword"},
-                "producer": {"type": "keyword"},
-                "notified": {"type": "keyword"},
-                "signatures": {"enabled": false},
-                "inline_count": {"type": "short"},
-                "max_inline": {"type": "short"},
-                "inline_filtered": {"type": "boolean"},
-                "receipts": {
-                    "properties": {
-                        "global_sequence": {"type": "long"},
-                        "recv_sequence": {"type": "long"},
-                        "receiver": {"type": "keyword"},
-                        "auth_sequence": {
-                            "properties": {
-                                "account": {"type": "keyword"},
-                                "sequence": {"type": "long"}
-                            }
-                        }
-                    }
-                },
 
                 "@raw": {
                     "properties": {
@@ -146,16 +94,12 @@ export function getTemplatesForChain(chain: string) {
 
     const deltaSettings = {
         "index": {
-            "lifecycle": {
-                "name": defaultLifecyclePolicy,
-                "rollover_alias": chain + "-delta"
-            },
             "codec": compression,
             "number_of_shards": shards * 2,
             "refresh_interval": refresh,
             "number_of_replicas": replicas,
-            "sort.field": ["block_num", "scope", "primary_key"],
-            "sort.order": ["desc", "asc", "asc"]
+            "sort.field": ["block_num"],
+            "sort.order": ["asc"]
         }
     };
 
@@ -168,68 +112,16 @@ export function getTemplatesForChain(chain: string) {
         "settings": deltaSettings,
         "mappings": {
             "properties": {
-
-                // base fields
                 "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                "ds_error": {"type": "boolean"},
-                "block_id": {"type": "keyword"},
                 "block_num": {"type": "long"},
-                "deleted_at": {"type": "long"},
-                "code": {"type": "keyword"},
-                "scope": {"type": "keyword"},
-                "table": {"type": "keyword"},
-                "payer": {"type": "keyword"},
-                "primary_key": {"type": "keyword"},
-                "data": {"enabled": false},
-                "value": {"enabled": false},
 
-                // eosio.msig::approvals
-                "@approvals.proposal_name": {"type": "keyword"},
-                "@approvals.provided_approvals": {"type": "object"},
-                "@approvals.requested_approvals": {"type": "object"},
-
-                // eosio.msig::proposal
-                "@proposal.proposal_name": {"type": "keyword"},
-                "@proposal.transaction": {"enabled": false},
-
-                // *::accounts
-                "@accounts.amount": {"type": "float"},
-                "@accounts.symbol": {"type": "keyword"},
-
-                // eosio::voters
-                "@voters.is_proxy": {"type": "boolean"},
-                "@voters.producers": {"type": "keyword"},
-                "@voters.last_vote_weight": {"type": "double"},
-                "@voters.proxied_vote_weight": {"type": "double"},
-                "@voters.staked": {"type": "float"},
-                "@voters.proxy": {"type": "keyword"},
-
-                // eosio::producers
-                "@producers.total_votes": {"type": "double"},
-                "@producers.is_active": {"type": "boolean"},
-                "@producers.unpaid_blocks": {"type": "long"},
-
-                // eosio::global
                 "@global": {
                     "properties": {
-                        "last_name_close": {"type": "date"},
-                        "last_pervote_bucket_fill": {"type": "date"},
-                        "last_producer_schedule_update": {"type": "date"},
-                        "perblock_bucket": {"type": "double"},
-                        "pervote_bucket": {"type": "double"},
-                        "total_activated_stake": {"type": "double"},
-                        "total_voteshare_change_rate": {"type": "double"},
-                        "total_unpaid_voteshare": {"type": "double"},
-                        "total_producer_vote_weight": {"type": "double"},
-                        "total_ram_bytes_reserved": {"type": "long"},
-                        "total_ram_stake": {"type": "long"},
-                        "total_unpaid_blocks": {"type": "long"},
                         "block_num": {"type": "long"}
                     }
                 },
 
                 // hashes
-
                 "@evmPrevBlockHash": {"type": "keyword"},
                 "@evmBlockHash": {"type": "keyword"},
                 "@blockHash": {"type": "keyword"},
@@ -244,10 +136,6 @@ export function getTemplatesForChain(chain: string) {
 
     const errorSettings = {
         "index": {
-            "lifecycle": {
-                "name": defaultLifecyclePolicy,
-                "rollover_alias": chain + "-error"
-            },
             "codec": compression,
             "number_of_shards": shards * 2,
             "refresh_interval": refresh,
@@ -256,10 +144,6 @@ export function getTemplatesForChain(chain: string) {
             "sort.order": ["desc"]
         }
     };
-
-    // if (cm.config.settings.hot_warm_policy) {
-    //     deltaSettings["routing"] = {"allocation": {"exclude": {"data": "warm"}}};
-    // }
 
     const error = {
         "index_patterns": [chain + "-error-*"],
@@ -279,10 +163,6 @@ export function getTemplatesForChain(chain: string) {
 
     const forkSettings = {
         "index": {
-            "lifecycle": {
-                "name": defaultLifecyclePolicy,
-                "rollover_alias": chain + "-fork"
-            },
             "codec": compression,
             "number_of_shards": shards * 2,
             "refresh_interval": refresh,
@@ -307,6 +187,6 @@ export function getTemplatesForChain(chain: string) {
     };
 
     return {
-        action: action, delta: delta, error: error
+        action, delta, error, fork
     }
 }

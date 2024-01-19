@@ -1,15 +1,20 @@
 import {readFileSync} from "node:fs";
 
 import {HyperionSequentialReader, ThroughputMeasurer} from "@telosnetwork/hyperion-sequential-reader";
-
-import {IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
-
 import {createLogger, format, Logger, transports} from 'winston';
+import {TEVMBlockHeader} from "telos-evm-custom-ds";
+import {JsonRpc, RpcInterfaces} from 'eosjs';
+import * as evm from "@ethereumjs/common";
+import cloneDeep from "lodash.clonedeep";
+import {clearInterval} from "timers";
+import {Bloom} from "@ethereumjs/vm";
+import {ABI} from "@greymass/eosio";
+import workerpool from 'workerpool';
+import moment from 'moment';
 
-import {StorageEosioAction, StorageEosioDelta} from './types/evm.js';
-
-import {Connector} from './database/connector.js';
-
+import {DEFAULT_CONF, IndexedBlockInfo, IndexerConfig, IndexerState, StartBlockInfo} from './types/indexer.js';
+import {StorageEosioAction, StorageEosioActionSchema, StorageEosioDelta} from './types/evm.js';
+import {BlockData, Connector} from './database/connector.js';
 import {
     arrayToHex,
     generateBlockApplyInfo,
@@ -19,25 +24,13 @@ import {
     ProcessedBlock, removeHexPrefix, BLOCK_GAS_LIMIT, EMPTY_TRIE, EMPTY_TRIE_BUF
 } from './utils/evm.js'
 
-import moment from 'moment';
-import {JsonRpc, RpcInterfaces} from 'eosjs';
-import {getRPCClient} from './utils/eosio.js';
-import {ABI} from "@greymass/eosio";
-
 import EventEmitter from "events";
 
-// import SegfaultHandler from 'segfault-handler';
 import {packageInfo, sleep} from "./utils/indexer.js";
-
-import workerpool from 'workerpool';
-import * as evm from "@ethereumjs/common";
-import {TEVMBlockHeader} from "telos-evm-custom-ds";
-import {HandlerArguments} from "./workers/handlers";
-
-// import logWhyIsNodeRunning from 'why-is-node-running';
-import cloneDeep from "lodash.clonedeep";
-import {clearInterval} from "timers";
-import {Bloom} from "@ethereumjs/vm";
+import {HandlerArguments} from "./workers/handlers.js";
+import {getRPCClient} from './utils/eosio.js';
+import {mergeDeep} from "./utils/misc.js";
+import {expect} from "chai";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -62,6 +55,7 @@ export class TEVMIndexer {
     private rpc: JsonRpc;
     private remoteRpc: JsonRpc;
     connector: Connector;  // custom elastic search db driver
+    reindexConnector: Connector = undefined;
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
     headBlock: number;
@@ -76,6 +70,7 @@ export class TEVMIndexer {
 
     private perfTaskId: NodeJS.Timer;
     private stateSwitchTaskId: NodeJS.Timer;
+    private reindexPerfTaskId: NodeJS.Timeout;
 
     private readonly irreversibleOnly: boolean;
 
@@ -115,9 +110,6 @@ export class TEVMIndexer {
         process.on('SIGUSR1', async () => await this.resetReader());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
-
-        // SegfaultHandler.registerHandler(
-        //     `translator-segfault-${process.pid}.log`);
 
         process.on('unhandledRejection', error => {
             // @ts-ignore
@@ -790,25 +782,35 @@ export class TEVMIndexer {
         };
     }
 
-    async reindex(targetPrefix: string) {
-        let result = `${targetPrefix} reindexed!`
-        const config = cloneDeep(this.config);
+    async reindex(targetPrefix: string, opts: {
+        eval?: boolean,
+        timeout?: number
+    } = {}) {
+        const config = cloneDeep(DEFAULT_CONF);
+        mergeDeep(config, this.config);
+
+        this.config = cloneDeep(config);
+
         config.chainName = targetPrefix;
 
-        const reindexConnector = new Connector(config, this.logger);
-        await reindexConnector.init();
+        this.reindexConnector = new Connector(config, this.logger);
+        await this.reindexConnector.init();
 
         // for (const index of (await reindexConnector.getOrderedDeltaIndices()))
         //    await reindexConnector.elastic.indices.delete({index: index.index});
 
-        const reindexLastBlock = await reindexConnector.getLastIndexedBlock();
+        const reindexLastBlock = await this.reindexConnector.getLastIndexedBlock();
 
         if (reindexLastBlock != null) {
             config.startBlock = reindexLastBlock.block_num + 1;
             config.evmPrevHash = reindexLastBlock['@evmBlockHash'];
             config.evmValidateHash = '';
         }
+
+        const totalBlocks = config.stopBlock - config.startBlock;
+
         this.logger.info(`starting reindex from ${config.startBlock} with prev hash \"${config.evmPrevHash}\"`);
+        this.logger.info(`need to reindex ${totalBlocks.toLocaleString()} blocks total.`);
 
         const blockScroller = await this.connector.blockScroll({
             from: config.startBlock,
@@ -820,63 +822,104 @@ export class TEVMIndexer {
                     '@blockHash',
                     '@transactionsRoot',
                     '@receiptsRootHash',
-                    'size'
+                    'size',
+                    'gasUsed'
                 ],
                 size: config.elastic.scrollSize,
                 scroll: config.elastic.scrollWindow
             }
         });
+        await blockScroller.init();
+
+        const startTime = performance.now();
+        const evalFn = (srcBlock: BlockData, dstBlock: BlockData) => {
+            const srcDelta = srcBlock.block;
+            const reindexDelta = dstBlock.block;
+
+            expect(srcDelta.block_num).to.be.equal(reindexDelta.block_num);
+            expect(srcDelta['@timestamp']).to.be.equal(reindexDelta['@timestamp']);
+            expect(srcDelta['@blockHash']).to.be.equal(reindexDelta['@blockHash']);
+            expect(srcDelta.gasUsed).to.be.equal(reindexDelta.gasUsed);
+
+            expect(srcBlock.actions.length).to.be.equal(dstBlock.actions.length);
+
+            srcBlock.actions.forEach((action, actionIndex) => {
+                const reindexActionDoc = dstBlock.actions[actionIndex];
+                const reindexAction = StorageEosioActionSchema.parse(reindexActionDoc);
+                const srcAction = StorageEosioActionSchema.parse(action);
+                srcAction['@raw'].block_hash = reindexActionDoc['@raw'].block_hash;
+
+                expect(srcAction).to.be.deep.equal(reindexAction);
+            });
+
+            if (srcDelta.block_num % this.config.perf.elasticDumpSize != 0)
+                return;
+
+            const now = performance.now();
+            const currentTimeElapsed = moment.duration(now - startTime, 'ms').humanize();
+
+            const currentBlockNum = srcDelta.block_num;
+
+            const checkedBlocksCount = currentBlockNum - config.startBlock;
+            const progressPercent = (((checkedBlocksCount / totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
+            const currentProgress = currentBlockNum - config.startBlock;
+
+            this.logger.info('-'.repeat(32));
+            this.logger.info('Reindex stats:');
+            this.logger.info(`last checked  ${srcDelta.block_num.toLocaleString()}`);
+            this.logger.info(`progress:     ${progressPercent}, ${currentProgress.toLocaleString()} blocks`);
+            this.logger.info(`time elapsed: ${currentTimeElapsed}`);
+            this.logger.info(`ETA:          ${moment.duration((totalBlocks - currentProgress) / metrics.average, 's').humanize()}`);
+            this.logger.info('-'.repeat(32));
+        };
 
         const metrics = new ThroughputMeasurer({windowSizeMs: 10 * 1000});
         let blocksPushed = 0;
         let lastPushed = 0;
-        const reindexPerfTask = setInterval(async () => {
+        this.reindexPerfTaskId = setInterval(async () => {
             metrics.measure(blocksPushed);
             this.logger.info(`${lastPushed.toLocaleString()} @ ${metrics.average.toFixed(2)} blocks/s 10 sec avg`);
             blocksPushed = 0;
         }, 1000);
 
-        try {
-            const initialHash = config.evmPrevHash ? config.evmPrevHash : ZERO_HASH;
-            let firstHash = '';
-            let parentHash = hexStringToUint8Array(initialHash);
-            for await (const blocks of blockScroller) {
-                const from = blocks[0].block_num;
-                const to = blocks[blocks.length - 1].block_num;
-                const rangeTxs = await this.connector.getTransactionsForRange(from, to);
-                let txIndex = 0;
+        const timeout = opts.timeout ? opts.timeout : undefined;
+        const initialHash = config.evmPrevHash ? config.evmPrevHash : ZERO_HASH;
+        let firstHash = '';
+        let parentHash = hexStringToUint8Array(initialHash);
+        for await (const blockData of blockScroller) {
+            const now = performance.now();
+            const currentTimeElapsed = (now - startTime) / 1000;
 
-                for (const block of blocks) {
-                    const evmBlockNum = block.block_num - this.config.evmBlockDelta;
-
-                    const blockTxs = [];
-                    while (txIndex < rangeTxs.length && rangeTxs[txIndex]['@raw'].block == evmBlockNum)
-                        blockTxs.push(rangeTxs[txIndex++]);
-
-                    const storableBlock = this.reindexBlock(parentHash, block, blockTxs);
-
-                    if (firstHash === '') {
-                        firstHash = storableBlock.delta['@evmBlockHash'];
-                        if (config.evmValidateHash &&
-                            firstHash !== config.evmValidateHash)
-                            throw new Error(`initial hash validation failed: got ${firstHash} and expected ${config.evmValidateHash}`);
-                    }
-
-                    parentHash = hexStringToUint8Array(storableBlock.delta['@evmBlockHash']);
-                    await reindexConnector.pushBlock(storableBlock);
-
-                    lastPushed = block.block_num;
-                    blocksPushed++;
-                }
+            if (timeout && currentTimeElapsed > timeout) {
+                this.logger.error('reindex timedout!');
+                break;
             }
-        } catch(e) {
-            this.logger.error(e.message);
-            this.logger.error(e.stack);
-        } finally {
-            clearInterval(reindexPerfTask);
-            await reindexConnector.deinit();
+
+            const storableBlock = this.reindexBlock(parentHash, blockData.block, blockData.actions);
+
+            if (opts.eval) {
+                evalFn(
+                    blockData,
+                    {block: storableBlock.delta, actions: storableBlock.transactions}
+                );
+            }
+
+            if (firstHash === '') {
+                firstHash = storableBlock.delta['@evmBlockHash'];
+                if (config.evmValidateHash &&
+                    firstHash !== config.evmValidateHash)
+                    throw new Error(`initial hash validation failed: got ${firstHash} and expected ${config.evmValidateHash}`);
+            }
+
+            parentHash = hexStringToUint8Array(storableBlock.delta['@evmBlockHash']);
+            await this.reindexConnector.pushBlock(storableBlock);
+
+            lastPushed = blockData.block.block_num;
+            blocksPushed++;
         }
-        return result;
+
+        await this.reindexConnector.deinit();
+        clearInterval(this.reindexPerfTaskId);
     }
 
     /*

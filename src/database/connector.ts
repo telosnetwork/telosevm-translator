@@ -22,68 +22,48 @@ function indexToSuffixNum(index: string) {
     return parseInt(suffix);
 }
 
-
-// export class ElasticScroller {
-//     elastic: Client;
-//     scrollId: string;
-//     done: boolean = false;
-//     readonly initialDocs: any[];
-//
-//     constructor(elastic: Client, scrollResponse: SearchResponse) {
-//         this.elastic = elastic;
-//         this.initialDocs = scrollResponse.hits.hits.map(h => h._source);
-//         this.scrollId = scrollResponse._scroll_id;
-//     }
-//
-//     async nextScroll() {
-//         const scrollResponse = await this.elastic.scroll({
-//             scroll_id: this.scrollId,
-//             scroll: '1s'
-//         });
-//
-//         const hits = scrollResponse.hits.hits;
-//
-//         if (hits.length === 0) {
-//             this.done = true;
-//             return [];
-//         }
-//
-//         return hits.map(hit => hit._source);
-//     }
-//
-//     async *[Symbol.asyncIterator]() {
-//         yield this.initialDocs;
-//
-//         while (!this.done) {
-//             const hits = await this.nextScroll();
-//             if (hits.length > 0) yield hits;
-//         }
-//     }
-// }
-
 export interface ScrollOptions {
     fields?: string[];
     scroll?: string;
     size?: number;
 }
 
+export interface BlockData {block: StorageEosioDelta, actions: StorageEosioAction[]};
+
+export interface ScrollResult {minBlock: number, maxBlock: number, data: BlockData[]};
+
 export class BlockScroller {
+
+    get isInit(): boolean {
+        return this._isInit;
+    }
+    get isDone(): boolean {
+        return this._isDone;
+    }
 
     private readonly conn: Connector;
     private readonly from: number;
     private readonly to: number;
     private readonly validate: boolean;
     private readonly scrollOpts: ScrollOptions;
+    private readonly scrollSize: number;
+    readonly tag: string;
 
     private last: number;
-    private currentSuffNum: number;
+    private lastYielded: number;
+    private lastBlockTx: number;
+
     private currentDeltaScrollId: string;
-    private endSuffNum: number;
+    private currentActionScrollId: string;
 
-    private deltaIndices = new Map<number, string>();
-    private done: boolean = false;
+    private lastDeltaIndex: string;
+    private lastActionIndex: string;
 
-    private initialHits: StorageEosioDelta[];
+    private _isDone: boolean = false;
+    private _isInit: boolean = false;
+
+    private range: BlockData[] = [];
+    private rangeTxs: StorageEosioAction[] = [];
 
     constructor(
         connector: Connector,
@@ -91,7 +71,8 @@ export class BlockScroller {
             from: number,
             to: number,
             validate?: boolean,
-            scrollOpts?: ScrollOptions
+            scrollOpts?: ScrollOptions,
+            tag?: string
         }
     ) {
         this.conn = connector;
@@ -99,6 +80,20 @@ export class BlockScroller {
         this.to = params.to;
         this.scrollOpts = params.scrollOpts ? params.scrollOpts : {};
         this.validate = params.validate ? params.validate : false;
+        this.tag = params.tag ? params.tag : '';
+
+        this.lastYielded = this.from - 1;
+        this.lastBlockTx = this.lastYielded - this.conn.config.evmBlockDelta;
+
+        this.scrollSize = this.scrollOpts.size ? this.scrollOpts.size : 1000;
+    }
+
+    private get currentDeltaIndex() {
+        return this.conn.getDeltaIndexForBlock(this.lastYielded + 1);
+    }
+
+    private get currentActionIndex() {
+        return this.conn.getActionIndexForBlock(this.lastBlockTx + this.conn.config.evmBlockDelta + 1);
     }
 
     private unwrapDeltaHit(hit): StorageEosioDelta {
@@ -109,14 +104,40 @@ export class BlockScroller {
         return doc
     }
 
+    private unwrapActionHit(hit): StorageEosioAction {
+        const doc = hit._source;
+        if (this.validate)
+            return StorageEosioActionSchema.parse(doc);
+
+        return doc
+    }
+
+    private async maybeConfigureIndex(index: string) {
+        if (this.scrollSize > 10000) {
+            const indexSettings = await this.conn.elastic.indices.getSettings({index});
+            const resultWindowSetting  = indexSettings[index].settings.max_result_window;
+            if (resultWindowSetting  < this.scrollSize) {
+                await this.conn.elastic.indices.putSettings({
+                    index,
+                    settings: {
+                        index: {
+                            max_result_window: this.scrollSize
+                        }
+                    }
+                });
+            }
+        }
+    }
+
     /*
      * Perform initial scroll/search request on current index
      */
-    private async scrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
+    private async deltaScrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
+        await this.maybeConfigureIndex(this.currentDeltaIndex);
         const deltaResponse = await this.conn.elastic.search({
-            index: this.deltaIndices.get(this.currentSuffNum),
+            index: this.currentDeltaIndex,
             scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-            size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
+            size: this.scrollSize,
             sort: [{'block_num': 'asc'}],
             query: {
                 range: {
@@ -136,18 +157,118 @@ export class BlockScroller {
     }
 
     /*
+     * Perform initial scroll/search request on current index
+     */
+    private async actionScrollRequest(): Promise<{scrollId: string, hits: StorageEosioAction[]}> {
+        await this.maybeConfigureIndex(this.currentActionIndex);
+        try {
+            const actionResponse = await this.conn.elastic.search({
+                index: this.currentActionIndex,
+                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
+                size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
+                sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
+                query: {
+                    range: {
+                        '@raw.block': {
+                            gte: this.from - this.conn.config.evmBlockDelta,
+                            lte: this.to - this.conn.config.evmBlockDelta
+                        }
+                    }
+                }
+            });
+            const actionScrollInfo = {
+                scrollId: actionResponse._scroll_id,
+                hits: actionResponse.hits.hits.map(h => this.unwrapActionHit(h))
+            };
+            return actionScrollInfo;
+        } catch (e) {
+            if (!e.message.includes('index_not_found_exception'))
+                throw e;
+
+            return {scrollId: undefined, hits: []};
+        }
+    }
+
+    private async nextActionScroll(target: number): Promise<void> {
+        try {
+            const actionScrollResponse = await this.conn.elastic.scroll({
+                scroll_id: this.currentActionScrollId,
+                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s'
+            });
+            let hits = actionScrollResponse.hits.hits;
+
+            if (hits.length === 0) {
+                // clear current scroll context
+                await this.conn.elastic.clearScroll({
+                    scroll_id: this.currentActionScrollId
+                });
+                if (this.lastBlockTx < target) {
+                    if (indexToSuffixNum(this.currentActionIndex) > indexToSuffixNum(this.lastActionIndex))
+                        throw new Error(
+                            `Scanned all relevant indices but could not reach target tx block ${target}`);
+                    // open new scroll & return hits from next one
+                    const scrollInfo = await this.actionScrollRequest();
+                    this.currentActionScrollId = scrollInfo.scrollId;
+                    this.rangeTxs.push(...scrollInfo.hits);
+                }
+            } else
+                this.rangeTxs.push(...hits.map(h => this.unwrapActionHit(h)));
+
+            if (this.rangeTxs.length > 0)
+                this.lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]["@raw"].block;
+
+        } catch (e) {
+            this.conn.logger.error('BlockScroller error while fetching next batch:')
+            this.conn.logger.error(e.message);
+            throw e;
+        }
+    }
+
+    private async packScrollResult(deltaHits: StorageEosioDelta[]): Promise<ScrollResult> {
+        const result: BlockData[] = [];
+        const minBlock = deltaHits[0].block_num;
+        const maxBlock = deltaHits[deltaHits.length - 1].block_num;
+        let curBlock = minBlock;
+        for (const delta of deltaHits) {
+            curBlock = delta.block_num;
+            const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
+            const blockTxs = [];
+
+            while (evmBlockNum > this.lastBlockTx && delta.gasUsed !== '0')
+                await this.nextActionScroll(evmBlockNum)
+
+            while (this.rangeTxs.length > 0 &&
+                   this.rangeTxs[0]['@raw'].block == evmBlockNum) {
+                const tx = this.rangeTxs.shift();
+                blockTxs.push(tx);
+            }
+
+            if (blockTxs.length === 0 && delta.gasUsed !== '0') {
+                this.conn.logger.error('gasUsed != 0 && blockTxs len > 0');
+                throw new Error('asd');
+            }
+
+            result.push({
+                block: delta,
+                actions: blockTxs
+            })
+        }
+        return {minBlock, maxBlock, data: result};
+    }
+
+    /*
      * Scroll an already open request, if we got 0 hits
      * check if reached end, if not try to move to next delta index
      */
-    private async nextScroll(): Promise<StorageEosioDelta[]> {
-        let blockDocs = [];
+    private async nextScroll() {
+        let result: ScrollResult;
 
         try {
             const deltaScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentDeltaScrollId,
                 scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s'
             });
-            let hits = deltaScrollResponse.hits.hits;
+            const hits = deltaScrollResponse.hits.hits;
 
             if (hits.length === 0) {
                 // clear current scroll context
@@ -156,25 +277,23 @@ export class BlockScroller {
                 });
                 // is scroll done?
                 if (this.last == this.to)
-                    this.done = true;
+                    this._isDone = true;
+
                 else {
-                    this.currentSuffNum++;
                     // are indexes exhausted?
-                    if (this.currentSuffNum > this.endSuffNum)
+                    if (indexToSuffixNum(this.currentDeltaIndex) > indexToSuffixNum(this.lastDeltaIndex))
                         throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
 
                     // open new scroll & return hits from next one
-                    const scrollInfo = await this.scrollRequest();
+                    const scrollInfo = await this.deltaScrollRequest();
                     this.currentDeltaScrollId = scrollInfo.scrollId;
-                    blockDocs = scrollInfo.hits;
+                    result = await this.packScrollResult(scrollInfo.hits);
                 }
             } else
-                blockDocs = hits.map(h => this.unwrapDeltaHit(h));
+                result = await this.packScrollResult(hits.map(h => this.unwrapDeltaHit(h)));
 
-            if (blockDocs.length > 0) {
-                // @ts-ignore
-                this.last = blockDocs[blockDocs.length - 1].block_num;
-            }
+            if (hits.length > 0)
+                this.last = result.maxBlock;
 
         } catch (e) {
             this.conn.logger.error('BlockScroller error while fetching next batch:')
@@ -182,7 +301,7 @@ export class BlockScroller {
             throw e;
         }
 
-        return blockDocs;
+        if (result) this.range.push(...result.data);
     }
 
     /*
@@ -191,26 +310,45 @@ export class BlockScroller {
      */
     async init() {
         // get relevant indexes
-        this.currentSuffNum = parseInt(this.conn.getSuffixForBlock(this.from));
-        this.endSuffNum = parseInt(this.conn.getSuffixForBlock(this.to));
-        const relevantIndexes = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
-        relevantIndexes.forEach((index) => {
-            const indexSuffNum = indexToSuffixNum(index);
-            if (indexSuffNum >= this.currentSuffNum && indexSuffNum <= this.endSuffNum)
-                this.deltaIndices.set(indexSuffNum, index);
-        });
-        if (this.deltaIndices.size == 0) throw new Error(`Could not find any delta indices to scroll`);
+        this.lastDeltaIndex = this.conn.getDeltaIndexForBlock(this.to);
+        this.lastActionIndex = this.conn.getActionIndexForBlock(this.to);
 
         // first scroll request
-        const scrollInfo = await this.scrollRequest();
-        this.initialHits = scrollInfo.hits;
-        this.currentDeltaScrollId = scrollInfo.scrollId;
+        const deltaScrollResult = await this.deltaScrollRequest();
+        const actionScrollResult = await this.actionScrollRequest();
+        this.rangeTxs = actionScrollResult.hits;
+        const initialResult = await this.packScrollResult(deltaScrollResult.hits);
+        this.range = initialResult.data;
+        this.currentDeltaScrollId =  deltaScrollResult.scrollId;
+        this.currentActionScrollId =  actionScrollResult.scrollId;
 
         // bail early if no hits
-        if (this.initialHits.length > 0)
-            this.last = this.initialHits[this.initialHits.length - 1].block_num;
+        if (this.range.length > 0)
+            this.last = initialResult.maxBlock;
         else
-            this.done = true;
+            this._isDone = true;
+
+        if (this.rangeTxs.length > 0)
+            this.lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]['@raw'].block;
+
+        this._isInit = true;
+    }
+
+    async nextResult(): Promise<BlockData> {
+        if (!this._isInit) throw new Error('Must call init() before nextResult()!');
+
+        const nextBlock = this.lastYielded + 1;
+        // this.conn.logger.info(`${this.tag}: nextBlock prescroll: ${nextBlock}`)
+        while (!this._isDone && nextBlock > this.last)
+            await this.nextScroll();
+
+        // this.conn.logger.info(`${this.tag}: nextBlock postscroll: ${nextBlock}`)
+        if (!this._isDone && nextBlock !== this.range[0].block.block_num)
+            throw new Error(`from ${this.tag}: nextblock != range[0]`)
+
+        const block = this.range.shift();
+        this.lastYielded = nextBlock;
+        return block;
     }
 
     /*
@@ -218,13 +356,11 @@ export class BlockScroller {
      * call this.init! class gets info about indexes needed
      * for scroll from elastic
      */
-    async *[Symbol.asyncIterator](): AsyncIterableIterator<StorageEosioDelta[]> {
-        yield this.initialHits;
-
-        while (!this.done) {
-            const hits = await this.nextScroll();
-            if (hits.length > 0) yield hits;
-        }
+    async *[Symbol.asyncIterator](): AsyncIterableIterator<BlockData> {
+        do {
+            const block = await this.nextResult();
+            if (!this._isDone) yield block;
+        } while (!this._isDone)
     }
 }
 
@@ -245,8 +381,6 @@ export class Connector {
     writeCounter: number = 0;
     lastDeltaIndexSuff: number = undefined;
     lastActionIndexSuff: number = undefined;
-    private deltaIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
-    private actionIndexCache: estypes.CatIndicesIndicesRecord[] = undefined;
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
@@ -270,6 +404,14 @@ export class Connector {
     getSuffixForBlock(blockNum: number) {
         const adjustedNum = Math.floor(blockNum / this.config.elastic.docsPerIndex);
         return String(adjustedNum).padStart(8, '0');
+    }
+
+    getDeltaIndexForBlock(blockNum: number) {
+        return `${this.config.chainName}-${this.config.elastic.subfix.delta}-${this.getSuffixForBlock(blockNum)}`;
+    }
+
+    getActionIndexForBlock(blockNum: number) {
+        return `${this.config.chainName}-${this.config.elastic.subfix.transaction}-${this.getSuffixForBlock(blockNum)}`;
     }
 
     async init() {
@@ -486,49 +628,6 @@ export class Connector {
         }
 
         return null;
-    }
-
-    async getTransactionsForRange(from: number, to: number): Promise<StorageEosioAction[]> {
-        const actionIndex = await this.getRelevantActionIndicesForRange(from, to);
-        const hits = [];
-        try {
-            let result = await this.elastic.search({
-                index: actionIndex,
-                query: {
-                    range: {
-                        '@raw.block': {
-                            gte: from - this.config.evmBlockDelta,
-                            lte: to - this.config.evmBlockDelta
-                        }
-                    }
-                },
-                size: 4000,
-                sort: [{'@raw.block': 'asc'}, {'@raw.trx_index': 'asc'}],
-                scroll: '1s'
-            });
-
-            let scrollId = result._scroll_id;
-            while (result.hits.hits.length) {
-                try {
-                    result.hits.hits.forEach(hit => hits.push(StorageEosioActionSchema.parse(hit._source)));
-                } catch (e) {
-                    throw new Error("parsing error");
-                }
-                result = await this.elastic.scroll({
-                    scroll_id: scrollId,
-                    scroll: '1s'
-                });
-                scrollId = result._scroll_id;
-            }
-            if (hits.length)
-                await this.elastic.clearScroll({scroll_id: scrollId});
-
-        } catch (e) {
-            this.logger.error(`connector: elastic error when getting transactions in range:`);
-            this.logger.error(e.message);
-        }
-
-        return hits;
     }
 
     async findGapInIndices() {
@@ -987,15 +1086,11 @@ export class Connector {
 
         const lastAdjusted = Math.floor(last / this.config.elastic.docsPerIndex);
 
-        if (lastAdjusted !== this.lastDeltaIndexSuff) {
-            this.deltaIndexCache = undefined;
+        if (lastAdjusted !== this.lastDeltaIndexSuff)
             this.lastDeltaIndexSuff = lastAdjusted;
-        }
 
-        if (lastAdjusted !== this.lastActionIndexSuff) {
-            this.actionIndexCache = undefined;
+        if (lastAdjusted !== this.lastActionIndexSuff)
             this.lastActionIndexSuff = lastAdjusted;
-        }
 
         if (bulkResponse.errors) {
             const erroredDocuments: any[] = []
@@ -1038,12 +1133,9 @@ export class Connector {
 
         this.writeCounter--;
 
-        this.events.emit('write', {
-            from: first,
-            to: last
-        });
+        const writeEvent = {from: first, to: last};
 
-        // if (global.gc) {global.gc();}
+        this.events.emit('write', writeEvent);
     }
 
     async blockScroll(params: {
@@ -1053,7 +1145,6 @@ export class Connector {
         scrollOpts?: ScrollOptions
     }) {
         const scroller = new BlockScroller(this, params);
-        await scroller.init();
         return scroller;
     }
 
