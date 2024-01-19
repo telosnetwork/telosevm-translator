@@ -469,7 +469,7 @@ export async function getElasticDeltas(esclient, index, from, to) {
             },
             size: 1000,
             sort: [{ 'block_num': 'asc' }],
-            scroll: '10s'
+            scroll: '3s'
         });
 
         let scrollId = result._scroll_id;
@@ -477,15 +477,18 @@ export async function getElasticDeltas(esclient, index, from, to) {
             result.hits.hits.forEach(hit => hits.push(hit._source));
             result = await esclient.scroll({
                 scroll_id: scrollId,
-                scroll: '10s'
+                scroll: '3s'
             });
             scrollId = result._scroll_id;
         }
+        await esclient.clearScroll({scroll_id: scrollId});
 
         return hits;
     } catch (e) {
-        console.error(e.message);
-        console.error(e.stack);
+        if (!e.message.includes('index_not_found')) {
+            console.error(e.message);
+            console.error(e.stack);
+        }
         return [];
     }
 }
@@ -505,7 +508,7 @@ export async function getElasticActions(esclient, index, from, to) {
             },
             size: 1000,
             sort: [{ '@raw.block': 'asc' }, { '@raw.trx_index': 'asc' }],
-            scroll: '1m' // Keep the search context alive for 1 minute
+            scroll: '3s' // Keep the search context alive for 1 minute
         });
 
         let scrollId = result._scroll_id;
@@ -513,15 +516,18 @@ export async function getElasticActions(esclient, index, from, to) {
             result.hits.hits.forEach(hit => hits.push(hit._source));
             result = await esclient.scroll({
                 scroll_id: scrollId,
-                scroll: '10s'
+                scroll: '3s'
             });
             scrollId = result._scroll_id;
         }
+        await esclient.clearScroll({scroll_id: scrollId});
 
         return hits;
     } catch (e) {
-        console.error(e.message);
-        console.error(e.stack);
+        if (!e.message.includes('index_not_found')) {
+            console.error(e.message);
+            console.error(e.stack);
+        }
         return [];
     }
 }
@@ -932,6 +938,87 @@ export async function translatorESVerificationTest(
         if (shipProxy)
             await shipProxy.remove();
     }
+
+    await esClient.close();
+}
+
+
+export async function translatorESReindexVerificationTest(
+    testParams
+) {
+    // const testTitle = testParams.title;
+    // const testTitleSane = testTitle.split(' ').join('-').toLowerCase();
+    const testTimeout = testParams.timeout;
+    const testStartTime = performance.now();
+
+    const defESConfig = {
+        host: 'http://127.0.0.1:9200',
+        esDumpLimit: 4000
+    }
+    const esConfig = {...defESConfig, ...testParams.elastic};
+    const esClient = new Client({node: esConfig.host});
+    try {
+        await esClient.ping();
+    } catch (e) {
+        console.error('Could not ping elastic, is it up?');
+        process.exit(1);
+    }
+
+    const templatesDirPath = path.join(SCRIPTS_DIR, '../config-templates');
+    const translatorConfig = JSON.parse(
+        readFileSync(path.join(templatesDirPath, testParams.template)).toString()
+    );
+
+    const startBlock = testParams.startBlock;
+    const endBlock = startBlock + testParams.totalBlocks;
+
+    translatorConfig.chainName = testParams.srcPrefix;
+    translatorConfig.startBlock = startBlock;
+    translatorConfig.stopBlock = endBlock;
+    translatorConfig.evmPrevHash = testParams.evmPrevHash;
+    translatorConfig.evmValidateHash = testParams.evmValidateHash;
+    translatorConfig.elastic.subfix.delta = `delta-${testParams.indexVersion}`;
+    translatorConfig.elastic.subfix.transaction = `action-${testParams.indexVersion}`;
+    translatorConfig.elastic.subfix.error = `error-${testParams.indexVersion}`;
+    translatorConfig.elastic.subfix.fork = `fork-${testParams.indexVersion}`;
+
+    translatorConfig.perf.elasticDumpSize = testParams.esDumpSize;
+    translatorConfig.elastic.scrollWindow = testParams.scrollWindow;
+    translatorConfig.elastic.scrollSize = testParams.scrollSize;
+
+    if (testParams.totalBlocks < translatorConfig.perf.elasticDumpSize)
+        translatorConfig.perf.elasticDumpSize = testParams.totalBlocks;
+
+    if (testParams.purge) {
+        // try to delete generated data in case it exists
+        const reindexIndices = await esClient.cat.indices({
+            index: `${testParams.dstPrefix}-*`,
+            format: 'json'
+        });
+        const deleteTasks = reindexIndices.map(
+            i => esClient.indices.delete({index: i.index}));
+        await Promise.all(deleteTasks);
+    }
+
+    const esDumpCompressedPath = path.join(TEST_RESOURCES_DIR, `${testParams.esDumpName}.tar.zst`);
+    const esDumpPath = path.join(TEST_RESOURCES_DIR, testParams.esDumpName);
+    await decompressFile(esDumpCompressedPath, esDumpPath);
+    await maybeLoadElasticDump(testParams.esDumpName, esConfig);
+
+    // launch translator and verify generated data
+    const translator = new TEVMIndexer(translatorConfig);
+    const translatorLaunchTime = performance.now();
+    await translator.reindex(testParams.dstPrefix, {eval: true, timeout: testTimeout});
+
+    const translatorReindexTime = performance.now();
+
+    const totalTestTimeElapsed = translatorReindexTime - testStartTime;
+    const translatorReindexTimeElapsed = translatorReindexTime - translatorLaunchTime;
+
+    console.log('Test passed!');
+    console.log(`total time elapsed: ${moment.duration(totalTestTimeElapsed, 'ms').humanize()}`);
+    console.log(`sync time:          ${moment.duration(translatorReindexTimeElapsed, 'ms').humanize()}`);
+    console.log(`average speed:      ${(testParams.totalBlocks / translatorReindexTimeElapsed).toFixed(2).toLocaleString()}`);
 
     await esClient.close();
 }
