@@ -8,7 +8,7 @@ import {Command} from "commander";
 const program = new Command();
 program
     .option('-b, --totalBlocks [totalBlocks]', 'Set a specific amount of blocks to sync', '3261468')
-    .option('-p, --purge', 'Set a specific amount of blocks to sync', false)
+    .option('-p, --purge', 'Delete target indexes at the start', false)
     .option('-L, --limit [limit]', 'Number of documents per elasticdump import batch', '4000')
     .option('-T, --timeout [timeout m]', 'Timeout in minutes', '15')
     .action(async (options) => {

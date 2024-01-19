@@ -197,6 +197,11 @@ export class BlockScroller {
     }
 
     private async nextActionScroll(target: number): Promise<void> {
+        if (!this.currentActionScrollId) {
+            this.lastBlockTx = target;
+            return;
+        }
+
         try {
             const actionScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentActionScrollId,
@@ -216,7 +221,11 @@ export class BlockScroller {
                     // open new scroll & return hits from next one
                     const scrollInfo = await this.actionScrollRequest();
                     this.currentActionScrollId = scrollInfo.scrollId;
-                    this.rangeTxs.push(...scrollInfo.hits);
+                    if (this.currentActionScrollId)
+                        this.rangeTxs.push(...scrollInfo.hits);
+
+                    else
+                        this.lastBlockTx = target;
                 }
             } else
                 this.rangeTxs.push(...hits.map(h => this.unwrapActionHit(h)));
@@ -306,6 +315,7 @@ export class BlockScroller {
         } catch (e) {
             this.conn.logger.error('BlockScroller error while fetching next batch:')
             this.conn.logger.error(e.message);
+            this.conn.logger.error(e.stack);
             throw e;
         }
 
@@ -313,8 +323,7 @@ export class BlockScroller {
     }
 
     /*
-     * Setup index map with index names necessary for full scroll,
-     * then perform first scroll request and seed initialHits property
+     * Perform first scroll request and set state tracking vars
      */
     async init() {
         // get relevant indexes
