@@ -989,7 +989,7 @@ export async function translatorESReindexVerificationTest(
     if (testParams.totalBlocks < translatorConfig.perf.elasticDumpSize)
         translatorConfig.perf.elasticDumpSize = testParams.totalBlocks;
 
-    if (testParams.purge) {
+    if (esConfig.purge) {
         // try to delete generated data in case it exists
         const reindexIndices = await esClient.cat.indices({
             index: `${testParams.dstPrefix}-*`,
