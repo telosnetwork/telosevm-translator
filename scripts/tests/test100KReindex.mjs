@@ -13,7 +13,7 @@ program
         await translatorESReindexVerificationTest({
             title: '100k late range',
             timeout: 20 * 60,  // 20 minutes in seconds
-            esDumpName: 'telos-mainnet-318-100k',
+            esDumpName: 'telos-mainnet-312m-100k',
             elastic: {
                 host: 'http://127.0.0.1:9200',
                 esDumpLimit: options.limit ? parseInt(options.limit, 10) : 4000

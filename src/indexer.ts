@@ -805,7 +805,7 @@ export class TEVMIndexer {
 
         const reindexLastBlock = await this.reindexConnector.getLastIndexedBlock();
 
-        if (reindexLastBlock != null) {
+        if (reindexLastBlock != null && reindexLastBlock.block_num < config.stopBlock) {
             config.startBlock = reindexLastBlock.block_num + 1;
             config.evmPrevHash = reindexLastBlock['@evmBlockHash'];
             config.evmValidateHash = '';
@@ -843,7 +843,11 @@ export class TEVMIndexer {
             expect(srcDelta.block_num).to.be.equal(reindexDelta.block_num);
             expect(srcDelta['@timestamp']).to.be.equal(reindexDelta['@timestamp']);
             expect(srcDelta['@blockHash']).to.be.equal(reindexDelta['@blockHash']);
-            expect(srcDelta.gasUsed).to.be.equal(reindexDelta.gasUsed);
+
+            let gasUsed = srcDelta.gasUsed;
+            if (!gasUsed)
+                gasUsed = '0';
+            expect(gasUsed).to.be.equal(reindexDelta.gasUsed);
 
             expect(srcBlock.actions.length).to.be.equal(dstBlock.actions.length);
 

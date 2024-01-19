@@ -133,27 +133,34 @@ export class BlockScroller {
      * Perform initial scroll/search request on current index
      */
     private async deltaScrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
-        await this.maybeConfigureIndex(this.currentDeltaIndex);
-        const deltaResponse = await this.conn.elastic.search({
-            index: this.currentDeltaIndex,
-            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-            size: this.scrollSize,
-            sort: [{'block_num': 'asc'}],
-            query: {
-                range: {
-                    block_num: {
-                        gte: this.from,
-                        lte: this.to
+        try {
+            await this.maybeConfigureIndex(this.currentDeltaIndex);
+            const deltaResponse = await this.conn.elastic.search({
+                index: this.currentDeltaIndex,
+                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
+                size: this.scrollSize,
+                sort: [{'block_num': 'asc'}],
+                query: {
+                    range: {
+                        block_num: {
+                            gte: this.from,
+                            lte: this.to
+                        }
                     }
-                }
-            },
-            _source: this.scrollOpts.fields
-        });
-        const deltaScrollInfo = {
-            scrollId: deltaResponse._scroll_id,
-            hits: deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h))
-        };
-        return deltaScrollInfo;
+                },
+                _source: this.scrollOpts.fields
+            });
+            const deltaScrollInfo = {
+                scrollId: deltaResponse._scroll_id,
+                hits: deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h))
+            };
+            return deltaScrollInfo;
+        } catch (e) {
+            if (!e.message.includes('index_not_found_exception'))
+                throw e;
+
+            return {scrollId: undefined, hits: []};
+        }
     }
 
     /*
@@ -234,7 +241,9 @@ export class BlockScroller {
             const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
             const blockTxs = [];
 
-            while (evmBlockNum > this.lastBlockTx && delta.gasUsed !== '0')
+            while ('gasUsed' in delta &&
+                   delta.gasUsed !== '0' &&
+                   evmBlockNum > this.lastBlockTx)
                 await this.nextActionScroll(evmBlockNum)
 
             while (this.rangeTxs.length > 0 &&
@@ -243,10 +252,8 @@ export class BlockScroller {
                 blockTxs.push(tx);
             }
 
-            if (blockTxs.length === 0 && delta.gasUsed !== '0') {
-                this.conn.logger.error('gasUsed != 0 && blockTxs len > 0');
-                throw new Error('asd');
-            }
+            if (blockTxs.length === 0 && 'gasUsed' in delta && delta.gasUsed !== '0')
+                throw new Error(`block #${curBlock}: gasUsed != 0 && blockTxs len > 0`);
 
             result.push({
                 block: delta,
@@ -287,7 +294,8 @@ export class BlockScroller {
                     // open new scroll & return hits from next one
                     const scrollInfo = await this.deltaScrollRequest();
                     this.currentDeltaScrollId = scrollInfo.scrollId;
-                    result = await this.packScrollResult(scrollInfo.hits);
+                    if (this.currentDeltaScrollId)
+                        result = await this.packScrollResult(scrollInfo.hits);
                 }
             } else
                 result = await this.packScrollResult(hits.map(h => this.unwrapDeltaHit(h)));

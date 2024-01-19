@@ -10,14 +10,16 @@ program
     .option('-b, --totalBlocks [totalBlocks]', 'Set a specific amount of blocks to sync', '3261468')
     .option('-p, --purge', 'Set a specific amount of blocks to sync', false)
     .option('-L, --limit [limit]', 'Number of documents per elasticdump import batch', '4000')
+    .option('-T, --timeout [timeout m]', 'Timeout in minutes', '15')
     .action(async (options) => {
         await translatorESReindexVerificationTest({
             title: '3Mil Near Deploy',
-            timeout: 20 * 60,  // 20 minutes in seconds
+            timeout: parseInt(options.timeout, 10) * 60,
             esDumpName: 'telos-mainnet-3mil-deploy',
             elastic: {
                 host: 'http://127.0.0.1:9200',
-                esDumpLimit:  parseInt(options.limit, 10)
+                esDumpLimit:  parseInt(options.limit, 10),
+                purge: options.purge
             },
             srcPrefix: 'telos-mainnet-verification',
             dstPrefix: 'telos-mainnet-reindex',
