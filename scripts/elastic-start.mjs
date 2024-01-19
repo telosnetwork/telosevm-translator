@@ -8,6 +8,5 @@ await runDocker('elastic', [
     '-d',
     '--rm',
     '--mount', `type=bind,source=${esDataMountPath},target=/home/elasticsearch/data`,
-    '--network=host',
-    '--env', 'xpack.security.enabled=false'
+    '--network=host'
 ]);
