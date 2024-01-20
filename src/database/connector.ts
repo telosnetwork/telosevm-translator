@@ -333,6 +333,10 @@ export class BlockScroller {
         // first scroll request
         const deltaScrollResult = await this.deltaScrollRequest();
         const actionScrollResult = await this.actionScrollRequest();
+
+        if (deltaScrollResult.hits.length == 0)
+            throw new Error(`could not find blocks on ${this.currentDeltaIndex}`);
+
         this.rangeTxs = actionScrollResult.hits;
         const initialResult = await this.packScrollResult(deltaScrollResult.hits);
         this.range = initialResult.data;
