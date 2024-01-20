@@ -5,6 +5,8 @@
     "chainName": "telos-testnet",
     "chainId": 41,
 
+    "runtime": {},
+
     "endpoint": "http://127.0.0.1:8888",
     "remoteEndpoint": "http://testnet.telos.net",
     "wsEndpoint": "ws://127.0.0.1:29999",

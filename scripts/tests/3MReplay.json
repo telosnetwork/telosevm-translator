@@ -1,0 +1,49 @@
+{
+  "title": "3 Million Verified Blocks",
+  "timeout": 3600,
+  "resources": [
+    {
+      "type": "esdump",
+      "url": "http://storage.telos.net/test-resources/telos-mainnet-3mil-deploy.tar.zst",
+      "destinationPath": "telos-mainnet-3mil-deploy.tar.zst",
+      "decompressPath": "telos-mainnet-3mil-deploy"
+    },
+    {
+      "type": "snapshot",
+      "url": "https://telos-snapshots.s3.amazonaws.com/mainnet/telos-mainet-20211026-blk-180635436.tar.gz",
+      "destinationPath": "telos-mainet-20211026-blk-180635436.tar.gz",
+      "decompressPath": "snapshot-0ac4472c3af648291761dad85c9090333474a733dd1852008e2d1d41b212a0fc.bin"
+    },
+    {
+      "type": "nodeos",
+      "url": "http://storage.telos.net/test-resources/nodeos-mainnet-3mil-deploy.tar.zst",
+      "destinationPath": "nodeos-mainnet-3mil-deploy.tar.zst",
+      "decompressPath": "nodeos-mainnet-3mil-deploy",
+      "replay": true
+    }
+  ],
+  "elastic": {
+    "host": "http://127.0.0.1:9200",
+    "verification": {
+      "delta": "telos-mainnet-verification-delta-v1.5-ebr-jt-00000018",
+      "action": "telos-mainnet-verification-action-v1.5-ebr-jt-00000018"
+    },
+    "esDumpLimit": 4000,
+    "purge": false
+  },
+  "nodeos": {
+    "httpPort": 8888,
+    "toxiHttpPort": 8889,
+    "shipPort": 29999,
+    "toxiShipPort": 30000
+  },
+  "translator": {
+    "template": "config.mainnet.json",
+    "startBlock": 180698860,
+    "totalBlocks": 3261468,
+    "evmPrevHash": "757720a8e51c63ef1d4f907d6569dacaa965e91c2661345902de18af11f81063",
+    "evmValidateHash": "ed58397aca4c7ce2117fae8093bdced8f01d47855a46bb5ad6e4df4a93e8ee27",
+    "stallCounter": 2,
+    "dstPrefix": "telos-mainnet-replay"
+  }
+}
