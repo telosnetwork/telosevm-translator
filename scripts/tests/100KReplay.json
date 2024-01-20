@@ -1,0 +1,48 @@
+{
+  "title": "100K Toxic Blocks",
+  "timeout": 1200,
+  "resources": [
+    {
+      "type": "esdump",
+      "url": "http://storage.telos.net/test-resources/telos-mainnet-v1.5-312087080-100k-elasticdump.tar.zst",
+      "destinationPath": "telos-mainnet-v1.5-312087080-100k-elasticdump.tar.zst",
+      "decompressPath": "telos-mainnet-v1.5-312087080-100k-elasticdump"
+    },
+    {
+      "type": "snapshot",
+      "url": "https://ops.store.eosnation.io/telos-snapshots/snapshot-2023-11-26-14-telos-v6-0312087079.bin.zst",
+      "destinationPath": "snapshot-2023-11-26-14-telos-v6-0312087079.bin.zst",
+      "decompressPath": "snapshot-2023-11-26-14-telos-v6-0312087079.bin"
+    },
+    {
+      "type": "nodeos",
+      "url": "http://storage.telos.net/test-resources/nodeos-mainnet-312087080-100k.tar.zst",
+      "destinationPath": "nodeos-mainnet-312087080-100k.tar.zst",
+      "decompressPath": "nodeos-mainnet-312087080-100k",
+      "replay": true
+    }
+  ],
+  "elastic": {
+    "host": "http://127.0.0.1:9200",
+    "verification": {
+      "delta": "telos-mainnet-verification-delta-v1.5-00000031",
+      "action": "telos-mainnet-verification-action-v1.5-00000031"
+    },
+    "esDumpLimit": 4000,
+    "purge": false
+  },
+  "nodeos": {
+    "httpPort": 8888,
+    "toxiHttpPort": 8889,
+    "shipPort": 29999,
+    "toxiShipPort": 30000
+  },
+  "toxi": {},
+  "translator": {
+    "template": "config.mainnet.json",
+    "startBlock": 312087081,
+    "totalBlocks": 100000,
+    "evmPrevHash": "501f3fe6f64c7d858a57e914ac130af2661e530f47ed9492606a44e1baecd6b6",
+    "stallCounter": 30
+  }
+}
