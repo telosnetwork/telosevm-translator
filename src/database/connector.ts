@@ -88,12 +88,15 @@ export class BlockScroller {
         this.scrollSize = this.scrollOpts.size ? this.scrollOpts.size : 1000;
     }
 
-    private get currentDeltaIndex() {
-        return this.conn.getDeltaIndexForBlock(this.lastYielded + 1);
+    private currentDeltaIndices() {
+        return this.conn.getRelevantDeltaIndicesForRange(this.lastYielded, this.lastYielded + this.scrollSize);
     }
 
-    private get currentActionIndex() {
-        return this.conn.getActionIndexForBlock(this.lastBlockTx + this.conn.config.evmBlockDelta + 1);
+    private currentActionIndices() {
+        return this.conn.getRelevantActionIndicesForRange(
+            this.lastBlockTx + this.conn.config.evmBlockDelta,
+            this.lastBlockTx + this.conn.config.evmBlockDelta + this.scrollSize
+        );
     }
 
     private unwrapDeltaHit(hit): StorageEosioDelta {
@@ -112,19 +115,21 @@ export class BlockScroller {
         return doc
     }
 
-    private async maybeConfigureIndex(index: string) {
+    private async maybeConfigureIndices(indices: string[]) {
         if (this.scrollSize > 10000) {
-            const indexSettings = await this.conn.elastic.indices.getSettings({index});
-            const resultWindowSetting  = indexSettings[index].settings.max_result_window;
-            if (resultWindowSetting  < this.scrollSize) {
-                await this.conn.elastic.indices.putSettings({
-                    index,
-                    settings: {
-                        index: {
-                            max_result_window: this.scrollSize
+            for (const index of indices) {
+                const indexSettings = await this.conn.elastic.indices.getSettings({index});
+                const resultWindowSetting = indexSettings[index].settings.max_result_window;
+                if (resultWindowSetting < this.scrollSize) {
+                    await this.conn.elastic.indices.putSettings({
+                        index,
+                        settings: {
+                            index: {
+                                max_result_window: this.scrollSize
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         }
     }
@@ -134,9 +139,10 @@ export class BlockScroller {
      */
     private async deltaScrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
         try {
-            await this.maybeConfigureIndex(this.currentDeltaIndex);
+            const indices = await this.currentDeltaIndices();
+            await this.maybeConfigureIndices(indices);
             const deltaResponse = await this.conn.elastic.search({
-                index: this.currentDeltaIndex,
+                index: indices,
                 scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
                 size: this.scrollSize,
                 sort: [{'block_num': 'asc'}],
@@ -167,10 +173,11 @@ export class BlockScroller {
      * Perform initial scroll/search request on current index
      */
     private async actionScrollRequest(): Promise<{scrollId: string, hits: StorageEosioAction[]}> {
-        await this.maybeConfigureIndex(this.currentActionIndex);
         try {
+            const indices = await this.currentActionIndices();
+            await this.maybeConfigureIndices(indices);
             const actionResponse = await this.conn.elastic.search({
-                index: this.currentActionIndex,
+                index: indices,
                 scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
                 size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
                 sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
@@ -215,7 +222,8 @@ export class BlockScroller {
                     scroll_id: this.currentActionScrollId
                 });
                 if (this.lastBlockTx < target) {
-                    if (indexToSuffixNum(this.currentActionIndex) > indexToSuffixNum(this.lastActionIndex))
+                    const indices = await this.currentActionIndices();
+                    if (indexToSuffixNum(indices[indices.length - 1]) > indexToSuffixNum(this.lastActionIndex))
                         throw new Error(
                             `Scanned all relevant indices but could not reach target tx block ${target}`);
                     // open new scroll & return hits from next one
@@ -297,7 +305,8 @@ export class BlockScroller {
 
                 else {
                     // are indexes exhausted?
-                    if (indexToSuffixNum(this.currentDeltaIndex) > indexToSuffixNum(this.lastDeltaIndex))
+                    const indices = await this.currentDeltaIndices();
+                    if (indexToSuffixNum(indices[indices.length - 1]) > indexToSuffixNum(this.lastDeltaIndex))
                         throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
 
                     // open new scroll & return hits from next one
@@ -335,7 +344,7 @@ export class BlockScroller {
         const actionScrollResult = await this.actionScrollRequest();
 
         if (deltaScrollResult.hits.length == 0)
-            throw new Error(`could not find blocks on ${this.currentDeltaIndex}`);
+            throw new Error(`could not find blocks on ${await this.currentDeltaIndices()}`);
 
         this.rangeTxs = actionScrollResult.hits;
         const initialResult = await this.packScrollResult(deltaScrollResult.hits);
