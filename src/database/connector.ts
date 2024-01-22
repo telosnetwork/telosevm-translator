@@ -8,7 +8,7 @@ import {
     StorageEosioDelta,
     StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
 } from '../types/evm.js';
-import {Logger} from "winston";
+import {createLogger, format, Logger, transports} from "winston";
 import EventEmitter from "events";
 
 
@@ -30,8 +30,6 @@ export interface ScrollOptions {
 
 export interface BlockData {block: StorageEosioDelta, actions: StorageEosioAction[]};
 
-export interface ScrollResult {minBlock: number, maxBlock: number, data: BlockData[]};
-
 export class BlockScroller {
 
     get isInit(): boolean {
@@ -46,8 +44,9 @@ export class BlockScroller {
     private readonly to: number;
     private readonly validate: boolean;
     private readonly scrollOpts: ScrollOptions;
-    private readonly scrollSize: number;
     readonly tag: string;
+
+    private logger: Logger;
 
     private last: number;
     private lastYielded: number;
@@ -73,6 +72,7 @@ export class BlockScroller {
             from: number,
             to: number,
             tag: string
+            logLevel?: string,
             validate?: boolean,
             scrollOpts?: ScrollOptions
         }
@@ -82,17 +82,35 @@ export class BlockScroller {
         this.to = params.to;
         this.tag = params.tag;
 
-        this.scrollOpts = params.scrollOpts ? params.scrollOpts : {};
+        this.scrollOpts = params.scrollOpts ? params.scrollOpts : {
+            size: 1000,
+            scroll: '3m'
+        };
         this.validate = params.validate ? params.validate : false;
 
+        this.last = this.from - 1;
+        this.lastBlockTx = this.last - this.conn.config.evmBlockDelta;
+
         this.lastYielded = this.from - 1;
-        this.lastBlockTx = this.lastYielded - this.conn.config.evmBlockDelta;
 
-        this.scrollSize = this.scrollOpts.size ? this.scrollOpts.size : 1000;
-    }
-
-    log(level: string, msg: string) {
-        this.conn.logger[level](`BlockScroller-${this.tag}: ${msg}`);
+        const logLevel = params.logLevel ? params.logLevel : 'warning';
+        const loggingOptions = {
+            exitOnError: false,
+            level: logLevel,
+            format: format.combine(
+                format.metadata(),
+                format.colorize(),
+                format.timestamp(),
+                format.printf((info: any) => {
+                    return `${info.timestamp} [PID:${process.pid}] [${info.level}] [BlockScroller-${this.tag}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
+                })
+            )
+        }
+        this.logger = createLogger(loggingOptions);
+        this.logger.add(new transports.Console({
+            level: logLevel
+        }));
+        this.logger.debug('Logger initialized with level ' + logLevel);
     }
 
     private unwrapDeltaHit(hit): StorageEosioDelta {
@@ -112,22 +130,30 @@ export class BlockScroller {
     }
 
     private async maybeConfigureIndices(indices: string[]) {
-        if (this.scrollSize > 10000) {
+        if (this.scrollOpts.size > 10000) {
             for (const index of indices) {
                 const indexSettings = await this.conn.elastic.indices.getSettings({index});
                 const resultWindowSetting = indexSettings[index].settings.max_result_window;
-                if (resultWindowSetting < this.scrollSize) {
+                if (resultWindowSetting < this.scrollOpts.size) {
                     await this.conn.elastic.indices.putSettings({
                         index,
                         settings: {
                             index: {
-                                max_result_window: this.scrollSize
+                                max_result_window: this.scrollOpts.size
                             }
                         }
                     });
-                    this.log('debug', `Configured index ${index} index.max_result_window: ${this.scrollSize}`);
+                    this.logger.debug(`Configured index ${index} index.max_result_window: ${this.scrollOpts.size}`);
                 }
             }
+        }
+    }
+
+    private setRange(deltas: BlockData[]) {
+        this.range = deltas;
+        if (deltas.length > 0) {
+            this.last = deltas[deltas.length - 1].block.block_num;
+            this.logger.debug(`set last to ${this.last}, range length: ${this.range.length}`);
         }
     }
 
@@ -137,8 +163,8 @@ export class BlockScroller {
     private async deltaScrollRequest(): Promise<StorageEosioDelta[]> {
         const deltaResponse = await this.conn.elastic.search({
             index: this.deltaIndices[this.currentDeltaSuff],
-            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-            size: this.scrollSize,
+            scroll: this.scrollOpts.scroll,
+            size: this.scrollOpts.size,
             sort: [{'block_num': 'asc'}],
             query: {
                 range: {
@@ -151,41 +177,60 @@ export class BlockScroller {
             _source: this.scrollOpts.fields
         });
         this.currentDeltaScrollId = deltaResponse._scroll_id;
+        this.logger.debug(`opened new scroll with index ${this.deltaIndices[this.currentDeltaSuff]}`);
         return deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h));
+    }
+
+    private addRangeTxs(actions: StorageEosioAction[]) {
+        this.rangeTxs.push(...actions);
+        if (this.rangeTxs.length > 0) {
+            // find first block num change from end,
+            // num change means full block num
+            const lastBlockTx = this.rangeTxs[actions.length - 1]['@raw'].block;
+            for (let i = this.rangeTxs.length - 1; i >= 0; i--) {
+                const curEvmBlock = this.rangeTxs[i]['@raw'].block;
+                if (lastBlockTx != curEvmBlock) {
+                    this.lastBlockTx = curEvmBlock;
+                    break;
+                }
+            }
+            this.logger.debug(`set lastBlockTx to ${this.lastBlockTx}, rangeTxs length: ${this.rangeTxs.length}`);
+        }
     }
 
     /*
      * Perform initial scroll/search request on current index
      */
-    private async actionScrollRequest(): Promise<StorageEosioAction[]> {
+    private async actionScrollRequest(): Promise<void> {
         const actionResponse = await this.conn.elastic.search({
             index: this.actionIndices[this.currentActionSuff],
-            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-            size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
+            scroll: this.scrollOpts.scroll,
+            size: this.scrollOpts.size,
             sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
             query: {
                 range: {
                     '@raw.block': {
                         gte: this.from - this.conn.config.evmBlockDelta,
-                        lte: this.to - this.conn.config.evmBlockDelta
+                        lte: this.to - this.conn.config.evmBlockDelta + 1
                     }
                 }
             }
         });
         this.currentActionScrollId = actionResponse._scroll_id;
-        return actionResponse.hits.hits.map(h => this.unwrapActionHit(h));
+        this.addRangeTxs(actionResponse.hits.hits.map(h => this.unwrapActionHit(h)));
+        this.logger.debug(`opened new scroll with index ${this.actionIndices[this.currentActionSuff]}`);
     }
 
     private async nextActionScroll(target: number): Promise<void> {
-        this.log('debug', `nextActionScroll: target ${target}, lastBlockTx: ${this.lastBlockTx}`);
+        this.logger.debug(`nextActionScroll: target ${target}, lastBlockTx: ${this.lastBlockTx}`);
         try {
             const actionScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentActionScrollId,
-                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s'
+                scroll: this.scrollOpts.scroll
             });
             let hits = actionScrollResponse.hits.hits;
 
-            this.log('debug', `action scroll returned ${hits.length} hits.`);
+            this.logger.debug(`action scroll returned ${hits.length} hits.`);
 
             if (hits.length === 0) {
                 // clear current scroll context
@@ -194,72 +239,63 @@ export class BlockScroller {
                 });
                 if (this.lastBlockTx < target) {
                     this.currentActionSuff++;
-                    if (this.currentActionSuff == this.actionIndices.length)
-                        throw new Error(
-                            `Scanned all relevant indices but could not reach target tx block ${target}`);
+                    if (this.currentActionSuff == this.actionIndices.length) {
+                        this.lastBlockTx = this.to - this.conn.config.evmBlockDelta;
+                        this.logger.debug(`Action scroller reached end, set lastBlockTx to ${this.lastBlockTx}`);
+                        return;
+                    }
 
                     // open new scroll & return hits from next one
-                    const newScrollHits = await this.actionScrollRequest();
-                    this.log('debug', `opened new scroll with index ${this.actionIndices[this.currentActionSuff]}, start with ${newScrollHits.length} hits.`);
-                    this.rangeTxs.push(...newScrollHits);
+                    await this.actionScrollRequest();
                 }
             } else
-                this.rangeTxs.push(...hits.map(h => this.unwrapActionHit(h)));
-
-            if (this.rangeTxs.length > 0) {
-                this.lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]["@raw"].block;
-                this.log('debug', `set lastBlockTx to ${this.lastBlockTx}, rangeTxs length: ${this.rangeTxs.length}`);
-            }
+                this.addRangeTxs(hits.map(h => this.unwrapActionHit(h)));
 
         } catch (e) {
-            this.conn.logger.error('BlockScroller error while fetching next batch:')
-            this.conn.logger.error(e.message);
-            throw e;
+            if (e.message.includes('No search context found for id')) {
+                this.logger.warning(`Tried to scroll on non existent action scroll context ${this.currentActionScrollId}, reopen scroll...`);
+                this.logger.warning(`current scroll window setting: ${this.scrollOpts.scroll}`);
+                await this.actionScrollRequest();
+
+            } else {
+                this.conn.logger.error('BlockScroller error while fetching next batch:')
+                this.conn.logger.error(e.message);
+                throw e;
+            }
         }
     }
 
-    private async packScrollResult(deltaHits: StorageEosioDelta[]): Promise<ScrollResult> {
-        const result: BlockData[] = [];
+    private async packScrollResult(deltaHits: StorageEosioDelta[]): Promise<void> {
         const minBlock = deltaHits[0].block_num;
         const maxBlock = deltaHits[deltaHits.length - 1].block_num;
-        this.log('debug', `packScrollResult: min ${minBlock} max ${maxBlock}`);
+        this.logger.debug(`packScrollResult: min ${minBlock} max ${maxBlock}`);
         let curBlock = minBlock;
+        const newRange = [];
         for (const delta of deltaHits) {
             curBlock = delta.block_num;
             const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
             const blockTxs = [];
 
-            this.log('debug', `packing #${curBlock} evm ${evmBlockNum}, lastBlockTx: ${this.lastBlockTx}`);
-
             while (evmBlockNum > this.lastBlockTx)
                 await this.nextActionScroll(evmBlockNum)
 
             if (this.rangeTxs.length > 0) {
-                this.log('debug', `pre txs gather: rangeTxs top ${this.rangeTxs[0]['@raw'].block}`);
                 while (this.rangeTxs.length > 0 &&
                        this.rangeTxs[0]['@raw'].block == evmBlockNum) {
                     const tx = this.rangeTxs.shift();
                     blockTxs.push(tx);
                 }
-                let msg = `post txs gather: rangeTxs len ${this.rangeTxs.length}`;
-                if (this.rangeTxs.length > 0)
-                    msg +=` top ${this.rangeTxs[0]['@raw'].block}`;
-
-                this.log('debug', msg);
-            } else
-                this.log('debug', `no txs to gather.`);
-
-            this.log('debug', `blockTxs: ${blockTxs.length}, gasUsed: ${delta.gasUsed}`);
+            }
 
             if (blockTxs.length === 0 && 'gasUsed' in delta && delta.gasUsed !== '0')
                 throw new Error(`block #${curBlock}: gasUsed != 0 && blockTxs len == 0`);
 
-            result.push({
+            newRange.push({
                 block: delta,
                 actions: blockTxs
             })
         }
-        return {minBlock, maxBlock, data: result};
+        this.setRange(newRange);
     }
 
     /*
@@ -267,17 +303,22 @@ export class BlockScroller {
      * check if reached end, if not try to move to next delta index
      */
     private async nextScroll() {
-        let result: ScrollResult;
-        this.log('debug', `nextScroll currentDeltaIndex: ${this.deltaIndices[this.currentDeltaSuff]}`);
+        this.logger.debug(`nextScroll currentDeltaIndex: ${this.deltaIndices[this.currentDeltaSuff]}`);
+
+        const openNewScroll = async () => {
+            const newScrollHits = await this.deltaScrollRequest();
+            if (newScrollHits.length > 0)
+                await this.packScrollResult(newScrollHits);
+        };
 
         try {
             const deltaScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentDeltaScrollId,
-                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s'
+                scroll: this.scrollOpts.scroll
             });
             const hits = deltaScrollResponse.hits.hits;
 
-            this.log('debug', `delta scroll returned ${hits.length} hits.`);
+            this.logger.debug(`delta scroll returned ${hits.length} hits.`);
 
             if (hits.length === 0) {
                 // clear current scroll context
@@ -287,7 +328,7 @@ export class BlockScroller {
                 // is scroll done?
                 if (this.last >= this.to) {
                     this._isDone = true;
-                    this.log('debug', 'nextScroll reached end!');
+                    this.logger.debug('nextScroll reached end!');
 
                 } else {
                     // are indexes exhausted?
@@ -295,26 +336,23 @@ export class BlockScroller {
                     if (this.currentDeltaSuff == this.deltaIndices.length)
                         throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
 
-                    // open new scroll & return hits from next one
-                    const newScrollHits = await this.deltaScrollRequest();
-                    this.log('debug', `opened new scroll with index ${this.deltaIndices[this.currentDeltaSuff]}, start with ${newScrollHits.length} hits.`);
-                    if (newScrollHits.length > 0)
-                        result = await this.packScrollResult(newScrollHits);
+                    await openNewScroll();
                 }
             } else
-                result = await this.packScrollResult(hits.map(h => this.unwrapDeltaHit(h)));
+                await this.packScrollResult(hits.map(h => this.unwrapDeltaHit(h)));
 
-            if (result) {
-                this.last = result.maxBlock;
-                this.range.push(...result.data);
-                this.log('debug', `nextScroll result: last ${this.last}, range length: ${this.range.length}`);
-            }
+            this.logger.debug(`nextScroll result: last ${this.last}, range length: ${this.range.length}`);
 
         } catch (e) {
-            this.conn.logger.error('BlockScroller error while fetching next batch:')
-            this.conn.logger.error(e.message);
-            this.conn.logger.error(e.stack);
-            throw e;
+            if (e.message.includes('No search context found for id')) {
+                this.logger.warning(`Tried to scroll on non existant scroll context ${this.currentDeltaScrollId}, reopen scroll...`)
+                this.logger.warning(`current scroll window setting: ${this.scrollOpts.scroll}`);
+                await openNewScroll();
+            } else {
+                this.conn.logger.error('BlockScroller error while fetching next batch:')
+                this.conn.logger.error(e.message);
+                throw e;
+            }
         }
     }
 
@@ -322,45 +360,37 @@ export class BlockScroller {
      * Perform first scroll request and set state tracking vars
      */
     async init() {
-        this.log('debug', 'Initializing scroller...');
+        this.logger.debug('Initializing scroller...');
         // get relevant indexes
         this.deltaIndices = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
         this.actionIndices = await this.conn.getRelevantActionIndicesForRange(this.from, this.to);
         this.currentDeltaSuff = 0;
         this.currentActionSuff = 0;
 
-        this.log('debug', `Relevant delta indices:\n${JSON.stringify(this.deltaIndices, null, 4)}`);
-        this.log('debug', `Relevant action indices:\n${JSON.stringify(this.actionIndices, null, 4)}`);
+        if (this.deltaIndices.length == 0)
+            throw new Error(`Could not find delta indices with pattern ${this.conn.getDeltaIndexForBlock(this.from)}`);
+
+        this.logger.debug(`Relevant delta indices:\n${JSON.stringify(this.deltaIndices, null, 4)}`);
+        this.logger.debug(`Relevant action indices:\n${JSON.stringify(this.actionIndices, null, 4)}`);
 
         await this.maybeConfigureIndices(this.actionIndices);
         await this.maybeConfigureIndices(this.deltaIndices);
 
         // first scroll request
+        await this.actionScrollRequest();
         const deltaScrollResult = await this.deltaScrollRequest();
-        const actionScrollResult = await this.actionScrollRequest();
 
         if (deltaScrollResult.length == 0)
-            throw new Error(`could not find blocks on ${this.deltaIndices}`);
+            throw new Error(`Could not find blocks on ${this.deltaIndices}`);
 
-        if (this.actionIndices.length == 0)
-            this.lastBlockTx = this.to - this.conn.config.evmBlockDelta;
-
-        this.rangeTxs = actionScrollResult;
-        if (this.rangeTxs.length > 0)
-            this.lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]['@raw'].block;
-
-        const initialResult = await this.packScrollResult(deltaScrollResult);
-        this.range = initialResult.data;
+        await this.packScrollResult(deltaScrollResult);
 
         // bail early if no hits
-        if (this.range.length > 0)
-            this.last = initialResult.maxBlock;
-        else
+        if (this.range.length == 0)
             this._isDone = true;
 
         this._isInit = true;
-        this.log(
-            'debug',
+        this.logger.debug(
             `Initialized with range length: ${this.range.length}, last: ${this.last}, lastBlockTx: ${this.lastBlockTx}`
         );
     }
@@ -1170,6 +1200,7 @@ export class Connector {
         from: number,
         to: number,
         tag: string,
+        logLevel?: string,
         validate?: boolean,
         scrollOpts?: ScrollOptions
     }) {
