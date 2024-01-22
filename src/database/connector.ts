@@ -56,8 +56,10 @@ export class BlockScroller {
     private currentDeltaScrollId: string;
     private currentActionScrollId: string;
 
-    private lastDeltaIndex: string;
-    private lastActionIndex: string;
+    private currentDeltaSuff: number;
+    private currentActionSuff: number;
+    private deltaIndices: string[];
+    private actionIndices: string[];
 
     private _isDone: boolean = false;
     private _isInit: boolean = false;
@@ -86,17 +88,6 @@ export class BlockScroller {
         this.lastBlockTx = this.lastYielded - this.conn.config.evmBlockDelta;
 
         this.scrollSize = this.scrollOpts.size ? this.scrollOpts.size : 1000;
-    }
-
-    private currentDeltaIndices() {
-        return this.conn.getRelevantDeltaIndicesForRange(this.lastYielded, this.lastYielded + this.scrollSize);
-    }
-
-    private currentActionIndices() {
-        return this.conn.getRelevantActionIndicesForRange(
-            this.lastBlockTx + this.conn.config.evmBlockDelta,
-            this.lastBlockTx + this.conn.config.evmBlockDelta + this.scrollSize
-        );
     }
 
     private unwrapDeltaHit(hit): StorageEosioDelta {
@@ -138,77 +129,54 @@ export class BlockScroller {
      * Perform initial scroll/search request on current index
      */
     private async deltaScrollRequest(): Promise<{scrollId: string, hits: StorageEosioDelta[]}> {
-        try {
-            const indices = await this.currentDeltaIndices();
-            await this.maybeConfigureIndices(indices);
-            const deltaResponse = await this.conn.elastic.search({
-                index: indices,
-                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-                size: this.scrollSize,
-                sort: [{'block_num': 'asc'}],
-                query: {
-                    range: {
-                        block_num: {
-                            gte: this.from,
-                            lte: this.to
-                        }
+        const deltaResponse = await this.conn.elastic.search({
+            index: this.deltaIndices[this.currentDeltaSuff],
+            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
+            size: this.scrollSize,
+            sort: [{'block_num': 'asc'}],
+            query: {
+                range: {
+                    block_num: {
+                        gte: this.from,
+                        lte: this.to
                     }
-                },
-                _source: this.scrollOpts.fields
-            });
-            const deltaScrollInfo = {
-                scrollId: deltaResponse._scroll_id,
-                hits: deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h))
-            };
-            return deltaScrollInfo;
-        } catch (e) {
-            if (!e.message.includes('index_not_found_exception'))
-                throw e;
-
-            return {scrollId: undefined, hits: []};
-        }
+                }
+            },
+            _source: this.scrollOpts.fields
+        });
+        const deltaScrollInfo = {
+            scrollId: deltaResponse._scroll_id,
+            hits: deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h))
+        };
+        return deltaScrollInfo;
     }
 
     /*
      * Perform initial scroll/search request on current index
      */
     private async actionScrollRequest(): Promise<{scrollId: string, hits: StorageEosioAction[]}> {
-        try {
-            const indices = await this.currentActionIndices();
-            await this.maybeConfigureIndices(indices);
-            const actionResponse = await this.conn.elastic.search({
-                index: indices,
-                scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
-                size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
-                sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
-                query: {
-                    range: {
-                        '@raw.block': {
-                            gte: this.from - this.conn.config.evmBlockDelta,
-                            lte: this.to - this.conn.config.evmBlockDelta
-                        }
+        const actionResponse = await this.conn.elastic.search({
+            index: this.actionIndices[this.currentActionSuff],
+            scroll: this.scrollOpts.scroll ? this.scrollOpts.scroll : '1s',
+            size: this.scrollOpts.size ? this.scrollOpts.size : 1000,
+            sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
+            query: {
+                range: {
+                    '@raw.block': {
+                        gte: this.from - this.conn.config.evmBlockDelta,
+                        lte: this.to - this.conn.config.evmBlockDelta
                     }
                 }
-            });
-            const actionScrollInfo = {
-                scrollId: actionResponse._scroll_id,
-                hits: actionResponse.hits.hits.map(h => this.unwrapActionHit(h))
-            };
-            return actionScrollInfo;
-        } catch (e) {
-            if (!e.message.includes('index_not_found_exception'))
-                throw e;
-
-            return {scrollId: undefined, hits: []};
-        }
+            }
+        });
+        const actionScrollInfo = {
+            scrollId: actionResponse._scroll_id,
+            hits: actionResponse.hits.hits.map(h => this.unwrapActionHit(h))
+        };
+        return actionScrollInfo;
     }
 
     private async nextActionScroll(target: number): Promise<void> {
-        if (!this.currentActionScrollId) {
-            this.lastBlockTx = target;
-            return;
-        }
-
         try {
             const actionScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentActionScrollId,
@@ -222,18 +190,15 @@ export class BlockScroller {
                     scroll_id: this.currentActionScrollId
                 });
                 if (this.lastBlockTx < target) {
-                    const indices = await this.currentActionIndices();
-                    if (indexToSuffixNum(indices[indices.length - 1]) > indexToSuffixNum(this.lastActionIndex))
+                    this.currentActionSuff++;
+                    if (this.currentActionSuff == this.actionIndices.length)
                         throw new Error(
                             `Scanned all relevant indices but could not reach target tx block ${target}`);
+
                     // open new scroll & return hits from next one
                     const scrollInfo = await this.actionScrollRequest();
                     this.currentActionScrollId = scrollInfo.scrollId;
-                    if (this.currentActionScrollId)
-                        this.rangeTxs.push(...scrollInfo.hits);
-
-                    else
-                        this.lastBlockTx = target;
+                    this.rangeTxs.push(...scrollInfo.hits);
                 }
             } else
                 this.rangeTxs.push(...hits.map(h => this.unwrapActionHit(h)));
@@ -258,9 +223,7 @@ export class BlockScroller {
             const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
             const blockTxs = [];
 
-            while ('gasUsed' in delta &&
-                   delta.gasUsed !== '0' &&
-                   evmBlockNum > this.lastBlockTx)
+            while (evmBlockNum > this.lastBlockTx)
                 await this.nextActionScroll(evmBlockNum)
 
             while (this.rangeTxs.length > 0 &&
@@ -300,26 +263,28 @@ export class BlockScroller {
                     scroll_id: this.currentDeltaScrollId
                 });
                 // is scroll done?
-                if (this.last == this.to)
+                if (this.last >= this.to)
                     this._isDone = true;
 
                 else {
                     // are indexes exhausted?
-                    const indices = await this.currentDeltaIndices();
-                    if (indexToSuffixNum(indices[indices.length - 1]) > indexToSuffixNum(this.lastDeltaIndex))
+                    this.currentDeltaSuff++;
+                    if (this.currentDeltaSuff == this.deltaIndices.length)
                         throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
 
                     // open new scroll & return hits from next one
                     const scrollInfo = await this.deltaScrollRequest();
                     this.currentDeltaScrollId = scrollInfo.scrollId;
-                    if (this.currentDeltaScrollId)
+                    if (scrollInfo.hits.length > 0)
                         result = await this.packScrollResult(scrollInfo.hits);
                 }
             } else
                 result = await this.packScrollResult(hits.map(h => this.unwrapDeltaHit(h)));
 
-            if (hits.length > 0)
+            if (result) {
                 this.last = result.maxBlock;
+                this.range.push(...result.data);
+            }
 
         } catch (e) {
             this.conn.logger.error('BlockScroller error while fetching next batch:')
@@ -327,8 +292,6 @@ export class BlockScroller {
             this.conn.logger.error(e.stack);
             throw e;
         }
-
-        if (result) this.range.push(...result.data);
     }
 
     /*
@@ -336,21 +299,31 @@ export class BlockScroller {
      */
     async init() {
         // get relevant indexes
-        this.lastDeltaIndex = this.conn.getDeltaIndexForBlock(this.to);
-        this.lastActionIndex = this.conn.getActionIndexForBlock(this.to);
+        this.deltaIndices = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
+        this.actionIndices = await this.conn.getRelevantActionIndicesForRange(this.from, this.to);
+        this.currentDeltaSuff = 0;
+        this.currentActionSuff = 0;
+
+        await this.maybeConfigureIndices(this.actionIndices);
+        await this.maybeConfigureIndices(this.deltaIndices);
 
         // first scroll request
         const deltaScrollResult = await this.deltaScrollRequest();
         const actionScrollResult = await this.actionScrollRequest();
 
         if (deltaScrollResult.hits.length == 0)
-            throw new Error(`could not find blocks on ${await this.currentDeltaIndices()}`);
+            throw new Error(`could not find blocks on ${this.deltaIndices}`);
+
+        this.currentDeltaScrollId =  deltaScrollResult.scrollId;
+
+        if (this.actionIndices.length == 0)
+            this.lastBlockTx = this.to - this.conn.config.evmBlockDelta;
+
+        this.currentActionScrollId =  actionScrollResult.scrollId;
 
         this.rangeTxs = actionScrollResult.hits;
         const initialResult = await this.packScrollResult(deltaScrollResult.hits);
         this.range = initialResult.data;
-        this.currentDeltaScrollId =  deltaScrollResult.scrollId;
-        this.currentActionScrollId =  actionScrollResult.scrollId;
 
         // bail early if no hits
         if (this.range.length > 0)
