@@ -819,6 +819,7 @@ export class TEVMIndexer {
         const blockScroller = await this.connector.blockScroll({
             from: config.startBlock,
             to: config.stopBlock,
+            tag: `reindex-into-${targetPrefix}`,
             scrollOpts: {
                 fields: [
                     '@timestamp',
