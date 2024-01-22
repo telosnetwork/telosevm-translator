@@ -7,6 +7,19 @@ import { Command } from 'commander';
 
 const program = new Command();
 
+interface TranslatorCMDOptions {
+    config: string;
+    trimFrom?: string;
+    skipIntegrityCheck?: boolean;
+    onlyDBCheck?: boolean;
+    gapsPurge?: boolean;
+    skipStartBlockCheck?: boolean;
+    skipRemoteCheck?: boolean;
+    reindexInto: string;
+    reindexTrimFrom: string;
+    reindexEval: boolean;
+}
+
 program
     .option('-c, --config [path to config.json]', 'Path to config.json file', 'config.json')
     .option('-t, --trim-from [block num]', 'Delete blocks in db from [block num] onwards', undefined)
@@ -17,7 +30,10 @@ program
     .option('-r, --skip-remote-check', 'Skip initial get_info query to configured remoteEndpoint', false)
     .option('-R, --reindex-into [index prefix]',
         'Use configured es index as source and regenerate data + hashes into a different index', undefined)
-    .action(async (options) => {
+    .option('-x, --reindex-trim-from [block num]',
+        'Before start reindex trim target index up to a block', undefined)
+    .option('-e, --reindex-eval', 'Perform document verification after every reindex-write', false)
+    .action(async (options: TranslatorCMDOptions) => {
         const conf: IndexerConfig = cloneDeep(DEFAULT_CONF);
 
         try {
@@ -41,7 +57,10 @@ program
             conf.runtime.skipRemoteCheck = options.skipRemoteCheck;
 
         if (options.reindexInto)
-            conf.runtime.reindexInto = options.reindexInto;
+            conf.runtime.reindex.into = options.reindexInto;
+
+        if (options.reindexTrimFrom)
+            conf.runtime.reindex.trimFrom = parseInt(options.reindexTrimFrom, 10);
 
         if (options.trimFrom)
             conf.runtime.trimFrom = parseInt(options.trimFrom, 10);

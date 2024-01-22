@@ -37,7 +37,11 @@ export type IndexerConfig = {
         gapsPurge?: boolean;
         skipStartBlockCheck?: boolean;
         skipRemoteCheck?: boolean;
-        reindexInto?: string;
+        reindex?: {
+            into: string;
+            eval?: boolean;
+            trimFrom?: number;
+        }
     };
 
     endpoint: string;

@@ -129,7 +129,9 @@ export function getTemplatesForChain(chain: string) {
                 "@transactionsRoot": {"type": "keyword"},
 
                 "gasUsed": {"type": "long"},
-                "gasLimit": {"type": "long"}
+                "gasLimit": {"type": "long"},
+
+                "txAmount": {"type": "long"}
             }
         }
     };
