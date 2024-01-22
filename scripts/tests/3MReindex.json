@@ -20,10 +20,11 @@
     "totalBlocks": 3261468,
     "evmPrevHash": "757720a8e51c63ef1d4f907d6569dacaa965e91c2661345902de18af11f81063",
     "evmValidateHash": "ed58397aca4c7ce2117fae8093bdced8f01d47855a46bb5ad6e4df4a93e8ee27",
-    "srcPrefix": "telos-mainnet-replay",
-    "dstPrefix": "telos-mainnet-reindex-2",
+    "srcPrefix": "telos-mainnet-verification",
+    "dstPrefix": "telos-mainnet-reindex",
+    "indexVersion": "v1.5-ebr-jt",
     "esDumpSize": 10000,
     "scrollSize": 10000,
-    "scrollWindow": "1m"
+    "scrollWindow": "15m"
   }
 }

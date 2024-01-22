@@ -236,7 +236,8 @@ export class TEVMIndexer {
                 "@transactionsRoot": txsHash,
                 "gasUsed": blockApplyInfo.gasUsed.toString(),
                 "gasLimit": BLOCK_GAS_LIMIT.toString(),
-                "size": blockApplyInfo.size.toString()
+                "size": blockApplyInfo.size.toString(),
+                "txAmount": storableActions.length
             },
             "nativeHash": block.nativeBlockHash.toLowerCase(),
             "parentHash": this.prevHash,
@@ -568,9 +569,14 @@ export class TEVMIndexer {
             return;
         }
 
-        if (this.config.runtime.reindexInto) {
-            const res = await this.reindex(this.config.runtime.reindexInto);
-            this.logger.info(`Re-index result: ${res}`);
+        if (this.config.runtime.reindex) {
+            await this.reindex(
+                this.config.runtime.reindex.into,
+                {
+                    eval: this.config.runtime.reindex.eval,
+                    trimFrom: this.config.runtime.reindex.trimFrom
+                }
+            );
             await this.connector.deinit();
             return;
         }
@@ -777,6 +783,7 @@ export class TEVMIndexer {
                 "@transactionsRoot": block['@transactionsRoot'],
                 "gasUsed": gasUsed.toString(),
                 "gasLimit": BLOCK_GAS_LIMIT.toString(),
+                "txAmount": storableActions.length,
                 "size": block['size']
             },
             "nativeHash": block['@blockHash'],
@@ -788,7 +795,8 @@ export class TEVMIndexer {
 
     async reindex(targetPrefix: string, opts: {
         eval?: boolean,
-        timeout?: number
+        timeout?: number,
+        trimFrom?: number
     } = {}) {
         const config = cloneDeep(DEFAULT_CONF);
         mergeDeep(config, this.config);
@@ -799,6 +807,9 @@ export class TEVMIndexer {
 
         this.reindexConnector = new Connector(config, this.logger);
         await this.reindexConnector.init();
+
+        if (opts.trimFrom)
+            await this.reindexConnector.purgeNewerThan(opts.trimFrom);
 
         // for (const index of (await reindexConnector.getOrderedDeltaIndices()))
         //    await reindexConnector.elastic.indices.delete({index: index.index});
@@ -820,6 +831,7 @@ export class TEVMIndexer {
             from: config.startBlock,
             to: config.stopBlock,
             tag: `reindex-into-${targetPrefix}`,
+            logLevel: process.env.SCROLL_LOG_LEVEL,
             scrollOpts: {
                 fields: [
                     '@timestamp',
