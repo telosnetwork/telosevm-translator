@@ -4,9 +4,9 @@
   "resources": [
     {
       "type": "esdump",
-      "url": "http://storage.telos.net/test-resources/telos-mainnet-v1.5-312087080-100k-elasticdump.tar.zst",
-      "destinationPath": "telos-mainnet-v1.5-312087080-100k-elasticdump.tar.zst",
-      "decompressPath": "telos-mainnet-v1.5-312087080-100k-elasticdump"
+      "url": "http://storage.telos.net/test-resources/telos-mainnet-312m-100k.tar.zst",
+      "destinationPath": "telos-mainnet-312m-100k.tar.zst",
+      "decompressPath": "telos-mainnet-312m-100k"
     }
   ],
   "elastic": {
