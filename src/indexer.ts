@@ -827,7 +827,7 @@ export class TEVMIndexer {
         this.logger.info(`starting reindex from ${config.startBlock} with prev hash \"${config.evmPrevHash}\"`);
         this.logger.info(`need to reindex ${totalBlocks.toLocaleString()} blocks total.`);
 
-        const blockScroller = await this.connector.blockScroll({
+        const blockScroller = this.connector.blockScroll({
             from: config.startBlock,
             to: config.stopBlock,
             tag: `reindex-into-${targetPrefix}`,

@@ -1297,7 +1297,7 @@ export class Connector {
         this.events.emit('write', writeEvent);
     }
 
-    async blockScroll(params: {
+    blockScroll(params: {
         from: number,
         to: number,
         tag: string,
@@ -1305,8 +1305,7 @@ export class Connector {
         validate?: boolean,
         scrollOpts?: ScrollOptions
     }) {
-        const scroller = new BlockScroller(this, params);
-        return scroller;
+        return new BlockScroller(this, params);
     }
 
 }
