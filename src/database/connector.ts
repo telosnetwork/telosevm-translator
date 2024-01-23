@@ -173,21 +173,19 @@ export class BlockScroller {
      * user requested more, set the max_result_window setting
      */
     private async maybeConfigureIndices(indices: string[]) {
-        if (this.scrollOpts.size > 10000) {
-            for (const index of indices) {
-                const indexSettings = await this.conn.elastic.indices.getSettings({index});
-                const resultWindowSetting = indexSettings[index].settings.max_result_window;
-                if (resultWindowSetting < this.scrollOpts.size) {
-                    await this.conn.elastic.indices.putSettings({
-                        index,
-                        settings: {
-                            index: {
-                                max_result_window: this.scrollOpts.size
-                            }
+        for (const index of indices) {
+            const indexSettings = await this.conn.elastic.indices.getSettings({index});
+            const resultWindowSetting = indexSettings[index].settings.max_result_window;
+            if (!resultWindowSetting || resultWindowSetting < this.scrollOpts.size) {
+                await this.conn.elastic.indices.putSettings({
+                    index,
+                    settings: {
+                        index: {
+                            max_result_window: this.scrollOpts.size
                         }
-                    });
-                    this.logger.debug(`Configured index ${index} index.max_result_window: ${this.scrollOpts.size}`);
-                }
+                    }
+                });
+                this.logger.debug(`Configured index ${index} index.max_result_window: ${this.scrollOpts.size}`);
             }
         }
     }
@@ -228,25 +226,25 @@ export class BlockScroller {
     }
 
     /*
-     * Add a batch of actions to our current rangeTxs array, also find the last evm block num
-     * we know for sure we have all txs for
+     * Add a batch of actions to our current rangeTxs array,
+     * maybe set `lastBlockTx` to the last block we know we have ALL
+     * txs for.
+     *
+     * This is done by always requesting txs up to evm block `to` + 1, then
+     * we only assume we got transactions up to block `lastBlockTx` if and
+     * only if we see txs for block `lastBlockTx` + 1 on scroll results.
      */
     private addRangeTxs(actions: StorageEosioAction[]) {
         this.rangeTxs.push(...actions);
         if (this.rangeTxs.length > 0) {
-            // find first block num change from end,
-            // num change means full block num
-            let lastBlockTx = this.lastBlockTx;
-            let prevLastBlockTx: number = undefined;
-            for (let i = 0; i < this.rangeTxs.length; i++) {
+            const _lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]['@raw'].block;
+            for (let i = this.rangeTxs.length - 1; i >= 0; i--) {
                 const curEvmBlock = this.rangeTxs[i]['@raw'].block;
-                if (curEvmBlock > lastBlockTx) {
-                    prevLastBlockTx = lastBlockTx;
-                    lastBlockTx = curEvmBlock;
+                if (curEvmBlock < _lastBlockTx) {
+                    this.lastBlockTx = curEvmBlock;
+                    break;
                 }
             }
-            if (prevLastBlockTx)
-                this.lastBlockTx = prevLastBlockTx;
 
             this.logger.debug(`set lastBlockTx to ${this.lastBlockTx}, rangeTxs length: ${this.rangeTxs.length}`);
         }
@@ -281,11 +279,17 @@ export class BlockScroller {
      * it needs transactions from a block > current `lastBlockTx`, it can happen that the underlying
      * action scroll context timed out and we need to open a new one.
      *
+     * On first call will open the action scroll request and return
+     *
      * If we scrolled all available action indices and haven't found more txs assume we reached end and no
      * more txs are present on indices.
      */
     private async nextActionScroll(target: number): Promise<void> {
         this.logger.debug(`nextActionScroll: target ${target}, rangeTx length: ${this.rangeTxs.length}, lastBlockTx: ${this.lastBlockTx}`);
+        if (this.lastBlockTx < (this.from - this.conn.config.evmBlockDelta)) {
+            await this.actionScrollRequest();
+            return;
+        }
         try {
             const actionScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentActionScrollId,
@@ -468,17 +472,12 @@ export class BlockScroller {
         await this.maybeConfigureIndices(this._deltaIndices);
 
         // first scroll request
-        await this.actionScrollRequest();
         const deltaScrollResult = await this.deltaScrollRequest();
 
         if (deltaScrollResult.length == 0)
             throw new Error(`Could not find blocks on ${this._deltaIndices}`);
 
         await this.packScrollResult(deltaScrollResult);
-
-        // bail early if no hits
-        if (this.range.length == 0)
-            this._isDone = true;
 
         this._isInit = true;
         this.logger.debug(
