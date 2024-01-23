@@ -25,10 +25,10 @@
         }
       },
       "perf": {
-        "elasticDumpSize": 10000
+        "elasticDumpSize": 25000
       },
       "elastic": {
-        "scrollSize": 10000,
+        "scrollSize": 25000,
         "scrollWindow": "15m"
       }
     },
