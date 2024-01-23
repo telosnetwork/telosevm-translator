@@ -4,12 +4,16 @@ import {readFileSync} from "node:fs";
 import path from "node:path";
 import {JsonRpc} from "eosjs";
 import {clearInterval} from "timers";
-import {CONFIG_TEMPLATES_DIR, sleep, TEST_RESOURCES_DIR} from "./indexer.js";
+import {waitEvent, CONFIG_TEMPLATES_DIR, sleep, TEST_RESOURCES_DIR} from "./indexer.js";
 import {decompressFile, maybeFetchResource, maybeLoadElasticDump} from "./resources.js";
 import {TEVMIndexer} from "../indexer.js";
 import {initializeNodeos} from "./nodeos.js";
+import {mergeDeep} from "./misc.js";
+import {DEFAULT_CONF, IndexerConfig} from "../types/indexer.js";
+
 import moment from "moment";
 import {expect} from "chai";
+import cloneDeep from "lodash.clonedeep";
 
 
 export async function getElasticDeltas(esclient, index, from, to) {
@@ -194,7 +198,6 @@ export interface ESVerificationTestParameters {
         destinationPath: string;
         decompressPath?: string;
     }[];
-    elastic: ESConfig;
     toxi?: ToxiConfig;
     nodeos: {
         httpPort: number;
@@ -204,33 +207,84 @@ export interface ESVerificationTestParameters {
     }
     translator: {
         template: string;
-        srcPrefix?: string;
-        dstPrefix: string;
-        startBlock: number;
+        partial?: Partial<IndexerConfig>;
         totalBlocks: number;
-        evmPrevHash: string;
-        evmValidateHash: string;
         evmValidateLastHash: string;
-        stallCounter: number;
         indexVersion?: string;
-        esDumpSize?: number;
-        scrollWindow?: string;
-        scrollSize?: number;
     }
 }
 
-export async function translatorESReplayVerificationTest(testParams: ESVerificationTestParameters) {
+export function generateTranslatorConfig(testParams: ESVerificationTestParameters): [IndexerConfig, Partial<ToxiConfig>] {
+    // start with default conf as base
+    const translatorConfig: IndexerConfig = cloneDeep(DEFAULT_CONF);
+
+    // load requested template and merge
+    if (testParams.translator.template) {
+        const templateConfig = JSON.parse(
+            readFileSync(path.join(CONFIG_TEMPLATES_DIR, testParams.translator.template)).toString()
+        );
+        mergeDeep(translatorConfig, templateConfig);
+    }
+
+    const startBlock = testParams.translator.partial.startBlock;
+
+    if (!testParams.translator.partial.stopBlock)
+        translatorConfig.stopBlock = startBlock + testParams.translator.totalBlocks;
+
+    if (testParams.translator.indexVersion) {
+        translatorConfig.elastic.subfix.delta = `delta-${testParams.translator.indexVersion}`;
+        translatorConfig.elastic.subfix.transaction = `action-${testParams.translator.indexVersion}`;
+        translatorConfig.elastic.subfix.error = `error-${testParams.translator.indexVersion}`;
+        translatorConfig.elastic.subfix.fork = `fork-${testParams.translator.indexVersion}`;
+    }
+
+    // if user sent partial apply last
+    if (testParams.translator.partial)
+        mergeDeep(translatorConfig, testParams.translator.partial);
+
+    if (testParams.translator.totalBlocks < translatorConfig.perf.elasticDumpSize)
+        translatorConfig.perf.elasticDumpSize = testParams.translator.totalBlocks;
+
+    if (translatorConfig.runtime.reindex)
+        translatorConfig.runtime.reindex.timeout = testParams.timeout;
+
+    const defToxiConfig = {
+        host: 'http://127.0.0.1:8474',
+    };
+    let toxiConfig: Partial<ToxiConfig> = {};
+    if (testParams.toxi) {
+        toxiConfig = {...defToxiConfig, ...testParams.toxi};
+
+        const defNodeosConfig = {
+            httpPort: 8888, toxiHttpPort: 8889,
+            shipPort: 29999, toxiShipPort: 30000,
+        };
+        const nodeosConfig = {...defNodeosConfig, ...testParams.nodeos};
+        const nodeosHttpHost = `http://127.0.0.1:${nodeosConfig.httpPort}`;
+        const nodeosShipHost = `http://127.0.0.1:${nodeosConfig.shipPort}`;
+        const toxiNodeosHttpHost = `http://127.0.0.1:${nodeosConfig.toxiHttpPort}`;
+        const toxiNodeosShipHost = `http://127.0.0.1:${nodeosConfig.toxiShipPort}`;
+
+        translatorConfig.endpoint = toxiConfig.toxics ? toxiNodeosHttpHost : nodeosHttpHost;
+        translatorConfig.wsEndpoint = toxiConfig.toxics ? toxiNodeosShipHost : nodeosShipHost;
+    }
+
+    return [translatorConfig, toxiConfig];
+}
+
+export async function translatorESReplayVerificationTest(
+    testParams: ESVerificationTestParameters,
+    config?: IndexerConfig
+) {
     const testTitle = testParams.title;
     const testTimeout = testParams.timeout;
     const testTitleSane = testTitle.split(' ').join('-').toLowerCase();
     const testStartTime = new Date().getTime();
 
-    const defESConfig = {
-        host: 'http://127.0.0.1:9200',
-        esDumpLimit: 4000
-    }
-    const esConfig = {...defESConfig, ...testParams.elastic};
-    const esClient = new Client({node: esConfig.host});
+    const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
+    const translatorConfig = config ? config : genConfig;
+
+    const esClient = new Client(translatorConfig.elastic);
     try {
         await esClient.ping();
     } catch (e) {
@@ -241,10 +295,8 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
     const defToxiConfig = {
         host: 'http://127.0.0.1:8474',
     };
-    let toxiConfig: ToxiConfig;
     let toxiProxy;
     if (testParams.toxi) {
-        toxiConfig = {...defToxiConfig, ...testParams.toxi};
         toxiProxy = new toxiproxyClient.Toxiproxy(toxiConfig.host);
         try {
             await toxiProxy.getVersion();
@@ -255,58 +307,13 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
         await toxiProxy.reset();
     }
 
-    const defNodeosConfig = {
-        httpPort: 8888, toxiHttpPort: 8889,
-        shipPort: 29999, toxiShipPort: 30000,
-    };
-    const nodeosConfig = {...defNodeosConfig, ...testParams.nodeos};
-    const nodeosHttpHost = `http://127.0.0.1:${nodeosConfig.httpPort}`;
-    const nodeosShipHost = `http://127.0.0.1:${nodeosConfig.shipPort}`;
-    const toxiNodeosHttpHost = `http://127.0.0.1:${nodeosConfig.toxiHttpPort}`;
-    const toxiNodeosShipHost = `http://127.0.0.1:${nodeosConfig.toxiShipPort}`;
-
-    const defTranslatorConfig = {
-        template: 'config.mainnet.json',
-        startBlock: 180698860,
-        totalBlocks: 10000,
-        // evmPrevHash: '',
-        stallCounter: 2
-    };
-    const translatorTestConfig = {...defTranslatorConfig, ...testParams.translator};
-    const translatorConfig = JSON.parse(
-        readFileSync(path.join(CONFIG_TEMPLATES_DIR, translatorTestConfig.template)).toString()
-    );
-
-    const startBlock = translatorTestConfig.startBlock;
-    const endBlock = startBlock + translatorTestConfig.totalBlocks;
-
-    translatorConfig.chainName = translatorTestConfig.dstPrefix;
-    translatorConfig.endpoint = toxiConfig.toxics ? toxiNodeosHttpHost : nodeosHttpHost;
-    translatorConfig.wsEndpoint = toxiConfig.toxics ? toxiNodeosShipHost : nodeosShipHost;
-    translatorConfig.startBlock = startBlock;
-    translatorConfig.stopBlock = endBlock;
-    // translatorConfig.evmPrevHash = translatorTestConfig.evmPrevHash;
-    translatorConfig.perf.stallCounter = translatorTestConfig.stallCounter;
-
-    if (translatorTestConfig.totalBlocks < translatorConfig.perf.elasticDumpSize)
-        translatorConfig.perf.elasticDumpSize = translatorTestConfig.totalBlocks;
+    const startBlock = translatorConfig.startBlock;
+    const totalBlocks = translatorConfig.stopBlock - startBlock;
 
     const adjustedNum = Math.floor(startBlock / translatorConfig.elastic.docsPerIndex);
     const numericIndexSuffix = String(adjustedNum).padStart(8, '0');
     const genDeltaIndexName = `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.delta}-${numericIndexSuffix}`;
     const genActionIndexName = `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.transaction}-${numericIndexSuffix}`;
-
-    if (esConfig.purge) {
-        // try to delete generated data in case it exists
-        try {
-            await esClient.indices.delete({index: genDeltaIndexName});
-        } catch (e) {
-        }
-        try {
-            await esClient.indices.delete({index: genActionIndexName});
-        } catch (e) {
-        }
-    }
 
     // maybe download & decompress resources
     let nodeosSnapshotName = undefined;
@@ -314,7 +321,7 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
     const maybeInitializeResouce = async (res) => {
         const resName = await maybeFetchResource(res)
         if (res.type === 'esdump')
-            await maybeLoadElasticDump(resName, esConfig);
+            await maybeLoadElasticDump(resName, translatorConfig.elastic);
 
         else if (res.type === 'snapshot') {
             nodeosSnapshotName = resName;
@@ -328,14 +335,14 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
             console.log(`Snapshot ${nodeosSnapshotName} found, maybe launching nodeos...`);
 
             try {
-                const nodeosRpc = new JsonRpc(nodeosHttpHost);
+                const nodeosRpc = new JsonRpc(translatorConfig.endpoint);
                 const chainInfo = await nodeosRpc.get_info();
 
                 // @ts-ignore
                 if (chainInfo.earliest_available_block_num > startBlock)
                     throw new Error(`Nodeos does not contain ${startBlock}`);
-                if (chainInfo.head_block_num < endBlock)
-                    throw new Error(`Nodeos does not contain ${endBlock}`);
+                if (chainInfo.head_block_num < translatorConfig.stopBlock)
+                    throw new Error(`Nodeos does not contain ${translatorConfig.stopBlock}`);
 
                 console.log(`Nodeos contains start & end block, skipping replay...`);
 
@@ -462,7 +469,7 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
         const currentSyncTimeElapsed = moment.duration(now - translatorLaunchTime, 'ms').humanize();
 
         const checkedBlocksCount = writeInfo.to - startBlock;
-        const progressPercent = (((checkedBlocksCount / translatorTestConfig.totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
+        const progressPercent = (((checkedBlocksCount / totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
         const currentProgress = (writeInfo.to - startBlock).toLocaleString();
 
         console.log('-'.repeat(32));
@@ -475,7 +482,7 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
         console.log(`es docs checked: ${esDocumentsChecked}`);
         console.log('-'.repeat(32));
 
-        if (writeInfo.to === endBlock) {
+        if (writeInfo.to === translatorConfig.stopBlock) {
             isTranslatorDone = true;
             translatorSyncTime = new Date().getTime();
         }
@@ -509,7 +516,7 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
             console.log(`applied jitter:     ${latencyConfig.attributes.jitter}ms`);
         }
     }
-    console.log(`average speed:      ${(translatorTestConfig.totalBlocks / posibleSyncTimeSeconds).toFixed(2).toLocaleString()}`);
+    console.log(`average speed:      ${(totalBlocks / posibleSyncTimeSeconds).toFixed(2).toLocaleString()}`);
 
     if (dropTask)
         clearInterval(dropTask);
@@ -526,24 +533,18 @@ export async function translatorESReplayVerificationTest(testParams: ESVerificat
     await esClient.close();
 }
 
-
 export async function translatorESReindexVerificationTest(
-    testParams: ESVerificationTestParameters
+    testParams: ESVerificationTestParameters,
+    config?: IndexerConfig
 ) {
-    if (!testParams.translator.srcPrefix)
-        throw new Error('Reindex test requires srcPrefix config!');
-
     // const testTitle = testParams.title;
     // const testTitleSane = testTitle.split(' ').join('-').toLowerCase();
     const testTimeout = testParams.timeout;
     const testStartTime = performance.now();
+    const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
+    const translatorConfig = config ? config : genConfig;
 
-    const defESConfig = {
-        host: 'http://127.0.0.1:9200',
-        esDumpLimit: 4000
-    }
-    const esConfig = {...defESConfig, ...testParams.elastic};
-    const esClient = new Client({node: esConfig.host});
+    const esClient = new Client(translatorConfig.elastic);
     try {
         await esClient.ping();
     } catch (e) {
@@ -551,63 +552,18 @@ export async function translatorESReindexVerificationTest(
         process.exit(1);
     }
 
-    const translatorConfig = JSON.parse(
-        readFileSync(path.join(CONFIG_TEMPLATES_DIR, testParams.translator.template)).toString()
-    );
-
-    const startBlock = testParams.translator.startBlock;
-    const endBlock = startBlock + testParams.translator.totalBlocks;
-
-    translatorConfig.chainName = testParams.translator.srcPrefix;
-    translatorConfig.startBlock = startBlock;
-    translatorConfig.stopBlock = endBlock;
-    translatorConfig.evmPrevHash = testParams.translator.evmPrevHash;
-
-    if (testParams.translator.evmValidateHash)
-        translatorConfig.evmValidateHash = testParams.translator.evmValidateHash;
-    else
-        translatorConfig.evmValidateHash = '';
-
-    if (testParams.translator.indexVersion) {
-        translatorConfig.elastic.subfix.delta = `delta-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.transaction = `action-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.error = `error-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.fork = `fork-${testParams.translator.indexVersion}`;
-    }
-
-    if (testParams.translator.esDumpSize)
-        translatorConfig.perf.elasticDumpSize = testParams.translator.esDumpSize;
-
-    if (testParams.translator.scrollWindow)
-        translatorConfig.elastic.scrollWindow = testParams.translator.scrollWindow;
-
-    if (testParams.translator.scrollSize)
-        translatorConfig.elastic.scrollSize = testParams.translator.scrollSize;
-
-    if (testParams.translator.totalBlocks < translatorConfig.perf.elasticDumpSize)
-        translatorConfig.perf.elasticDumpSize = testParams.translator.totalBlocks;
-
-    if (esConfig.purge) {
-        // try to delete generated data in case it exists
-        const reindexIndices = await esClient.cat.indices({
-            index: `${testParams.translator.dstPrefix}-*`,
-            format: 'json'
-        });
-        const deleteTasks = reindexIndices.map(
-            i => esClient.indices.delete({index: i.index}));
-        await Promise.all(deleteTasks);
-    }
-
     const esDumpName = testParams.resources[0].decompressPath;
-    const esDumpCompressedPath = testParams.resources[0].destinationPath;
+    const esDumpCompressedPath = path.join(TEST_RESOURCES_DIR, testParams.resources[0].destinationPath);
     const esDumpPath = path.join(TEST_RESOURCES_DIR, esDumpName);
     await decompressFile(esDumpCompressedPath, esDumpPath);
-    await maybeLoadElasticDump(esDumpName, esConfig);
+    await maybeLoadElasticDump(esDumpName, translatorConfig.elastic);
 
     // launch translator and verify generated data
     const translator = new TEVMIndexer(translatorConfig);
     const translatorLaunchTime = performance.now();
-    await translator.reindex(testParams.translator.dstPrefix, {eval: true, timeout: testTimeout});
+    await translator.launch();
+
+    await waitEvent(translator.events, 'reindex-stop');
 
     if (testParams.translator.evmValidateLastHash) {
         const lastBlock = await translator.reindexConnector.getLastIndexedBlock();

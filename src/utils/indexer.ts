@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import EventEmitter from "events";
 
 // currentDir == build/utils dir
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -15,3 +16,7 @@ const packageJsonFile = path.join(ROOT_DIR, 'package.json');
 export const packageInfo = JSON.parse(fs.readFileSync(packageJsonFile, 'utf-8'));
 
 export const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+export async function waitEvent(emitter: EventEmitter, event: string): Promise<void> {
+    new Promise(resolve => emitter.once(event, resolve));
+}

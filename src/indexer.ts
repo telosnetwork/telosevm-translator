@@ -930,6 +930,9 @@ export class TEVMIndexer {
         const initialHash = config.evmPrevHash ? config.evmPrevHash : ZERO_HASH;
         let firstHash = '';
         let parentHash = hexStringToUint8Array(initialHash);
+
+        this.events.emit('reindex-start');
+
         for await (const blockData of blockScroller) {
             const now = performance.now();
             const currentTimeElapsed = (now - startTime) / 1000;
@@ -964,6 +967,8 @@ export class TEVMIndexer {
 
         await this.reindexConnector.flush();
         clearInterval(this.reindexPerfTaskId);
+
+        this.events.emit('reindex-stop');
     }
 
     /*

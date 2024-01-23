@@ -13,6 +13,7 @@ import {ZSTDDecompress} from "simple-zstd";
 import {Client} from "@elastic/elasticsearch";
 import {TEST_RESOURCES_DIR} from "./indexer.js";
 import {runCommand} from "./docker.js";
+import {ConnectorConfig} from "../types/indexer";
 
 
 export function makeDirectory(directoryPath: string) {
@@ -197,7 +198,7 @@ export interface ESDumpManifestEntry {
 // elasticdump helpers
 export async function maybeLoadElasticDump(
     dumpName: string,
-    esConfig: {host: string, esDumpLimit: number}
+    esConfig: ConnectorConfig
 ) {
     const dumpPath = path.join(TEST_RESOURCES_DIR, dumpName);
     if (!existsSync(dumpPath))
@@ -207,7 +208,7 @@ export async function maybeLoadElasticDump(
     if (!existsSync(manifestPath))
         throw new Error(`elasticdump manifest not found at ${manifestPath}`);
 
-    const es = new Client({node: esConfig.host});
+    const es = new Client(esConfig);
 
     const manifest = JSON.parse(readFileSync(manifestPath).toString()) as {[key: string]: ESDumpManifestEntry};
     let mustDelete = false;
@@ -242,11 +243,11 @@ export async function maybeLoadElasticDump(
 
         await es.indices.create({index: indexName});
 
-        const mappingArgs = [`--input=${mappingPath}`, `--output=${esConfig.host}/${indexName}`, '--type=mapping'];
+        const mappingArgs = [`--input=${mappingPath}`, `--output=${esConfig.node}/${indexName}`, '--type=mapping'];
         await runCommand('elasticdump', mappingArgs, (msg) => {console.log(`elasticdump: ${msg}`)});
 
         const dataArgs = [
-            `--input=${dataPath}`, `--output=${esConfig.host}/${indexName}`, '--type=data', `--limit=${esConfig.esDumpLimit}`
+            `--input=${dataPath}`, `--output=${esConfig.node}/${indexName}`, '--type=data', `--limit=4000`
         ];
         await runCommand('elasticdump', dataArgs, (msg) => {console.log(`elasticdump: ${msg}`)});
         console.log(`Elastic dump ${dumpName} loaded successfully!`);
