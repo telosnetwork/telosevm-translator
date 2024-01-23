@@ -848,22 +848,22 @@ export class TEVMIndexer {
         });
         await blockScroller.init();
 
-        const scrollDeltaIndices = blockScroller.deltaIndices;
-        const scrollActionIndices = blockScroller.actionIndices;
-
         const startTime = performance.now();
-        let prevIndexNum = 0;
+        let prevDeltaIndex = blockScroller.currentDeltaIndex;
+        let prevActionIndex = blockScroller.currentActionIndex;
         const evalFn = async (srcBlock: BlockData, dstBlock: BlockData) => {
-            const currentIndex = blockScroller.currentDeltaIndexNum;
-            if (prevIndexNum !== currentIndex) {
+            const currentDeltaIndex = blockScroller.currentDeltaIndex;
+            const currentActionIndex = blockScroller.currentActionIndex;
+            if (prevDeltaIndex !== currentDeltaIndex) {
                 // detect index change and compare document amounts
-                const srcDeltaCount = await this.connector.getDocumentCountAtIndex(scrollDeltaIndices[prevIndexNum]);
-                const dstDeltaCount = await this.connector.getDocumentCountAtIndex(scrollDeltaIndices[prevIndexNum]);
-                expect(srcDeltaCount, 'expected delta count to match on index switch').to.be.equal(dstDeltaCount);
-                const srcActionCount = await this.connector.getDocumentCountAtIndex(scrollActionIndices[prevIndexNum]);
-                const dstActionCount = await this.connector.getDocumentCountAtIndex(scrollActionIndices[prevIndexNum]);
+                const srcDeltaCount = await this.connector.getDocumentCountAtIndex(prevDeltaIndex);
+                const dstDeltaCount = await this.connector.getDocumentCountAtIndex(prevDeltaIndex);
+                expect(srcDeltaCount, 'expected delta count to match on index switch').to.be.equal(dstDeltaCount);prevDeltaIndex
+                const srcActionCount = await this.connector.getDocumentCountAtIndex(prevActionIndex);
+                const dstActionCount = await this.connector.getDocumentCountAtIndex(prevActionIndex);
                 expect(srcActionCount, 'expected action count to match on index switch').to.be.equal(dstActionCount);
-                prevIndexNum = currentIndex;
+                prevDeltaIndex = currentDeltaIndex;
+                prevActionIndex = currentActionIndex;
             }
 
             const srcDelta = srcBlock.block;
@@ -960,7 +960,7 @@ export class TEVMIndexer {
             blocksPushed++;
         }
 
-        await this.reindexConnector.deinit();
+        await this.reindexConnector.flush();
         clearInterval(this.reindexPerfTaskId);
     }
 
@@ -997,6 +997,14 @@ export class TEVMIndexer {
         if (this.connector) {
             try {
                 await this.connector.deinit();
+            } catch (e) {
+                this.logger.warn(`error stopping connector: ${e.message}`);
+            }
+        }
+
+        if (this.reindexConnector) {
+            try {
+                await this.reindexConnector.deinit();
             } catch (e) {
                 this.logger.warn(`error stopping connector: ${e.message}`);
             }

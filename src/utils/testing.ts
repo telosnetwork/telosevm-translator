@@ -9,6 +9,7 @@ import {decompressFile, maybeFetchResource, maybeLoadElasticDump} from "./resour
 import {TEVMIndexer} from "../indexer.js";
 import {initializeNodeos} from "./nodeos.js";
 import moment from "moment";
+import {expect} from "chai";
 
 
 export async function getElasticDeltas(esclient, index, from, to) {
@@ -209,6 +210,7 @@ export interface ESVerificationTestParameters {
         totalBlocks: number;
         evmPrevHash: string;
         evmValidateHash: string;
+        evmValidateLastHash: string;
         stallCounter: number;
         indexVersion?: string;
         esDumpSize?: number;
@@ -606,6 +608,18 @@ export async function translatorESReindexVerificationTest(
     const translator = new TEVMIndexer(translatorConfig);
     const translatorLaunchTime = performance.now();
     await translator.reindex(testParams.translator.dstPrefix, {eval: true, timeout: testTimeout});
+
+    if (testParams.translator.evmValidateLastHash) {
+        const lastBlock = await translator.reindexConnector.getLastIndexedBlock();
+        expect(
+            lastBlock['block_num'],
+            'last block stopBlock config option'
+        ).to.be.equal(translatorConfig.stopBlock);
+        expect(
+            lastBlock['@evmBlockHash'],
+            'last block hash does not match evmValidateLastHash config option'
+        ).to.be.equal(testParams.translator.evmValidateLastHash);
+    }
 
     const translatorReindexTime = performance.now();
 
