@@ -848,8 +848,24 @@ export class TEVMIndexer {
         });
         await blockScroller.init();
 
+        const scrollDeltaIndices = blockScroller.deltaIndices;
+        const scrollActionIndices = blockScroller.actionIndices;
+
         const startTime = performance.now();
-        const evalFn = (srcBlock: BlockData, dstBlock: BlockData) => {
+        let prevIndexNum = 0;
+        const evalFn = async (srcBlock: BlockData, dstBlock: BlockData) => {
+            const currentIndex = blockScroller.currentDeltaIndexNum;
+            if (prevIndexNum !== currentIndex) {
+                // detect index change and compare document amounts
+                const srcDeltaCount = await this.connector.getDocumentCountAtIndex(scrollDeltaIndices[prevIndexNum]);
+                const dstDeltaCount = await this.connector.getDocumentCountAtIndex(scrollDeltaIndices[prevIndexNum]);
+                expect(srcDeltaCount, 'expected delta count to match on index switch').to.be.equal(dstDeltaCount);
+                const srcActionCount = await this.connector.getDocumentCountAtIndex(scrollActionIndices[prevIndexNum]);
+                const dstActionCount = await this.connector.getDocumentCountAtIndex(scrollActionIndices[prevIndexNum]);
+                expect(srcActionCount, 'expected action count to match on index switch').to.be.equal(dstActionCount);
+                prevIndexNum = currentIndex;
+            }
+
             const srcDelta = srcBlock.block;
             const reindexDelta = dstBlock.block;
 
@@ -863,6 +879,11 @@ export class TEVMIndexer {
             expect(gasUsed).to.be.equal(reindexDelta.gasUsed);
 
             expect(srcBlock.actions.length).to.be.equal(dstBlock.actions.length);
+
+            if ('txAmount' in srcBlock.block) {
+                expect(srcBlock.block.txAmount).to.be.equal(dstBlock.block.txAmount);
+                expect(srcBlock.block.txAmount).to.be.equal(srcBlock.actions.length);
+            }
 
             srcBlock.actions.forEach((action, actionIndex) => {
                 const reindexActionDoc = dstBlock.actions[actionIndex];
@@ -919,7 +940,7 @@ export class TEVMIndexer {
             const storableBlock = this.reindexBlock(parentHash, blockData.block, blockData.actions);
 
             if (opts.eval) {
-                evalFn(
+                await evalFn(
                     blockData,
                     {block: storableBlock.delta, actions: storableBlock.transactions}
                 );
