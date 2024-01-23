@@ -9,3 +9,4 @@ package-lock.json
 **/*.js.map
 config.json
 **/__pycache__
+**/gen-config.json

@@ -40,6 +40,7 @@ export type IndexerConfig = {
         reindex?: {
             into: string;
             eval?: boolean;
+            timeout?: number;
             trimFrom?: number;
         }
     };

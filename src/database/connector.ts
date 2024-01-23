@@ -228,23 +228,26 @@ export class BlockScroller {
     }
 
     /*
-     * Add a batch of actions to our current rangeTxs array, also find the first evm block num
-     * we know for sure we have all txs for, to do that traverse rangeTxs backwards and find first
-     * block num change.
+     * Add a batch of actions to our current rangeTxs array, also find the last evm block num
+     * we know for sure we have all txs for
      */
     private addRangeTxs(actions: StorageEosioAction[]) {
         this.rangeTxs.push(...actions);
         if (this.rangeTxs.length > 0) {
             // find first block num change from end,
             // num change means full block num
-            const lastBlockTx = this.rangeTxs[actions.length - 1]['@raw'].block;
-            for (let i = this.rangeTxs.length - 1; i >= 0; i--) {
+            let lastBlockTx = this.lastBlockTx;
+            let prevLastBlockTx: number = undefined;
+            for (let i = 0; i < this.rangeTxs.length; i++) {
                 const curEvmBlock = this.rangeTxs[i]['@raw'].block;
-                if (lastBlockTx != curEvmBlock) {
-                    this.lastBlockTx = curEvmBlock;
-                    break;
+                if (curEvmBlock > lastBlockTx) {
+                    prevLastBlockTx = lastBlockTx;
+                    lastBlockTx = curEvmBlock;
                 }
             }
+            if (prevLastBlockTx)
+                this.lastBlockTx = prevLastBlockTx;
+
             this.logger.debug(`set lastBlockTx to ${this.lastBlockTx}, rangeTxs length: ${this.rangeTxs.length}`);
         }
     }
@@ -282,7 +285,7 @@ export class BlockScroller {
      * more txs are present on indices.
      */
     private async nextActionScroll(target: number): Promise<void> {
-        this.logger.debug(`nextActionScroll: target ${target}, lastBlockTx: ${this.lastBlockTx}`);
+        this.logger.debug(`nextActionScroll: target ${target}, rangeTx length: ${this.rangeTxs.length}, lastBlockTx: ${this.lastBlockTx}`);
         try {
             const actionScrollResponse = await this.conn.elastic.scroll({
                 scroll_id: this.currentActionScrollId,
@@ -326,10 +329,36 @@ export class BlockScroller {
     }
 
     /*
+     * Remove all transactions from rangeTxs array that match target block
+     * and calculate total gasused
+     */
+    private drainTxsFromRange(target: number): [bigint, StorageEosioAction[]] {
+        const txs = [];
+        let calculatedGasUsed = BigInt(0);
+        while (this.rangeTxs.length > 0 &&
+               this.rangeTxs[0]['@raw'].block == target) {
+            const tx = this.rangeTxs.shift();
+            calculatedGasUsed += BigInt(tx['@raw'].gasused);
+            txs.push(tx);
+        }
+        return [calculatedGasUsed, txs];
+    }
+
+    /*
+     * Pump action scroll search until `lastBlockTx` >= target, then
+     * drain Txs using `drainTxsFromRange`
+     */
+    private async buildBlockTxArray(target: number): Promise<[bigint, StorageEosioAction[]]> {
+        while (target > this.lastBlockTx)
+            await this.nextActionScroll(target);
+
+        return this.drainTxsFromRange(target);
+    }
+
+    /*
      * Pack a fresh batch of deltas returned from delta scroll into BlockData,
      * this involves getting the respective transactions for every block,
-     * if `lastBlockTx` >= evmBlockNum transactions should be ready on `rangeTxs` array,
-     * so we consume them from there, if not we need to pump the action scroll to get more txs.
+     * which is handled by `buildBlockTxArray`.
      *
      * After gathering the relevant actions for a block we also perform additional checks on the
      * gasUsed as a final sanity check.
@@ -343,21 +372,7 @@ export class BlockScroller {
         for (const delta of deltaHits) {
             curBlock = delta.block_num;
             const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
-            const blockTxs = [];
-
-            // if we dont have current block's transactions available pump action scroll
-            while (evmBlockNum > this.lastBlockTx)
-                await this.nextActionScroll(evmBlockNum)
-
-            let calculatedGasUsed = BigInt(0);
-            if (this.rangeTxs.length > 0) {
-                while (this.rangeTxs.length > 0 &&
-                       this.rangeTxs[0]['@raw'].block == evmBlockNum) {
-                    const tx = this.rangeTxs.shift();
-                    calculatedGasUsed += BigInt(tx['@raw'].gasused);
-                    blockTxs.push(tx);
-                }
-            }
+            const [calculatedGasUsed, blockTxs] = await this.buildBlockTxArray(evmBlockNum);
 
             const gasUsed = delta.gasUsed ? BigInt(delta.gasUsed) : BigInt(0);
             if (gasUsed != calculatedGasUsed)
