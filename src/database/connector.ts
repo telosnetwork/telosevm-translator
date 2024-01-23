@@ -40,31 +40,33 @@ export class BlockScroller {
     }
 
     private readonly conn: Connector;
-    private readonly from: number;
-    private readonly to: number;
-    private readonly validate: boolean;
-    private readonly scrollOpts: ScrollOptions;
-    readonly tag: string;
+    private readonly from: number;               // will push blocks >= `from`
+    private readonly to: number;                 // will stop pushing blocks when `to` is reached
+    private readonly validate: boolean;          // perform schema validation on docs read from source index
+    private readonly scrollOpts: ScrollOptions;  // es scroll options
+
+    readonly tag: string;                        // tag scroller, usefull when using multiple to tell them apart on logs
 
     private logger: Logger;
 
-    private last: number;
-    private lastYielded: number;
-    private lastBlockTx: number;
+    private last: number;         // native block num of last block available on current range array, starts at `from` - 1
+    private lastYielded: number;  // last block yielded on iterator, starts at `from` - 1
+    private lastBlockTx: number;  // last evm block we have full transactions on current rangeTx array, starts at evm equivalent for `last`
 
-    private currentDeltaScrollId: string;
-    private currentActionScrollId: string;
+    // we should at most have only two open scroll contexts per BlockScroller
+    private currentDeltaScrollId: string;  // one for deltas
+    private currentActionScrollId: string;  // one for actions
 
-    private currentDeltaSuff: number;
-    private currentActionSuff: number;
-    private _deltaIndices: string[];
-    private _actionIndices: string[];
+    private _currentDeltaIndex: number;  // index of current delta index based on `deltaIndices` array
+    private _currentActionIndex: number;  // index of current action index based on `actionIndices` array
+    private _deltaIndices: string[];  // array of relevant delta indices found for range `from` - `to`, must have at least one to start
+    private _actionIndices: string[]; // array of relevant action indices found for range `from` - `to`, can be empty array
 
-    private _isDone: boolean = false;
-    private _isInit: boolean = false;
+    private _isDone: boolean = false;  // if true means we reached target block, or we cant reach it some how
+    private _isInit: boolean = false;  // if true means user called `init` which needs to be done before scrolling
 
-    private range: BlockData[] = [];
-    private rangeTxs: StorageEosioAction[] = [];
+    private range: BlockData[] = [];  // contains latest batch of blocks we have prepared to yield
+    private rangeTxs: StorageEosioAction[] = [];  // contains latest batch of action documents we need to unpack into the right block BlockData
 
     constructor(
         connector: Connector,
@@ -114,11 +116,19 @@ export class BlockScroller {
     }
 
     get currentDeltaIndexNum() {
-        return this.currentDeltaSuff;
+        return this._currentDeltaIndex;
     }
 
     get currentActionIndexNum() {
-        return this.currentActionSuff;
+        return this._currentActionIndex;
+    }
+
+    get currentDeltaIndex() {
+        return this.deltaIndices[this._currentDeltaIndex];
+    }
+
+    get currentActionIndex() {
+        return this.actionIndices[this._currentActionIndex];
     }
 
     get deltaIndices() {
@@ -129,6 +139,16 @@ export class BlockScroller {
         return this._actionIndices;
     }
 
+    get lastBlock() {
+        if (this.lastYielded > this.from - 1)
+            return this.lastYielded;
+        else
+            return undefined;
+    }
+
+    /*
+     * Maybe perform delta schema validation
+     */
     private unwrapDeltaHit(hit): StorageEosioDelta {
         const doc = hit._source;
         if (this.validate)
@@ -137,6 +157,9 @@ export class BlockScroller {
         return doc
     }
 
+    /*
+     * Maybe perform action schema validation
+     */
     private unwrapActionHit(hit): StorageEosioAction {
         const doc = hit._source;
         if (this.validate)
@@ -145,6 +168,10 @@ export class BlockScroller {
         return doc
     }
 
+    /*
+     * By default elastic allows up to 10,000 blocks scroll batch size, in case
+     * user requested more, set the max_result_window setting
+     */
     private async maybeConfigureIndices(indices: string[]) {
         if (this.scrollOpts.size > 10000) {
             for (const index of indices) {
@@ -165,6 +192,9 @@ export class BlockScroller {
         }
     }
 
+    /*
+     * Set current block data batch to read from also maybe update last block available var
+     */
     private setRange(deltas: BlockData[]) {
         this.range = deltas;
         if (deltas.length > 0) {
@@ -174,11 +204,11 @@ export class BlockScroller {
     }
 
     /*
-     * Perform initial scroll/search request on current index
+     * Open scroll/search request on current index
      */
     private async deltaScrollRequest(): Promise<StorageEosioDelta[]> {
         const deltaResponse = await this.conn.elastic.search({
-            index: this._deltaIndices[this.currentDeltaSuff],
+            index: this._deltaIndices[this._currentDeltaIndex],
             scroll: this.scrollOpts.scroll,
             size: this.scrollOpts.size,
             sort: [{'block_num': 'asc'}],
@@ -193,10 +223,15 @@ export class BlockScroller {
             _source: this.scrollOpts.fields
         });
         this.currentDeltaScrollId = deltaResponse._scroll_id;
-        this.logger.debug(`opened new scroll with index ${this._deltaIndices[this.currentDeltaSuff]}`);
+        this.logger.debug(`opened new scroll with index ${this._deltaIndices[this._currentDeltaIndex]}`);
         return deltaResponse.hits.hits.map(h => this.unwrapDeltaHit(h));
     }
 
+    /*
+     * Add a batch of actions to our current rangeTxs array, also find the first evm block num
+     * we know for sure we have all txs for, to do that traverse rangeTxs backwards and find first
+     * block num change.
+     */
     private addRangeTxs(actions: StorageEosioAction[]) {
         this.rangeTxs.push(...actions);
         if (this.rangeTxs.length > 0) {
@@ -215,11 +250,12 @@ export class BlockScroller {
     }
 
     /*
-     * Perform initial scroll/search request on current index
+     * Open scroll/search request on current index, search up to `@raw.block` == (evm equivalent of `to` + 1),
+     * in order for addRangeTxs lastBlockTx setter algo to work
      */
     private async actionScrollRequest(): Promise<void> {
         const actionResponse = await this.conn.elastic.search({
-            index: this._actionIndices[this.currentActionSuff],
+            index: this._actionIndices[this._currentActionIndex],
             scroll: this.scrollOpts.scroll,
             size: this.scrollOpts.size,
             sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
@@ -234,9 +270,17 @@ export class BlockScroller {
         });
         this.currentActionScrollId = actionResponse._scroll_id;
         this.addRangeTxs(actionResponse.hits.hits.map(h => this.unwrapActionHit(h)));
-        this.logger.debug(`opened new scroll with index ${this._actionIndices[this.currentActionSuff]}`);
+        this.logger.debug(`opened new scroll with index ${this._actionIndices[this._currentActionIndex]}`);
     }
 
+    /*
+     * Fetch next batch of actions from the currently open scroll query, called by packScrollResult when
+     * it needs transactions from a block > current `lastBlockTx`, it can happen that the underlying
+     * action scroll context timed out and we need to open a new one.
+     *
+     * If we scrolled all available action indices and haven't found more txs assume we reached end and no
+     * more txs are present on indices.
+     */
     private async nextActionScroll(target: number): Promise<void> {
         this.logger.debug(`nextActionScroll: target ${target}, lastBlockTx: ${this.lastBlockTx}`);
         try {
@@ -254,14 +298,14 @@ export class BlockScroller {
                     scroll_id: this.currentActionScrollId
                 });
                 if (this.lastBlockTx < target) {
-                    if (this.currentActionSuff == this._actionIndices.length - 1) {
+                    if (this._currentActionIndex == this._actionIndices.length - 1) {
                         this.lastBlockTx = this.to - this.conn.config.evmBlockDelta;
                         this.logger.debug(`Action scroller reached end, set lastBlockTx to ${this.lastBlockTx}`);
                         return;
                     }
 
                     // open new scroll & return hits from next one
-                    this.currentActionSuff++;
+                    this._currentActionIndex++;
                     await this.actionScrollRequest();
                 }
             } else
@@ -281,10 +325,19 @@ export class BlockScroller {
         }
     }
 
+    /*
+     * Pack a fresh batch of deltas returned from delta scroll into BlockData,
+     * this involves getting the respective transactions for every block,
+     * if `lastBlockTx` >= evmBlockNum transactions should be ready on `rangeTxs` array,
+     * so we consume them from there, if not we need to pump the action scroll to get more txs.
+     *
+     * After gathering the relevant actions for a block we also perform additional checks on the
+     * gasUsed as a final sanity check.
+     */
     private async packScrollResult(deltaHits: StorageEosioDelta[]): Promise<void> {
         const minBlock = deltaHits[0].block_num;
         const maxBlock = deltaHits[deltaHits.length - 1].block_num;
-        this.logger.debug(`packScrollResult: min ${minBlock} max ${maxBlock}`);
+        this.logger.debug(`packScrollResult: min ${minBlock} max ${maxBlock} lastBlockTx: ${this.lastBlockTx}`);
         let curBlock = minBlock;
         const newRange = [];
         for (const delta of deltaHits) {
@@ -292,6 +345,7 @@ export class BlockScroller {
             const evmBlockNum = curBlock - this.conn.config.evmBlockDelta;
             const blockTxs = [];
 
+            // if we dont have current block's transactions available pump action scroll
             while (evmBlockNum > this.lastBlockTx)
                 await this.nextActionScroll(evmBlockNum)
 
@@ -326,7 +380,7 @@ export class BlockScroller {
      * check if reached end, if not try to move to next delta index
      */
     private async nextScroll() {
-        this.logger.debug(`nextScroll currentDeltaIndex: ${this._deltaIndices[this.currentDeltaSuff]}`);
+        this.logger.debug(`nextScroll currentDeltaIndex: ${this._deltaIndices[this._currentDeltaIndex]}`);
 
         const openNewScroll = async () => {
             const newScrollHits = await this.deltaScrollRequest();
@@ -350,15 +404,14 @@ export class BlockScroller {
                 });
                 // is scroll done?
                 if (this.last >= this.to) {
-                    this._isDone = true;
                     this.logger.debug('nextScroll reached end!');
 
                 } else {
                     // are indexes exhausted?
-                    if (this.currentDeltaSuff == this._deltaIndices.length - 1)
+                    if (this._currentDeltaIndex == this._deltaIndices.length - 1)
                         throw new Error(`Scanned all relevant indexes but didnt reach ${this.to}`);
 
-                    this.currentDeltaSuff++;
+                    this._currentDeltaIndex++;
                     await openNewScroll();
                 }
             } else
@@ -387,8 +440,8 @@ export class BlockScroller {
         // get relevant indexes
         this._deltaIndices = await this.conn.getRelevantDeltaIndicesForRange(this.from, this.to);
         this._actionIndices = await this.conn.getRelevantActionIndicesForRange(this.from, this.to);
-        this.currentDeltaSuff = 0;
-        this.currentActionSuff = 0;
+        this._currentDeltaIndex = 0;
+        this._currentActionIndex = 0;
 
         if (this._deltaIndices.length == 0)
             throw new Error(`Could not find delta indices with pattern ${this.conn.getDeltaIndexForBlock(this.from)}`);
@@ -422,16 +475,15 @@ export class BlockScroller {
         if (!this._isInit) throw new Error('Must call init() before nextResult()!');
 
         const nextBlock = this.lastYielded + 1;
-        // this.conn.logger.info(`${this.tag}: nextBlock prescroll: ${nextBlock}`)
         while (!this._isDone && nextBlock > this.last)
             await this.nextScroll();
 
-        // this.conn.logger.info(`${this.tag}: nextBlock postscroll: ${nextBlock}`)
         if (!this._isDone && nextBlock !== this.range[0].block.block_num)
             throw new Error(`from ${this.tag}: nextblock != range[0]`)
 
         const block = this.range.shift();
         this.lastYielded = nextBlock;
+        this._isDone = this.lastYielded == this.to;
         return block;
     }
 
@@ -443,7 +495,7 @@ export class BlockScroller {
     async *[Symbol.asyncIterator](): AsyncIterableIterator<BlockData> {
         do {
             const block = await this.nextResult();
-            if (!this._isDone) yield block;
+            yield block;
         } while (!this._isDone)
     }
 }
