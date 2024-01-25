@@ -1,5 +1,4 @@
-import {Connector} from "../../database/connector.js";
-import {DEFAULT_CONF} from "../../types/indexer.js";
+import {ConnectorConfig} from "../../types/indexer.js";
 import {
     isStorableDocument,
     StorageEosioActionSchema,
@@ -7,8 +6,8 @@ import {
 } from "../../types/evm.js";
 import {sampleActionDocument, sampleDeltaDocument, sampleIndexedBlock} from "../samples.js";
 
-import cloneDeep from "lodash.clonedeep";
 import {assert, expect} from "chai";
+import {ElasticConnector} from "../../data/elastic";
 
 
 describe('Elastic Connector', function() {
@@ -55,12 +54,36 @@ describe('Elastic Connector', function() {
         expect(lastForked).to.be.gt(lastNonForked);
 
         // create dummy un-initialized connector
-        const config = cloneDeep(DEFAULT_CONF);
-        config.chainName = 'dummy-chain'
-        config.perf.elasticDumpSize = 1000;
-        config.startBlock = lastNonForked - extraBlocks;
-        config.evmBlockDelta = blockNumDelta;
-        const conn = new Connector(config, null);
+        const config: ConnectorConfig = {
+            chain: {
+                "chainName": "dummy-chain",
+                "chainId": 41,
+                "startBlock": lastNonForked - extraBlocks,
+                "stopBlock": 4294967295,
+                "evmBlockDelta": blockNumDelta,
+                "evmPrevHash": "",
+                "evmValidateHash": "",
+                "irreversibleOnly": false
+            },
+            elastic: {
+                "node": "http://127.0.0.1:9200",
+                "auth": {
+                    "username": "elastic",
+                    "password": "password"
+                },
+                "requestTimeout": 5 * 1000,
+                "docsPerIndex": 10000000,
+                "dumpSize": 1000,
+                "subfix": {
+                    "delta": "delta-v1.5",
+                    "transaction": "action-v1.5",
+                    "error": "error-v1.5",
+                    "fork": "fork-v1.5"
+                }
+            }
+        }
+
+        const conn = new ElasticConnector(config, null);
 
         // calculate expected values from variables
         const totalForked = lastForked - lastNonForked;
@@ -71,12 +94,12 @@ describe('Elastic Connector', function() {
         const totalOperationsAfterCleanup = (totalBlocksAfterCleanup + 1) * 2;
         const forkTime = new Date(startTime.getTime() + (lastForked * 500)).toISOString();
 
-        const forkIndex = `${config.chainName}-${config.elastic.subfix.fork}-${conn.getSuffixForBlock(lastNonForked)}`;
+        const forkIndex = `${config.chain.chainName}-${config.elastic.subfix.fork}-${conn.getSuffixForBlock(lastNonForked)}`;
         expect(
             lastForked,
             `in order for deltaIndex generated to make sense lastForked has to be < docsPerIndex config`
         ).to.be.lt(config.elastic.docsPerIndex);
-        const deltaIndex = `${config.chainName}-${config.elastic.subfix.delta}-${conn.getSuffixForBlock(lastForked)}`;
+        const deltaIndex = `${config.chain.chainName}-${config.elastic.subfix.delta}-${conn.getSuffixForBlock(lastForked)}`;
 
         // populate internal connector ds with documents
         for (let i = lastNonForked - extraBlocks; i <= lastForked; i++) {
@@ -117,14 +140,14 @@ describe('Elastic Connector', function() {
             const op = conn.opDrain[i];
             const doc = conn.opDrain[i+1];
 
-            const correctBlockNum = config.startBlock + Math.floor(i / 2);
+            const correctBlockNum = config.chain.startBlock + Math.floor(i / 2);
             const correctEVMBlockNum = correctBlockNum - blockNumDelta;
 
             assert(isStorableDocument(doc), `post-cleanup found a non storable document at index ${i}`);
             expect(doc.block_num, 'block document out of order!').to.be.eq(correctBlockNum);
             expect(doc['@global'].block_num, 'block document out of order!').to.be.eq(correctEVMBlockNum);
             expect(op, `post-cleanup op document `).to.be.deep.eq(
-                {create: {_index: deltaIndex, _id: `${config.chainName}-block-${doc.block_num}`}}
+                {create: {_index: deltaIndex, _id: `${config.chain.chainName}-block-${doc.block_num}`}}
             );
         }
 
