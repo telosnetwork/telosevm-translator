@@ -23,18 +23,20 @@
     }
   ],
   "translator": {
-    "template": "config.mainnet.json",
+    "template": "mainnet/config.nodeos-to-elastic.json",
     "partial": {
-      "chainName": "telos-mainnet-replay",
-      "startBlock": 180698860,
-      "evmPrevHash": "757720a8e51c63ef1d4f907d6569dacaa965e91c2661345902de18af11f81063",
-      "evmValidateHash": "ed58397aca4c7ce2117fae8093bdced8f01d47855a46bb5ad6e4df4a93e8ee27",
-      "perf": {
-        "stallCounter": 2
+      "source": {
+        "chain": {
+          "chainName": "telos-mainnet-replay",
+          "stopBlock": 183960328,
+          "evmPrevHash": "757720a8e51c63ef1d4f907d6569dacaa965e91c2661345902de18af11f81063",
+          "evmValidateHash": "ed58397aca4c7ce2117fae8093bdced8f01d47855a46bb5ad6e4df4a93e8ee27"
+        },
+        "nodeos": {
+          "stallCounter": 2
+        }
       }
     },
-    "totalBlocks": 3261468,
-    "evmValidateLastHash": "b2b05a2be750760f3035da049f0b4adbcf9e0a274877829e8b0ab26f6f8cb5aa",
-    "indexVersion": "v1.5-ebr-jt"
+    "evmValidateLastHash": "b2b05a2be750760f3035da049f0b4adbcf9e0a274877829e8b0ab26f6f8cb5aa"
   }
 }

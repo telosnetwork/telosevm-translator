@@ -1,0 +1,62 @@
+{
+    "source": {
+        "chain": {
+            "chainName": "telos-mainnet",
+            "chainId": 40,
+            "startBlock": 37,
+            "stopBlock": 4294967295,
+            "evmPrevHash": "",
+            "evmBlockDelta": 36,
+            "evmValidateHash": "",
+            "irreversibleOnly": false
+        },
+        "elastic": {
+            "node": "http://127.0.0.1:9200",
+            "auth": {
+                "username": "elastic",
+                "password": "password"
+            },
+            "requestTimeout": 5000,
+            "docsPerIndex": 10000000,
+            "scrollWindow": "3m",
+            "scrollSize": 10000,
+            "subfix": {
+                "delta": "delta-v1.5",
+                "transaction": "action-v1.5",
+                "error": "error-v1.5",
+                "fork": "fork-v1.5"
+            }
+        }
+    },
+    "target": {
+        "chain": {
+            "chainName": "telos-mainnet-reindex"
+        },
+        "elastic": {
+            "node": "http://127.0.0.1:9200",
+            "auth": {
+                "username": "elastic",
+                "password": "password"
+            },
+            "requestTimeout": 5000,
+            "docsPerIndex": 10000000,
+            "dumpSize": 10000,
+            "subfix": {
+                "delta": "delta-v1.5",
+                "transaction": "action-v1.5",
+                "error": "error-v1.5",
+                "fork": "fork-v1.5"
+            }
+        }
+    },
+
+    "logLevel": "debug",
+    "readerLogLevel": "info",
+    "runtime": {
+        "eval": true
+    },
+    "broadcast": {
+        "wsHost": "127.0.0.1",
+        "wsPort": 7300
+    }
+}

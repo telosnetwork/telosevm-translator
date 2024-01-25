@@ -7,11 +7,12 @@ import {expect} from "chai";
 const quantity = '420.0000 TLOS';
 
 const translatorConfig = cloneDeep(DEFAULT_CONF);
-translatorConfig.evmBlockDelta = 0;
-translatorConfig.perf.stallCounter = 2;
-translatorConfig.perf.elasticDumpSize = 1;
-translatorConfig.perf.readerWorkerAmount = 1;
-translatorConfig.perf.evmWorkerAmount = 1;
+translatorConfig.source.chain.evmBlockDelta = 0;
+translatorConfig.source.nodeos.stallCounter = 2;
+translatorConfig.source.nodeos.readerWorkerAmount = 1;
+translatorConfig.source.nodeos.evmWorkerAmount = 1;
+
+translatorConfig.target.elastic.dumpSize = 1;
 
 
 describeMockChainTests(
@@ -63,7 +64,7 @@ describeMockChainTests(
                 }
             },
             testFn: async function (testCtx: TestContext): Promise<void> {
-                expect(testCtx.elastic.actions.length).to.be.eq(1);
+                expect(testCtx.blocks[2].actions.length).to.be.eq(1);
             }
         }
     }

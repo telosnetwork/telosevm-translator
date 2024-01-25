@@ -1,12 +1,12 @@
 {
-  "title": "3 Million Reindexed Blocks",
+  "title": "100k High Tx Density range",
   "timeout": 3600,
   "resources": [
     {
       "type": "esdump",
-      "url": "http://storage.telos.net/test-resources/telos-mainnet-3mil-deploy.tar.zst",
-      "destinationPath": "telos-mainnet-3mil-deploy.tar.zst",
-      "decompressPath": "telos-mainnet-3mil-deploy"
+      "url": "http://storage.telos.net/test-resources/telos-mainnet-312m-100k.tar.zst",
+      "destinationPath": "telos-mainnet-312m-100k.tar.zst",
+      "decompressPath": "telos-mainnet-312m-100k"
     }
   ],
   "translator": {
@@ -15,10 +15,9 @@
       "source": {
         "chain": {
           "chainName": "telos-mainnet-verification",
-          "startBlock": 180698860,
-          "stopBlock": 183960328,
-          "evmPrevHash": "757720a8e51c63ef1d4f907d6569dacaa965e91c2661345902de18af11f81063",
-          "evmValidateHash": "ed58397aca4c7ce2117fae8093bdced8f01d47855a46bb5ad6e4df4a93e8ee27"
+          "startBlock": 312093910,
+          "stopBlock": 312187080,
+          "evmPrevHash": "501f3fe6f64c7d858a57e914ac130af2661e530f47ed9492606a44e1baecd6b6"
         },
 
         "elastic": {
@@ -37,9 +36,9 @@
           "scrollWindow": "1m",
           "dumpSize": 10000
         },
-        "trimFrom": 180698860
+        "trimFrom": 312177080
       }
     },
-    "evmValidateLastHash": "b2b05a2be750760f3035da049f0b4adbcf9e0a274877829e8b0ab26f6f8cb5aa"
+    "evmValidateLastHash": "9de6d0c627c9e6a480335ddff3ae19898c18e8873c0b1948394f1b40591735fa"
   }
 }

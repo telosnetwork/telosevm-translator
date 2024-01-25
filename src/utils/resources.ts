@@ -13,7 +13,7 @@ import {ZSTDDecompress} from "simple-zstd";
 import {Client} from "@elastic/elasticsearch";
 import {TEST_RESOURCES_DIR} from "./indexer.js";
 import {runCommand} from "./docker.js";
-import {ConnectorConfig} from "../types/indexer";
+import {ElasticConnectorConfig} from "../types/indexer";
 
 
 export function makeDirectory(directoryPath: string) {
@@ -198,7 +198,7 @@ export interface ESDumpManifestEntry {
 // elasticdump helpers
 export async function maybeLoadElasticDump(
     dumpName: string,
-    esConfig: ConnectorConfig
+    esConfig: ElasticConnectorConfig
 ) {
     const dumpPath = path.join(TEST_RESOURCES_DIR, dumpName);
     if (!existsSync(dumpPath))

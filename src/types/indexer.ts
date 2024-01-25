@@ -1,7 +1,7 @@
 import {StorageEosioAction, StorageEosioDelta} from './evm.js';
 import {TxDeserializationError} from '../utils/evm.js';
 
-export type ConnectorConfig = {
+export interface ElasticConnectorConfig {
     node: string;
     auth: {
         username: string;
@@ -9,8 +9,9 @@ export type ConnectorConfig = {
     },
     requestTimeout: number,
     docsPerIndex: number,
-    scrollSize: number,
-    scrollWindow: string,
+    scrollSize?: number,
+    scrollWindow?: string,
+    dumpSize: number;
     subfix: {
         delta: string;
         error: string;
@@ -19,97 +20,109 @@ export type ConnectorConfig = {
     }
 };
 
-export type BroadcasterConfig = {
+export interface ChainConfig {
+    chainName: string;
+    chainId: number;
+    startBlock: number;
+    stopBlock: number;
+    evmBlockDelta: number;
+    evmPrevHash: string;
+    evmValidateHash: string;
+    irreversibleOnly: boolean;
+}
+
+export interface BroadcasterConfig {
     wsHost: string;
     wsPort: number;
 };
 
-export type IndexerConfig = {
-    logLevel: string;
-    readerLogLevel: string;
-    chainName: string;
-    chainId: number;
+export interface ConnectorConfig {
+    chain?: Partial<ChainConfig>;
+    elastic?: ElasticConnectorConfig;
+    parquet?: string;
 
-    runtime: {
-        trimFrom?: number;
-        skipIntegrityCheck?: boolean;
-        onlyDBCheck?: boolean;
-        gapsPurge?: boolean;
+    trimFrom?: number;
+    skipIntegrityCheck?: boolean;
+    gapsPurge?: boolean;
+}
+
+export interface SourceConnectorConfig extends ConnectorConfig {
+    chain: ChainConfig;
+    nodeos?: {
+        endpoint: string;
+        remoteEndpoint: string;
+        wsEndpoint: string;
+        blockHistorySize: number;
+        stallCounter: number;
+        evmWorkerAmount: number;
+        readerWorkerAmount: number;
+
         skipStartBlockCheck?: boolean;
         skipRemoteCheck?: boolean;
-        reindex?: {
-            into: string;
-            eval?: boolean;
-            timeout?: number;
-            trimFrom?: number;
-        }
-    };
-
-    endpoint: string;
-    remoteEndpoint: string;
-    wsEndpoint: string;
-    evmBlockDelta: number;
-    evmPrevHash: string;
-    evmValidateHash: string;
-    startBlock: number;
-    stopBlock: number;
-    irreversibleOnly: boolean;
-    blockHistorySize: number;
-    perf: {
-        stallCounter: number;
-        readerWorkerAmount: number;
-        evmWorkerAmount: number;
-        elasticDumpSize: number;
     },
-    elastic: ConnectorConfig;
+}
+
+export interface TranslatorConfig {
+    source: SourceConnectorConfig;
+    target: ConnectorConfig;
+
+    // process config
+    logLevel: string;
+    readerLogLevel: string;
+    runtime: {
+        eval?: boolean;
+        timeout?: number;
+        onlyDBCheck?: boolean;
+    };
     broadcast: BroadcasterConfig;
 };
 
-export const DEFAULT_CONF = {
-    "logLevel": "debug",
-    "readerLogLevel": "info",
-    "chainName": "telos-local",
-    "chainId": 41,
-
-    "runtime": {},
-
-    "endpoint": "http://127.0.0.1:8888",
-    "remoteEndpoint": "http://127.0.0.1:8888",
-    "wsEndpoint": "ws://127.0.0.1:29999",
-
-    "evmBlockDelta": 2,
-    "evmPrevHash": "",
-    "evmValidateHash": "",
-
-    "startBlock": 35,
-    "stopBlock": -1,
-    "irreversibleOnly": false,
-    "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
-    "perf": {
-        "stallCounter": 5,
-        "readerWorkerAmount": 4,
-        "evmWorkerAmount": 4,
-        "elasticDumpSize": 2 * 1000,
-    },
-
-    "elastic": {
-        "node": "http://127.0.0.1:9200",
-        "auth": {
-            "username": "elastic",
-            "password": "password"
+export const DEFAULT_CONF: TranslatorConfig = {
+    "source": {
+        "chain": {
+            "chainName": "telos-local",
+            "chainId": 41,
+            "startBlock": 35,
+            "stopBlock": 4294967295,
+            "evmBlockDelta": 2,
+            "evmPrevHash": "",
+            "evmValidateHash": "",
+            "irreversibleOnly": false,
         },
-        "requestTimeout": 5 * 1000,
-        "docsPerIndex": 10000000,
-        "scrollSize": 6000,
-        "scrollWindow": "1m",
-        "subfix": {
-            "delta": "delta-v1.5",
-            "transaction": "action-v1.5",
-            "error": "error-v1.5",
-            "fork": "fork-v1.5"
+        "nodeos": {
+            "endpoint": "http://127.0.0.1:8888",
+            "remoteEndpoint": "http://127.0.0.1:8888",
+            "wsEndpoint": "ws://127.0.0.1:29999",
+            "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
+            "stallCounter": 5,
+            "readerWorkerAmount": 4,
+            "evmWorkerAmount": 4,
+        }
+    },
+    "target": {
+        "elastic": {
+            "node": "http://127.0.0.1:9200",
+            "auth": {
+                "username": "elastic",
+                "password": "password"
+            },
+            "requestTimeout": 5 * 1000,
+            "docsPerIndex": 10000000,
+            "scrollSize": 6000,
+            "scrollWindow": "1m",
+            "dumpSize": 2000,
+            "subfix": {
+                "delta": "delta-v1.5",
+                "transaction": "action-v1.5",
+                "error": "error-v1.5",
+                "fork": "fork-v1.5"
+            }
         }
     },
 
+    "logLevel": "debug",
+    "readerLogLevel": "info",
+    "runtime": {},
     "broadcast": {
         "wsHost": "127.0.0.1",
         "wsPort": 7300
