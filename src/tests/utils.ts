@@ -1,6 +1,6 @@
-import {IndexerState, IndexerConfig} from "../types/indexer.js";
+import {IndexerState, TranslatorConfig} from "../types/indexer.js";
 import {TEVMIndexer} from "../indexer.js";
-import {Connector} from "../database/connector.js";
+import {BlockData, Connector} from "../data/connector.js";
 
 import {assert, expect} from "chai";
 import {sleep, logger, ControllerContext, NewChainInfo, ChainRuntime, getRandomPort, ControllerConfig} from "leap-mock";
@@ -8,16 +8,15 @@ import {describe} from "mocha";
 
 
 export async function expectTranslatorSequence(
-    translatorConfig: IndexerConfig,
+    translatorConfig: TranslatorConfig,
     blockSequence: number[]
 ) {
-    const connector = new Connector(translatorConfig, logger);
-    await connector.init();
-    await connector.purgeNewerThan(1);
-    await connector.deinit();
-
     const translator = new TEVMIndexer(translatorConfig);
     translator.state = IndexerState.HEAD;
+
+    await translator.targetConnector.init();
+    await translator.targetConnector.purgeNewerThan(1);
+    await translator.targetConnector.deinit();
 
     let i = 0;
     let reachedEnd = false;
@@ -68,16 +67,12 @@ export interface TestContext {
     ctx: ControllerContext;
     chainInfo: NewChainInfo;
     runtime: ChainRuntime;
-    elastic: {
-        genesis: StorageEosioGenesisDelta,
-        actions: StorageEosioAction[],
-        deltas: StorageEosioDelta[]
-    }
+    blocks: BlockData[];
 }
 
 export function describeMockChainTests(
     title: string,
-    translatorConfig: IndexerConfig,
+    translatorConfig: TranslatorConfig,
     tests: {
         [key: string]: {
             sequence: number[],
@@ -97,49 +92,8 @@ export function describeMockChainTests(
         const config: ControllerConfig = {controlPort: await getRandomPort()};
         const context = new ControllerContext(config);
 
-        const shipPort = portFromEndpoint(translatorConfig.wsEndpoint);
-        const httpPort = portFromEndpoint(translatorConfig.endpoint);
-        const es = new Client(translatorConfig.elastic);
-
-        const getDocumentsAtIndex = async function(indexName: string, sort: any) {
-            let allDocuments: any[] = [];
-            let from = 0;
-            const size = 1000; // Adjust size as needed
-
-            while (true) {
-                const response = await es.search({
-                    index: indexName,
-                    sort: sort,
-                    from: from,
-                    size: size
-                });
-
-                const hits = response.hits.hits;
-
-                if (hits.length === 0) {
-                    break; // Break the loop if no more documents are found
-                }
-
-                allDocuments = [...allDocuments, ...hits.map(hit => hit._source)];
-                from += size;
-            }
-
-            return allDocuments;
-        }
-
-        const getActionDocuments = async function() {
-            return getDocumentsAtIndex(
-                `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.transaction}-*`,
-                [{'@raw.block': 'asc'}, {'@raw.trx_index': 'asc'}]
-            );
-        }
-
-        const getDeltaDocuments = async function() {
-            return getDocumentsAtIndex(
-                `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.delta}-*`,
-                [{'block_num': 'asc'}]
-            );
-        }
+        const shipPort = portFromEndpoint(translatorConfig.source.nodeos.wsEndpoint);
+        const httpPort = portFromEndpoint(translatorConfig.source.nodeos.endpoint);
 
         before(async function ()  {
             await context.bootstrap();
@@ -158,37 +112,28 @@ export function describeMockChainTests(
             it(testName, async function() {
                 const chainInfo = context.getTestChain(testName);
                 const customConfig = cloneDeep(translatorConfig);
-                customConfig.startBlock = Math.min(...testInfo.sequence);
-                customConfig.stopBlock = Math.max(...testInfo.sequence);
+                const minBlock = Math.min(...testInfo.sequence);
+                const maxBlock = Math.max(...testInfo.sequence);
+                customConfig.target.chain = {};
+                customConfig.target.chain.startBlock = minBlock;
+                customConfig.target.chain.stopBlock = maxBlock;
                 await expectTranslatorSequence(
                     customConfig,
                     testInfo.sequence
                 );
-                const actionDocs = await getActionDocuments();
-                const deltaDocs = await getDeltaDocuments();
+                const translator = new TEVMIndexer(customConfig);
+                await translator.targetConnector.init();
+                const blocks = await translator.targetConnector.getBlockRange(minBlock, maxBlock);
 
-                // validate docs
-                const actions = [];
-                for (const action of actionDocs)
-                    actions.push(StorageEosioActionSchema.parse(action));
-
-                // first should always be genesis
-                const deltas = [];
-                const genesis = StorageEosioGenesisDeltaSchema.parse(deltaDocs.shift());
-                for (const delta of deltaDocs)
-                    deltas.push(StorageEosioDeltaSchema.parse(delta));
-
-                const blockAmount = customConfig.stopBlock - customConfig.startBlock + 1;
-                expect(deltas.length).to.be.eq(blockAmount);
+                const blockAmount = maxBlock - minBlock + 1;
+                expect(blocks.length).to.be.eq(blockAmount);
 
                 if (testInfo.testFn) {
                     await testInfo.testFn({
                         ctx: context,
                         chainInfo,
                         runtime: context.controller.getRuntime(chainInfo.chainId),
-                        elastic: {
-                            genesis, deltas, actions
-                        }
+                        blocks
                     });
                 }
             });

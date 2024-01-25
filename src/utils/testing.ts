@@ -2,14 +2,16 @@ import toxiproxyClient, {ICreateToxicBody, Latency} from "toxiproxy-node-client"
 import {Client} from "@elastic/elasticsearch";
 import {readFileSync} from "node:fs";
 import path from "node:path";
-import {JsonRpc} from "eosjs";
+import {APIClient, FetchProvider} from "@wharfkit/antelope";
 import {clearInterval} from "timers";
 import {waitEvent, CONFIG_TEMPLATES_DIR, sleep, TEST_RESOURCES_DIR} from "./indexer.js";
 import {decompressFile, maybeFetchResource, maybeLoadElasticDump} from "./resources.js";
 import {TEVMIndexer} from "../indexer.js";
 import {initializeNodeos} from "./nodeos.js";
 import {mergeDeep} from "./misc.js";
-import {DEFAULT_CONF, IndexerConfig} from "../types/indexer.js";
+import {DEFAULT_CONF, TranslatorConfig} from "../types/indexer.js";
+
+import {fetch} from 'node-fetch';
 
 import moment from "moment";
 import {expect} from "chai";
@@ -191,7 +193,6 @@ export interface ToxiConfig {
 
 export interface ESVerificationTestParameters {
     title: string;
-    timeout: number;
     resources: {
         type: string;
         url: string;
@@ -199,7 +200,7 @@ export interface ESVerificationTestParameters {
         decompressPath?: string;
     }[];
     toxi?: ToxiConfig;
-    nodeos: {
+    nodeos?: {
         httpPort: number;
         toxiHttpPort: number;
         shipPort: number;
@@ -207,16 +208,15 @@ export interface ESVerificationTestParameters {
     }
     translator: {
         template: string;
-        partial?: Partial<IndexerConfig>;
-        totalBlocks: number;
+        partial?: Partial<TranslatorConfig>;
         evmValidateLastHash: string;
         indexVersion?: string;
     }
 }
 
-export function generateTranslatorConfig(testParams: ESVerificationTestParameters): [IndexerConfig, Partial<ToxiConfig>] {
+export function generateTranslatorConfig(testParams: ESVerificationTestParameters): [TranslatorConfig, Partial<ToxiConfig>] {
     // start with default conf as base
-    const translatorConfig: IndexerConfig = cloneDeep(DEFAULT_CONF);
+    const translatorConfig: TranslatorConfig = cloneDeep(DEFAULT_CONF);
 
     // load requested template and merge
     if (testParams.translator.template) {
@@ -226,27 +226,18 @@ export function generateTranslatorConfig(testParams: ESVerificationTestParameter
         mergeDeep(translatorConfig, templateConfig);
     }
 
-    const startBlock = testParams.translator.partial.startBlock;
-
-    if (!testParams.translator.partial.stopBlock)
-        translatorConfig.stopBlock = startBlock + testParams.translator.totalBlocks;
-
-    if (testParams.translator.indexVersion) {
-        translatorConfig.elastic.subfix.delta = `delta-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.transaction = `action-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.error = `error-${testParams.translator.indexVersion}`;
-        translatorConfig.elastic.subfix.fork = `fork-${testParams.translator.indexVersion}`;
-    }
+    if (!testParams.nodeos)
+        translatorConfig.source.nodeos = undefined;
 
     // if user sent partial apply last
     if (testParams.translator.partial)
         mergeDeep(translatorConfig, testParams.translator.partial);
 
-    if (testParams.translator.totalBlocks < translatorConfig.perf.elasticDumpSize)
-        translatorConfig.perf.elasticDumpSize = testParams.translator.totalBlocks;
+    const dstChain = cloneDeep(translatorConfig.source.chain);
+    if (translatorConfig.target.chain)
+        mergeDeep(dstChain, translatorConfig.target.chain);
 
-    if (translatorConfig.runtime.reindex)
-        translatorConfig.runtime.reindex.timeout = testParams.timeout;
+    translatorConfig.target.chain = dstChain;
 
     const defToxiConfig = {
         host: 'http://127.0.0.1:8474',
@@ -265,8 +256,8 @@ export function generateTranslatorConfig(testParams: ESVerificationTestParameter
         const toxiNodeosHttpHost = `http://127.0.0.1:${nodeosConfig.toxiHttpPort}`;
         const toxiNodeosShipHost = `http://127.0.0.1:${nodeosConfig.toxiShipPort}`;
 
-        translatorConfig.endpoint = toxiConfig.toxics ? toxiNodeosHttpHost : nodeosHttpHost;
-        translatorConfig.wsEndpoint = toxiConfig.toxics ? toxiNodeosShipHost : nodeosShipHost;
+        translatorConfig.source.nodeos.endpoint = toxiConfig.toxics ? toxiNodeosHttpHost : nodeosHttpHost;
+        translatorConfig.source.nodeos.wsEndpoint = toxiConfig.toxics ? toxiNodeosShipHost : nodeosShipHost;
     }
 
     return [translatorConfig, toxiConfig];
@@ -274,17 +265,16 @@ export function generateTranslatorConfig(testParams: ESVerificationTestParameter
 
 export async function translatorESReplayVerificationTest(
     testParams: ESVerificationTestParameters,
-    config?: IndexerConfig
+    config?: TranslatorConfig
 ) {
     const testTitle = testParams.title;
-    const testTimeout = testParams.timeout;
     const testTitleSane = testTitle.split(' ').join('-').toLowerCase();
     const testStartTime = new Date().getTime();
 
     const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
     const translatorConfig = config ? config : genConfig;
 
-    const esClient = new Client(translatorConfig.elastic);
+    const esClient = new Client(translatorConfig.target.elastic);
     try {
         await esClient.ping();
     } catch (e) {
@@ -307,13 +297,13 @@ export async function translatorESReplayVerificationTest(
         await toxiProxy.reset();
     }
 
-    const startBlock = translatorConfig.startBlock;
-    const totalBlocks = translatorConfig.stopBlock - startBlock;
+    const startBlock = translatorConfig.source.chain.startBlock;
+    const totalBlocks = translatorConfig.source.chain.stopBlock - startBlock;
 
-    const adjustedNum = Math.floor(startBlock / translatorConfig.elastic.docsPerIndex);
+    const adjustedNum = Math.floor(startBlock / translatorConfig.target.elastic.docsPerIndex);
     const numericIndexSuffix = String(adjustedNum).padStart(8, '0');
-    const genDeltaIndexName = `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.delta}-${numericIndexSuffix}`;
-    const genActionIndexName = `${translatorConfig.chainName}-${translatorConfig.elastic.subfix.transaction}-${numericIndexSuffix}`;
+    const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.subfix.delta}-${numericIndexSuffix}`;
+    const genActionIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.subfix.transaction}-${numericIndexSuffix}`;
 
     // maybe download & decompress resources
     let nodeosSnapshotName = undefined;
@@ -321,7 +311,7 @@ export async function translatorESReplayVerificationTest(
     const maybeInitializeResouce = async (res) => {
         const resName = await maybeFetchResource(res)
         if (res.type === 'esdump')
-            await maybeLoadElasticDump(resName, translatorConfig.elastic);
+            await maybeLoadElasticDump(resName, translatorConfig.target.elastic);
 
         else if (res.type === 'snapshot') {
             nodeosSnapshotName = resName;
@@ -335,14 +325,16 @@ export async function translatorESReplayVerificationTest(
             console.log(`Snapshot ${nodeosSnapshotName} found, maybe launching nodeos...`);
 
             try {
-                const nodeosRpc = new JsonRpc(translatorConfig.endpoint);
-                const chainInfo = await nodeosRpc.get_info();
+                const nodeosRpc = new APIClient({
+                    provider: new FetchProvider(translatorConfig.source.nodeos.endpoint, {fetch})
+                });
+                const chainInfo = await nodeosRpc.v1.chain.get_info();
 
                 // @ts-ignore
                 if (chainInfo.earliest_available_block_num > startBlock)
                     throw new Error(`Nodeos does not contain ${startBlock}`);
-                if (chainInfo.head_block_num < translatorConfig.stopBlock)
-                    throw new Error(`Nodeos does not contain ${translatorConfig.stopBlock}`);
+                if (chainInfo.head_block_num.toNumber() < translatorConfig.target.chain.stopBlock)
+                    throw new Error(`Nodeos does not contain ${translatorConfig.target.chain.stopBlock}`);
 
                 console.log(`Nodeos contains start & end block, skipping replay...`);
 
@@ -424,7 +416,7 @@ export async function translatorESReplayVerificationTest(
     const translatorLaunchTime = new Date().getTime();
     let translatorSyncTime;
     await translator.launch();
-    translator.connector.events.on('write', async (writeInfo) => {
+    translator.targetConnector.events.on('write', async (writeInfo) => {
         // // get all block documents in write range
         // const deltas = await getElasticDeltas(esClient, genDeltaIndexName, writeInfo.from, writeInfo.to);
         // const verifiedDeltas = await getElasticDeltas(esClient, esConfig.verification.delta, writeInfo.from, writeInfo.to);
@@ -482,7 +474,7 @@ export async function translatorESReplayVerificationTest(
         console.log(`es docs checked: ${esDocumentsChecked}`);
         console.log('-'.repeat(32));
 
-        if (writeInfo.to === translatorConfig.stopBlock) {
+        if (writeInfo.to === translatorConfig.target.chain.stopBlock) {
             isTranslatorDone = true;
             translatorSyncTime = new Date().getTime();
         }
@@ -490,7 +482,7 @@ export async function translatorESReplayVerificationTest(
 
     while (!isTranslatorDone) {
         const now = new Date().getTime();
-        if (((now - translatorSyncTime) / 1000) >= testTimeout)
+        if (((now - translatorSyncTime) / 1000) >= translatorConfig.runtime.timeout)
             throw new Error('Translator sync timeout exceeded!');
         await sleep(200);
     }
@@ -535,16 +527,15 @@ export async function translatorESReplayVerificationTest(
 
 export async function translatorESReindexVerificationTest(
     testParams: ESVerificationTestParameters,
-    config?: IndexerConfig
+    config?: TranslatorConfig
 ) {
     // const testTitle = testParams.title;
     // const testTitleSane = testTitle.split(' ').join('-').toLowerCase();
-    const testTimeout = testParams.timeout;
     const testStartTime = performance.now();
     const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
     const translatorConfig = config ? config : genConfig;
 
-    const esClient = new Client(translatorConfig.elastic);
+    const esClient = new Client(translatorConfig.target.elastic);
     try {
         await esClient.ping();
     } catch (e) {
@@ -556,7 +547,7 @@ export async function translatorESReindexVerificationTest(
     const esDumpCompressedPath = path.join(TEST_RESOURCES_DIR, testParams.resources[0].destinationPath);
     const esDumpPath = path.join(TEST_RESOURCES_DIR, esDumpName);
     await decompressFile(esDumpCompressedPath, esDumpPath);
-    await maybeLoadElasticDump(esDumpName, translatorConfig.elastic);
+    await maybeLoadElasticDump(esDumpName, translatorConfig.target.elastic);
 
     // launch translator and verify generated data
     const translator = new TEVMIndexer(translatorConfig);
@@ -566,26 +557,31 @@ export async function translatorESReindexVerificationTest(
     await waitEvent(translator.events, 'reindex-stop');
 
     if (testParams.translator.evmValidateLastHash) {
-        const lastBlock = await translator.reindexConnector.getLastIndexedBlock();
+        const testConf = cloneDeep(translatorConfig.target);
+        testConf.trimFrom = undefined;
+        const conn = translator.newConnector(testConf);
+        await conn.init();
+        const lastBlock = await conn.getLastIndexedBlock();
         expect(
             lastBlock['block_num'],
             'last block stopBlock config option'
-        ).to.be.equal(translatorConfig.stopBlock);
+        ).to.be.equal(translatorConfig.target.chain.stopBlock);
         expect(
             lastBlock['@evmBlockHash'],
             'last block hash does not match evmValidateLastHash config option'
         ).to.be.equal(testParams.translator.evmValidateLastHash);
+        await conn.deinit();
     }
 
     const translatorReindexTime = performance.now();
 
     const totalTestTimeElapsed = translatorReindexTime - testStartTime;
-    const translatorReindexTimeElapsed = translatorReindexTime - translatorLaunchTime;
+    const translatorReindexTimeElapsed = (translatorReindexTime - translatorLaunchTime) / 1000;
 
     console.log('Test passed!');
     console.log(`total time elapsed: ${moment.duration(totalTestTimeElapsed, 'ms').humanize()}`);
     console.log(`sync time:          ${moment.duration(translatorReindexTimeElapsed, 'ms').humanize()}`);
-    console.log(`average speed:      ${(testParams.translator.totalBlocks / translatorReindexTimeElapsed).toFixed(2).toLocaleString()}`);
+    console.log(`average speed:      ${(translator.targetConnector.totalPushed / translatorReindexTimeElapsed).toFixed(2).toLocaleString()}`);
 
     await esClient.close();
 }
