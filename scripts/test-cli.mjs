@@ -9,19 +9,26 @@ import {
     translatorESReindexVerificationTest,
     translatorESReplayVerificationTest
 } from "../build/utils/testing.js";
+import {writeFileSync, writeSync} from "fs";
 
-function loadTestParamsAndGenConfig(testConfigPath, testParamsPath) {
+function loadTestParamsAndGenConfig( testParamsPath) {
     const testParams = JSON.parse(readFileSync(testParamsPath).toString());
-    return [testParams, generateTranslatorConfig(testParams)[0]];
+    const translatorConfig = generateTranslatorConfig(testParams)[0];
+    writeFileSync(path.join(path.dirname(testParamsPath), 'config.json'), JSON.stringify(translatorConfig, null, 4));
+    return [testParams, translatorConfig];
 }
 
 program
     .command('reindex <name>')
     .description('Run a reindex test')
-    .action(async (name) => {
-        const testParamsPath = path.join(SCRIPTS_DIR, `tests/${name}/reindex.json`);
-        const testConfigPath = path.join(SCRIPTS_DIR, `tests/${name}/gen-config.json`);
-        const [testParams, config] = loadTestParamsAndGenConfig(testConfigPath, testParamsPath);
+    .option('-p, --polars', 'Use polars config', false)
+    .action(async (name, options) => {
+        let confFile = 'reindex.json';
+        if (options.polars)
+            confFile = 'reindex-polars.json';
+
+        const testParamsPath = path.join(SCRIPTS_DIR, `tests/${name}/${confFile}`);
+        const [testParams, config] = loadTestParamsAndGenConfig(testParamsPath);
         await translatorESReindexVerificationTest(testParams, config);
     });
 
@@ -31,8 +38,7 @@ program
     .description('Run a replay test')
     .action(async (name) => {
         const testParamsPath = path.join(SCRIPTS_DIR, `tests/${name}/replay.json`);
-        const testConfigPath = path.join(SCRIPTS_DIR, `tests/${name}/gen-config.json`);
-        const [testParams, config] = loadTestParamsAndGenConfig(testConfigPath, testParamsPath);
+        const [testParams, config] = loadTestParamsAndGenConfig(testParamsPath);
         await translatorESReplayVerificationTest(testParams, config);
     });
 

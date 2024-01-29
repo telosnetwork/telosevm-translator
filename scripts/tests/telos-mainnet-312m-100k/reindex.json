@@ -21,7 +21,7 @@
         },
 
         "elastic": {
-          "subfix": {
+          "suffix": {
             "delta": "delta-v1.5-ebr-jt",
             "transaction": "action-v1.5-ebr-jt",
             "error": "error-v1.5-ebr-jt",

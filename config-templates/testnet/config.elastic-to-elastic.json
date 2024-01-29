@@ -20,7 +20,7 @@
             "docsPerIndex": 10000000,
             "scrollWindow": "3m",
             "scrollSize": 10000,
-            "subfix": {
+            "suffix": {
                 "delta": "delta-v1.5",
                 "transaction": "action-v1.5",
                 "error": "error-v1.5",
@@ -41,7 +41,7 @@
             "requestTimeout": 5000,
             "docsPerIndex": 10000000,
             "dumpSize": 10000,
-            "subfix": {
+            "suffix": {
                 "delta": "delta-v1.5",
                 "transaction": "action-v1.5",
                 "error": "error-v1.5",

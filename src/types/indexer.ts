@@ -16,13 +16,21 @@ export interface ElasticConnectorConfig {
     refreshInterval: number,
     codec: string,
     dumpSize: number;
-    subfix: {
+    suffix: {
         delta: string;
         error: string;
         transaction: string;
         fork: string;
     }
 };
+
+export interface PolarsConnectorConfig {
+    dataDir: string;
+    dirBucketSize: number;
+    bucketSize?: number;
+    maxWrites?: number;
+    format?: "parquet" | "ipc" | "csv"
+}
 
 export interface ChainConfig {
     chainName: string;
@@ -43,8 +51,9 @@ export interface BroadcasterConfig {
 export interface ConnectorConfig {
     chain?: Partial<ChainConfig>;
     elastic?: ElasticConnectorConfig;
-    parquet?: string;
+    polars?: PolarsConnectorConfig;
 
+    logLevel?: string;
     trimFrom?: number;
     skipIntegrityCheck?: boolean;
     gapsPurge?: boolean;
@@ -63,6 +72,8 @@ export interface SourceConnectorConfig extends ConnectorConfig {
 
         skipStartBlockCheck?: boolean;
         skipRemoteCheck?: boolean;
+        maxMessagesInFlight?: number;
+        maxWsPayloadMb?: number;
     }
 }
 
@@ -119,7 +130,7 @@ export const DEFAULT_CONF: TranslatorConfig = {
             "refreshInterval": -1,
             "codec": "best-compression",
             "dumpSize": 2000,
-            "subfix": {
+            "suffix": {
                 "delta": "delta-v1.5",
                 "transaction": "action-v1.5",
                 "error": "error-v1.5",
