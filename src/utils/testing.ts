@@ -171,16 +171,6 @@ export async function toxiInitializeTestProxy(
     return proxy;
 }
 
-export interface ESConfig {
-    host: string;
-    verification: {
-        delta: string;
-        action: string;
-    };
-    esDumpLimit?: number;
-    purge?: boolean;
-}
-
 export interface ToxiConfig {
     toxics: {
         drops: boolean;
@@ -300,8 +290,8 @@ export async function translatorESReplayVerificationTest(
 
     const adjustedNum = Math.floor(startBlock / translatorConfig.target.elastic.docsPerIndex);
     const numericIndexSuffix = String(adjustedNum).padStart(8, '0');
-    const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.subfix.delta}-${numericIndexSuffix}`;
-    const genActionIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.subfix.transaction}-${numericIndexSuffix}`;
+    const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.delta}-${numericIndexSuffix}`;
+    const genActionIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.transaction}-${numericIndexSuffix}`;
 
     // maybe download & decompress resources
     let nodeosSnapshotName = undefined;
@@ -531,7 +521,7 @@ export async function translatorESReindexVerificationTest(
     const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
     const translatorConfig = config ? config : genConfig;
 
-    const esClient = new Client(translatorConfig.target.elastic);
+    const esClient = new Client(translatorConfig.source.elastic);
     try {
         await esClient.ping();
     } catch (e) {
@@ -543,7 +533,7 @@ export async function translatorESReindexVerificationTest(
     const esDumpCompressedPath = path.join(TEST_RESOURCES_DIR, testParams.resources[0].destinationPath);
     const esDumpPath = path.join(TEST_RESOURCES_DIR, esDumpName);
     await decompressFile(esDumpCompressedPath, esDumpPath);
-    await maybeLoadElasticDump(esDumpName, translatorConfig.target.elastic);
+    await maybeLoadElasticDump(esDumpName, translatorConfig.source.elastic);
 
     // launch translator and verify generated data
     const translator = new TEVMIndexer(translatorConfig);

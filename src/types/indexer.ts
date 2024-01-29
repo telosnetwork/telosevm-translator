@@ -12,13 +12,21 @@ export interface ElasticConnectorConfig {
     scrollSize?: number,
     scrollWindow?: string,
     dumpSize: number;
-    subfix: {
+    suffix: {
         delta: string;
         error: string;
         transaction: string;
         fork: string;
     }
 };
+
+export interface PolarsConnectorConfig {
+    dataDir: string;
+    dirBucketSize: number;
+    bucketSize?: number;
+    maxWrites?: number;
+    format?: "parquet" | "ipc" | "csv"
+}
 
 export interface ChainConfig {
     chainName: string;
@@ -39,8 +47,9 @@ export interface BroadcasterConfig {
 export interface ConnectorConfig {
     chain?: Partial<ChainConfig>;
     elastic?: ElasticConnectorConfig;
-    parquet?: string;
+    polars?: PolarsConnectorConfig;
 
+    logLevel?: string;
     trimFrom?: number;
     skipIntegrityCheck?: boolean;
     gapsPurge?: boolean;
@@ -111,7 +120,7 @@ export const DEFAULT_CONF: TranslatorConfig = {
             "scrollSize": 6000,
             "scrollWindow": "1m",
             "dumpSize": 2000,
-            "subfix": {
+            "suffix": {
                 "delta": "delta-v1.5",
                 "transaction": "action-v1.5",
                 "error": "error-v1.5",

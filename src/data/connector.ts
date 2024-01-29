@@ -40,7 +40,17 @@ export abstract class BlockScroller {
     abstract init(): Promise<void>;
     abstract nextResult(): Promise<BlockData>;
 
-    abstract [Symbol.asyncIterator](): AsyncIterableIterator<BlockData>;
+    /*
+     * Important before using this in a for..of statement,
+     * call this.init! class gets info about indexes needed
+     * for scroll from elastic
+     */
+    async *[Symbol.asyncIterator](): AsyncIterableIterator<BlockData> {
+        do {
+            const block = await this.nextResult();
+            yield block;
+        } while (!this._isDone)
+    }
 }
 
 export abstract class Connector {
@@ -57,10 +67,27 @@ export abstract class Connector {
 
     events = new EventEmitter();
 
-    protected constructor(config: ConnectorConfig, logger: Logger) {
+    protected constructor(config: ConnectorConfig) {
         this.config = config;
-        this.logger = logger;
         this.chainName = config.chain.chainName;
+
+        const logLevel = config.logLevel ? config.logLevel : 'info';
+        const loggingOptions = {
+            exitOnError: false,
+            level: logLevel,
+            format: format.combine(
+                format.metadata(),
+                format.colorize(),
+                format.timestamp(),
+                format.printf((info: any) => {
+                    return `${info.timestamp} [PID:${process.pid}] [${info.level}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
+                })
+            )
+        }
+        this.logger = createLogger(loggingOptions);
+        this.logger.add(new transports.Console({
+            level: logLevel
+        }));
     }
 
     async init(): Promise<number | null> {
@@ -108,15 +135,15 @@ export abstract class Connector {
             this.stopBroadcast();
     }
 
-    abstract getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta>;
+    abstract getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta | null>;
 
-    abstract getFirstIndexedBlock() : Promise<StorageEosioDelta>;
+    abstract getFirstIndexedBlock() : Promise<StorageEosioDelta | null>;
 
-    abstract getLastIndexedBlock() : Promise<StorageEosioDelta>;
+    abstract getLastIndexedBlock() : Promise<StorageEosioDelta | null>;
 
     abstract getBlockRange(from: number, to: number): Promise<BlockData[]>;
 
-    abstract fullIntegrityCheck(): Promise<number>;
+    abstract fullIntegrityCheck(): Promise<number | null>;
 
     abstract purgeNewerThan(blockNum: number) : Promise<void>;
 

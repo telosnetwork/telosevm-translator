@@ -43,6 +43,7 @@
     "lodash.clonedeep": "^4.5.0",
     "moment": "2.29.4",
     "node-fetch": "2.6.9",
+    "nodejs-polars": "^0.8.4",
     "rlp": "3.0.0",
     "uWebSockets.js": "uNetworking/uWebSockets.js#v20.38.0",
     "uuid": "^9.0.1",
