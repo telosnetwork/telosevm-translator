@@ -43,6 +43,7 @@ import {mergeDeep} from "./utils/misc.js";
 import {expect} from "chai";
 import {BlockData, Connector} from "./data/connector.js";
 import {ElasticConnector} from "./data/elastic.js";
+import {PolarsConnector} from "./data/polars/index.js";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -86,6 +87,8 @@ export class TEVMIndexer {
     private _isRestarting: boolean = false;
     private readonly srcCommon: evm.Common;
     private readonly dstCommon: evm.Common;
+
+    private _mustStop: boolean = false;
 
     constructor(config: TranslatorConfig) {
         this.config = config;
@@ -541,9 +544,9 @@ export class TEVMIndexer {
 
     newConnector(connConfig: any): Connector {
         if (connConfig.elastic)
-            return new ElasticConnector(connConfig, this.logger);
-        else if (connConfig.parquet) {
-            throw new Error('Parquet connector not implemented');
+            return new ElasticConnector(connConfig);
+        else if (connConfig.polars) {
+            return new PolarsConnector(connConfig);
         } else
             throw new Error(
                 'Could not figure out target, malformed config!\n'+
@@ -923,6 +926,9 @@ export class TEVMIndexer {
                 break;
             }
 
+            if (this._mustStop)
+                break;
+
             const storableBlock = this.reindexBlock(parentHash, blockData.block, blockData.actions);
 
             if (this.config.runtime.eval) {
@@ -946,9 +952,8 @@ export class TEVMIndexer {
             this.perfMetrics.measure(this.pushedLastUpdate);
         }
 
-        await this.targetConnector.flush();
         clearInterval(this.perfTaskId as unknown as number);
-
+        await this.targetConnector.flush();
         this.events.emit('reindex-stop');
     }
 
@@ -956,6 +961,7 @@ export class TEVMIndexer {
      * Stop indexer gracefully
      */
     async stop() {
+        this._mustStop = true;
         clearInterval(this.perfTaskId as unknown as number);
         clearInterval(this.stateSwitchTaskId as unknown as number);
 

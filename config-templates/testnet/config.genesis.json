@@ -29,7 +29,7 @@
             "requestTimeout": 5000,
             "docsPerIndex": 10000000,
             "dumpSize": 400,
-            "subfix": {
+            "suffix": {
                 "delta": "delta-v1.5",
                 "transaction": "action-v1.5",
                 "error": "error-v1.5",

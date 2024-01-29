@@ -80,7 +80,7 @@ describe('Elastic Connector', function() {
                 "refreshInterval": -1,
                 "codec": "default",
                 "dumpSize": 1000,
-                "subfix": {
+                "suffix": {
                     "delta": "delta-v1.5",
                     "transaction": "action-v1.5",
                     "error": "error-v1.5",
@@ -89,7 +89,7 @@ describe('Elastic Connector', function() {
             }
         }
 
-        const conn = new ElasticConnector(config, null);
+        const conn = new ElasticConnector(config);
 
         // calculate expected values from variables
         const totalForked = lastForked - lastNonForked;
@@ -100,12 +100,12 @@ describe('Elastic Connector', function() {
         const totalOperationsAfterCleanup = (totalBlocksAfterCleanup + 1) * 2;
         const forkTime = new Date(startTime.getTime() + (lastForked * 500)).toISOString();
 
-        const forkIndex = `${config.chain.chainName}-${config.elastic.subfix.fork}-${conn.getSuffixForBlock(lastNonForked)}`;
+        const forkIndex = `${config.chain.chainName}-${config.elastic.suffix.fork}-${conn.getSuffixForBlock(lastNonForked)}`;
         expect(
             lastForked,
             `in order for deltaIndex generated to make sense lastForked has to be < docsPerIndex config`
         ).to.be.lt(config.elastic.docsPerIndex);
-        const deltaIndex = `${config.chain.chainName}-${config.elastic.subfix.delta}-${conn.getSuffixForBlock(lastForked)}`;
+        const deltaIndex = `${config.chain.chainName}-${config.elastic.suffix.delta}-${conn.getSuffixForBlock(lastForked)}`;
 
         // populate internal connector ds with documents
         for (let i = lastNonForked - extraBlocks; i <= lastForked; i++) {
