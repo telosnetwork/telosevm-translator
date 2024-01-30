@@ -39,11 +39,11 @@ import * as evm from "@ethereumjs/common";
 import cloneDeep from "lodash.clonedeep";
 import {APIClient} from "@wharfkit/antelope";
 import {HandlerArguments} from "./workers/handlers.js";
-import {mergeDeep} from "./utils/misc.js";
+import {humanizeByteSize, mergeDeep} from "./utils/misc.js";
 import {expect} from "chai";
 import {BlockData, Connector} from "./data/connector.js";
 import {ElasticConnector} from "./data/elastic.js";
-import {PolarsConnector} from "./data/polars/index.js";
+import {ArrowConnector} from "./data/arrow/index.js";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -545,8 +545,8 @@ export class TEVMIndexer {
     newConnector(connConfig: any): Connector {
         if (connConfig.elastic)
             return new ElasticConnector(connConfig);
-        else if (connConfig.polars) {
-            return new PolarsConnector(connConfig);
+        else if (connConfig.arrow) {
+            return new ArrowConnector(connConfig);
         } else
             throw new Error(
                 'Could not figure out target, malformed config!\n'+
@@ -900,11 +900,16 @@ export class TEVMIndexer {
             const progressPercent = (((checkedBlocksCount / totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
             const currentProgress = currentBlockNum - this.dstChain.startBlock;
 
+            const memStats = process.memoryUsage();
+
             this.logger.info('-'.repeat(32));
             this.logger.info('Reindex stats:');
             this.logger.info(`last checked  ${srcDelta.block_num.toLocaleString()}`);
             this.logger.info(`progress:     ${progressPercent}, ${currentProgress.toLocaleString()} blocks`);
             this.logger.info(`time elapsed: ${currentTimeElapsed}`);
+            this.logger.info(`rss:          ${humanizeByteSize(memStats['rss'])}`);
+            this.logger.info(`heap:         ${humanizeByteSize(memStats['heapTotal'])}`);
+            this.logger.info(`buffers:      ${humanizeByteSize(memStats['arrayBuffers'])}`);
             this.logger.info(`ETA:          ${moment.duration((totalBlocks - currentProgress) / this.perfMetrics.average, 's').humanize()}`);
             this.logger.info('-'.repeat(32));
         };

@@ -24,12 +24,9 @@ export interface ElasticConnectorConfig {
     }
 }
 
-export interface PolarsConnectorConfig {
+export interface ArrowConnectorConfig {
     dataDir: string;
-    dirBucketSize: number;
     bucketSize?: number;
-    maxWrites?: number;
-    format?: "parquet" | "ipc" | "csv"
 }
 
 export interface ChainConfig {
@@ -51,7 +48,7 @@ export interface BroadcasterConfig {
 export interface ConnectorConfig {
     chain?: Partial<ChainConfig>;
     elastic?: ElasticConnectorConfig;
-    polars?: PolarsConnectorConfig;
+    arrow?: ArrowConnectorConfig;
 
     logLevel?: string;
     trimFrom?: number;

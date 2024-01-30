@@ -26,8 +26,8 @@
       },
       "target": {
         "chainName": "telos-mainnet-reindex",
-        "polars": {
-          "dataDir": "build/tests/resources/parquet-data"
+        "arrow": {
+          "dataDir": "build/tests/resources/arrow-data"
         },
         "elastic": null
       }
