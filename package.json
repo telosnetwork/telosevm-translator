@@ -36,6 +36,7 @@
     "@greymass/eosio": "0.7.0",
     "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc4",
     "@telosnetwork/telos-evm-custom-ds": "1.0.2",
+    "apache-arrow": "^15.0.0",
     "bufferutil": "^4.0.8",
     "commander": "^11.1.0",
     "eosjs": "22.1.0",

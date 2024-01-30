@@ -21,11 +21,11 @@ function loadTestParamsAndGenConfig( testParamsPath) {
 program
     .command('reindex <name>')
     .description('Run a reindex test')
-    .option('-p, --polars', 'Use polars config', false)
+    .option('-a, --arrow', 'Use arrow config', false)
     .action(async (name, options) => {
         let confFile = 'reindex.json';
-        if (options.polars)
-            confFile = 'reindex-polars.json';
+        if (options.arrow)
+            confFile = 'reindex-arrow.json';
 
         const testParamsPath = path.join(SCRIPTS_DIR, `tests/${name}/${confFile}`);
         const [testParams, config] = loadTestParamsAndGenConfig(testParamsPath);
