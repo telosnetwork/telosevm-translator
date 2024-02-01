@@ -43,7 +43,7 @@ import {humanizeByteSize, mergeDeep} from "./utils/misc.js";
 import {expect} from "chai";
 import {BlockData, Connector} from "./data/connector.js";
 import {ElasticConnector} from "./data/elastic.js";
-import {ArrowConnector} from "./data/arrow/index.js";
+import {ArrowConnector} from "./data/arrow.js";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -907,10 +907,12 @@ export class TEVMIndexer {
             this.logger.info(`last checked  ${srcDelta.block_num.toLocaleString()}`);
             this.logger.info(`progress:     ${progressPercent}, ${currentProgress.toLocaleString()} blocks`);
             this.logger.info(`time elapsed: ${currentTimeElapsed}`);
-            this.logger.info(`rss:          ${humanizeByteSize(memStats['rss'])}`);
-            this.logger.info(`heap:         ${humanizeByteSize(memStats['heapTotal'])}`);
-            this.logger.info(`buffers:      ${humanizeByteSize(memStats['arrayBuffers'])}`);
             this.logger.info(`ETA:          ${moment.duration((totalBlocks - currentProgress) / this.perfMetrics.average, 's').humanize()}`);
+            this.logger.info('memory stats:');
+            this.logger.info(`total:          ${humanizeByteSize(memStats['rss'])}`);
+            this.logger.info(`heap:           ${humanizeByteSize(memStats['heapTotal'])}`);
+            this.logger.info(`buffers:        ${humanizeByteSize(memStats['arrayBuffers'])}`);
+            this.logger.info(`external:       ${humanizeByteSize(memStats['external'])}`);
             this.logger.info('-'.repeat(32));
         };
 
