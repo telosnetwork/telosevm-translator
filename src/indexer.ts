@@ -86,6 +86,7 @@ export class TEVMIndexer {
     private evmDeserializationPool;
 
     private readonly common: evm.Common;
+    private _isRestarting: boolean = false;
 
     constructor(telosConfig: IndexerConfig) {
         this.config = telosConfig;
@@ -111,7 +112,7 @@ export class TEVMIndexer {
         });
 
         process.on('SIGINT', async () => await this.stop());
-        process.on('SIGUSR1', () => this.resetReader());
+        process.on('SIGUSR1', async () => await this.resetReader());
         process.on('SIGQUIT', async () => await this.stop());
         process.on('SIGTERM', async () => await this.stop());
 
@@ -158,7 +159,7 @@ export class TEVMIndexer {
     /*
      * Debug routine that prints indexing stats, periodically called every second
      */
-    performanceMetricsTask() {
+    async performanceMetricsTask() {
 
         if (this.perfMetrics.max > 0) {
             if (this.perfMetrics.average == 0)
@@ -166,7 +167,7 @@ export class TEVMIndexer {
 
             if (this.stallCounter > this.config.perf.stallCounter) {
                 this.logger.info('stall detected... restarting ship reader.');
-                this.resetReader();
+                await this.resetReader();
             }
         }
 
@@ -179,10 +180,20 @@ export class TEVMIndexer {
         this.pushedLastUpdate = 0;
     }
 
-    resetReader() {
+    async resetReader() {
         this.logger.warn("restarting SHIP reader!...");
-        this.reader.restart(0, this.lastBlock + 1);
-        // this.stallCounter = -2;
+        this._isRestarting = true;
+        this.stallCounter = -2;
+        this.reader.restart(1000, this.lastBlock + 1);
+        await new Promise<void>((resolve, reject) => {
+            this.reader.events.once('restarted', () => {
+                resolve();
+            });
+            this.reader.events.once('error', (error) => {
+                reject(error);
+            });
+        });
+        this._isRestarting = false;
     }
 
     /*
@@ -306,6 +317,11 @@ export class TEVMIndexer {
     async processBlock(block: any): Promise<void> {
         const currentBlock = block.blockInfo.this_block.block_num;
 
+        if (this._isRestarting) {
+            this.logger.warn(`dropped ${currentBlock} due to restart...`);
+            return;
+        }
+
         if (currentBlock < this.startBlock) {
             this.reader.ack();
             return;
@@ -316,7 +332,7 @@ export class TEVMIndexer {
 
         if (currentBlock > this.lastBlock + 1) {
             this.logger.warn(`Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`);
-            this.resetReader();
+            await this.resetReader();
             return;
         }
 
@@ -433,11 +449,21 @@ export class TEVMIndexer {
             errors: errors
         });
 
+        if (this._isRestarting) {
+            this.logger.warn(`dropped block ${currentBlock} due to restart...`);
+            return;
+        }
+
         // fork handling
         if (currentBlock < this.lastBlock + 1)
             await this.handleFork(newestBlock);
 
         const storableBlockInfo = await this.hashBlock(newestBlock);
+
+        if (this._isRestarting) {
+            this.logger.warn(`dropped block ${currentBlock} due to restart...`);
+            return;
+        }
 
         // Update block num state tracking attributes
         this.lastBlock = currentBlock;
@@ -626,7 +652,7 @@ export class TEVMIndexer {
         await this.startReaderFrom(startBlock);
 
         // Launch bg routines
-        this.perfTaskId = setInterval(() => this.performanceMetricsTask(), 1000);
+        this.perfTaskId = setInterval(async () => await this.performanceMetricsTask(), 1000);
         this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
