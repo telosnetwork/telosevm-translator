@@ -1,6 +1,6 @@
 {
   "name": "telosevm-translator",
-  "version": "1.0.0-rc8",
+  "version": "1.0.0-rc9",
   "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "bootstrap": "yarn",
     "build": "npm run bootstrap && npx tsc && node scripts/create-dist-packages.mjs",
     "db-check": "npm run build && node build/main.js --only-db-check",
-    "start": "npm run build && node --expose-gc build/main.js",
+    "start": "npm run build && node build/main.js",
     "start-bg": "sh -c 'nohup node \"$(pwd)/build/main.js\" 2>&1 >> run.log &'",
     "test-mock": "npm run build && mocha build/tests/leap.mock.spec.js --timeout 120000 --debug-brk",
     "test-unit": "npm run build && mocha build/tests/unit/**/*.unit.spec.js --debug-brk",
