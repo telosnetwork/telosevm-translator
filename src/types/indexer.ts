@@ -23,6 +23,7 @@ export interface ElasticConnectorConfig {
 export interface ArrowConnectorConfig {
     dataDir: string;
     bucketSize?: number;
+    dumpSize?: number;
 }
 
 export interface ChainConfig {
