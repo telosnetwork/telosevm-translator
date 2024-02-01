@@ -181,7 +181,7 @@ export class TEVMIndexer {
 
     resetReader() {
         this.logger.warn("restarting SHIP reader!...");
-        this.reader.restart(0);
+        this.reader.restart(0, this.lastBlock + 1);
         // this.stallCounter = -2;
     }
 
@@ -314,9 +314,11 @@ export class TEVMIndexer {
         if (this.stopBlock > 0 && currentBlock > this.stopBlock)
             return;
 
-        if (currentBlock > this.lastBlock + 1)
-            throw new Error(
-                `Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`)
+        if (currentBlock > this.lastBlock + 1) {
+            this.logger.warn(`Expected block ${this.lastBlock + 1} and got ${currentBlock}, gap on reader?`);
+            this.resetReader();
+            return;
+        }
 
         this.stallCounter = 0;
 
