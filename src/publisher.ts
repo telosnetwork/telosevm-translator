@@ -1,4 +1,5 @@
 import uWS, {TemplatedApp} from "uWebSockets.js";
+import { v4 as uuidv4 } from 'uuid';
 
 import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer.js";
 import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm.js";
@@ -30,8 +31,10 @@ export default class RPCBroadcaster {
                 /* We need a slightly higher timeout for this crazy example */
                 idleTimeout: 60,
                 open: (ws: uWS.WebSocket<Uint8Array>) => {
-                    const ip: string = new TextDecoder('utf-8').decode(ws.getRemoteAddressAsText());
-                    this.sockets[ip] = ws;
+                    const uuid = uuidv4();
+                    // @ts-ignore
+                    ws.uuid = uuid;
+                    this.sockets[uuid] = ws;
                     ws.subscribe('broadcast')
                 },
                 message: () => {
@@ -39,9 +42,10 @@ export default class RPCBroadcaster {
                 drain: () => {
                 },
                 close: (ws) => {
-                    const ip: string = new TextDecoder('utf-8').decode(ws.getRemoteAddressAsText());
-                    if (ip in this.sockets)
-                        delete this.sockets[ip];
+                    // @ts-ignore
+                    const uuid = ws.uuid;
+                    if (uuid && uuid in this.sockets)
+                        delete this.sockets[uuid];
                 },
             }).listen(host, port, (listenSocket) => {
             if (listenSocket) {

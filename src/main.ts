@@ -109,7 +109,22 @@ program
         if (process.env.EVM_WORKER_AMOUNT)
             conf.perf.evmWorkerAmount = parseInt(process.env.EVM_WORKER_AMOUNT, 10);
 
-        await new TEVMIndexer(conf).launch();
+        const indexer = new TEVMIndexer(conf);
+        try {
+            await indexer.launch();
+        } catch(e) {
+            if (e.message.includes('Gap found in database at ') &&
+                e.message.includes(', but --gaps-purge flag not passed!')) {
+                // @ts-ignore
+                indexer.logger.error(
+                    'Translator integrity check failed, ' +
+                    'not gonna start unless --gaps-purge is passed or ' +
+                    'config option runtime.gapsPurge == true'
+                );
+                process.exitCode = 47;
+            } else
+                throw e;
+        }
     });
 
 program.parse(process.argv);

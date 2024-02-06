@@ -77,7 +77,7 @@ export const DEFAULT_CONF = {
     "evmValidateHash": "",
 
     "startBlock": 35,
-    "stopBlock": 4294967295,
+    "stopBlock": -1,
     "irreversibleOnly": false,
     "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
     "perf": {

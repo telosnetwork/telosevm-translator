@@ -515,6 +515,20 @@
     workerpool "^9.0.4"
     ws "^8.13.0"
 
+"@telosnetwork/hyperion-sequential-reader@1.2.7-rc4":
+  version "1.2.7-rc4"
+  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc4.tgz#f12f78f16319b559a2dcf49492dc4b919bcaaf16"
+  integrity sha512-3QMtrMmPtogSXVpNo0aBwK+i+ZIjNQRyv1Tca1VFheEmOTuMsRQRc5oDaj0I7HsXIsI6hzUK1K1N5sqHnLPbMQ==
+  dependencies:
+    "@greymass/eosio" "0.7.0"
+    async "^3.2.4"
+    bson "^6.2.0"
+    bufferutil "^4.0.8"
+    node-fetch "^3.3.0"
+    shm-store "^1.0.0-rc1"
+    workerpool "^9.0.4"
+    ws "^8.13.0"
+
 "@telosnetwork/telos-evm-custom-ds@1.0.2":
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/@telosnetwork/telos-evm-custom-ds/-/telos-evm-custom-ds-1.0.2.tgz#3ce80386fe561e7a065c36e523eb8a2935793b29"
@@ -3961,6 +3975,11 @@ uuid@^8.3.2:
   version "8.3.2"
   resolved "https://registry.yarnpkg.com/uuid/-/uuid-8.3.2.tgz#80d5b5ced271bb9af6c445f21a1a04c606cefbe2"
   integrity sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==
+
+uuid@^9.0.1:
+  version "9.0.1"
+  resolved "https://registry.yarnpkg.com/uuid/-/uuid-9.0.1.tgz#e188d4c8853cc722220392c424cd637f32293f30"
+  integrity sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==
 
 vary@~1.1.2:
   version "1.1.2"
