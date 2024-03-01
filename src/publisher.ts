@@ -72,7 +72,7 @@ export default class RPCBroadcaster {
             extraData: `0x${blockInfo.nativeHash}`,
             receiptsRoot: `0x${blockInfo.receiptsRoot}`,
             transactionsRoot: `0x${blockInfo.delta['@transactionsRoot']}`,
-
+            hash: `0x${blockInfo.delta["@evmBlockHash"]}`,
             gasUsed: numToHex(gasUsed),
             logsBloom: `0x${blockInfo.blockBloom}`,
             number: numToHex(blockInfo.delta['@global'].block_num),
