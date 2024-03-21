@@ -1,6 +1,6 @@
 {
   "name": "telosevm-translator",
-  "version": "1.0.0-rc10",
+  "version": "1.0.0-rc11",
   "description": "State History EVM Translator/Indexer",
   "author": "guilledk",
   "license": "MIT",
