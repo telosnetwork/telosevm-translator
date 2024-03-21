@@ -13,7 +13,6 @@
     "evmPrevHash": "cfa67996f5d4f1e9e2b8b13a8984e1d8997091060748c3345f160b39050809b6",
 
     "startBlock": 180698860,
-    "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
         "stallCounter": 5,

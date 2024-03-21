@@ -13,7 +13,6 @@
     "evmValidateHash": "1f42e34c53aa45b4bb0a8fc20cb98ba1f0663ef1d581995c56f9f2314b837a35",
 
     "startBlock": 58,
-    "stopBlock": 4294967295,
     "irreversibleOnly": false,
     "perf": {
         "stallCounter": 5,
