@@ -94,6 +94,9 @@ program
         if (process.env.ELASTIC_DUMP_SIZE)
             conf.perf.elasticDumpSize = parseInt(process.env.ELASTIC_DUMP_SIZE, 10);
 
+        if (process.env.ELASTIC_DOCS_PER_INDEX)
+            conf.elastic.docsPerIndex = parseInt(process.env.ELASTIC_DOCS_PER_INDEX, 10);
+
         if (process.env.ELASTIC_USERNAME)
             conf.elastic.auth.username = process.env.ELASTIC_USERNAME;
 

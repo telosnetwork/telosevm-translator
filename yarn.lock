@@ -515,10 +515,10 @@
     workerpool "^9.0.4"
     ws "^8.13.0"
 
-"@telosnetwork/hyperion-sequential-reader@1.2.7-rc4":
-  version "1.2.7-rc4"
-  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc4.tgz#f12f78f16319b559a2dcf49492dc4b919bcaaf16"
-  integrity sha512-3QMtrMmPtogSXVpNo0aBwK+i+ZIjNQRyv1Tca1VFheEmOTuMsRQRc5oDaj0I7HsXIsI6hzUK1K1N5sqHnLPbMQ==
+"@telosnetwork/hyperion-sequential-reader@1.2.7-rc5":
+  version "1.2.7-rc5"
+  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc5.tgz#e40fc999eb375efd0b300523f1b4113b8027f18e"
+  integrity sha512-cgmfX0egwP8f4YuKFCyiHawz1cGdhFx5ct+IYASpJvw6bipmWaBHdJ0iYgcmzty72eriLKGP9TEmlqZDKxq4mg==
   dependencies:
     "@greymass/eosio" "0.7.0"
     async "^3.2.4"
