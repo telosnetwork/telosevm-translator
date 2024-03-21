@@ -16,12 +16,11 @@ program
     .option('-c, --config [path to config.json]', 'Path to config.json file', 'config.json')
     .option('-o, --only-db-check', 'Perform initial db check and exit', false)
     .action(async (options: TranslatorCMDOptions) => {
-        const conf: TranslatorConfig = cloneDeep(DEFAULT_CONF);
 
+        let conf;
         try {
-            const userConf = JSON.parse(readFileSync(options.config).toString());
-            mergeDeep(conf, userConf);
-        } catch (e) {}
+            conf = JSON.parse(readFileSync(options.config).toString());
+        } catch (e) { }
 
         if (options.onlyDBCheck)
             conf.runtime.onlyDBCheck = options.onlyDBCheck;

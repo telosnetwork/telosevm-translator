@@ -7,15 +7,21 @@ import {
 } from '../types/indexer.js';
 
 import {
-    StorageEosioAction, StorageEosioActionSchema,
-    StorageEosioDelta, StorageEosioGenesisDeltaSchema,
+    StorageEosioAction,
+    StorageEosioDelta,
 } from '../types/evm.js';
 import {createLogger, format, Logger, transports} from "winston";
 import EventEmitter from "events";
-import {ElasticConnector, ScrollOptions} from "./elastic";
 
 
-export interface BlockData {block: StorageEosioDelta, actions: StorageEosioAction[]};
+export interface BlockData {
+    block: StorageEosioDelta,
+    actions: StorageEosioAction[],
+    deltas: {
+        account: any[];
+        accountstate: any[];
+    }
+};
 
 export abstract class BlockScroller {
 
@@ -91,7 +97,7 @@ export abstract class Connector {
     }
 
     async init(): Promise<number | null> {
-        if (this.config.trimFrom) {
+        if (typeof this.config.trimFrom === 'number') {
             const trimBlockNum = this.config.trimFrom;
             await this.purgeNewerThan(trimBlockNum);
         }

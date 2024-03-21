@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import path from "node:path";
 import {APIClient, FetchProvider} from "@wharfkit/antelope";
 import {clearInterval} from "timers";
-import {waitEvent, CONFIG_TEMPLATES_DIR, sleep, TEST_RESOURCES_DIR} from "./indexer.js";
+import {waitEvent, CONFIG_TEMPLATES_DIR, sleep, TEST_RESOURCES_DIR, prepareTranslatorConfig} from "./indexer.js";
 import {decompressFile, maybeFetchResource, maybeLoadElasticDump} from "./resources.js";
 import {TEVMIndexer} from "../indexer.js";
 import {initializeNodeos} from "./nodeos.js";
@@ -206,7 +206,7 @@ export interface ESVerificationTestParameters {
 
 export function generateTranslatorConfig(testParams: ESVerificationTestParameters): [TranslatorConfig, Partial<ToxiConfig>] {
     // start with default conf as base
-    const translatorConfig: TranslatorConfig = cloneDeep(DEFAULT_CONF);
+    let translatorConfig: TranslatorConfig = cloneDeep(DEFAULT_CONF);
 
     // load requested template and merge
     if (testParams.translator.template) {
@@ -223,11 +223,7 @@ export function generateTranslatorConfig(testParams: ESVerificationTestParameter
     if (testParams.translator.partial)
         mergeDeep(translatorConfig, testParams.translator.partial);
 
-    const dstChain = cloneDeep(translatorConfig.source.chain);
-    if (translatorConfig.target.chain)
-        mergeDeep(dstChain, translatorConfig.target.chain);
-
-    translatorConfig.target.chain = dstChain;
+    translatorConfig = prepareTranslatorConfig(translatorConfig);
 
     const defToxiConfig = {
         host: 'http://127.0.0.1:8474',
@@ -292,7 +288,7 @@ export async function translatorESReplayVerificationTest(
 
     const adjustedNum = Math.floor(startBlock / translatorConfig.target.elastic.docsPerIndex);
     const numericIndexSuffix = String(adjustedNum).padStart(8, '0');
-    const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.delta}-${numericIndexSuffix}`;
+    const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.block}-${numericIndexSuffix}`;
     const genActionIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.transaction}-${numericIndexSuffix}`;
 
     // maybe download & decompress resources

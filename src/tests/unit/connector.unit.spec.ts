@@ -7,7 +7,7 @@ import {
 import {sampleActionDocument, sampleDeltaDocument, sampleIndexedBlock} from "../samples.js";
 
 import {assert, expect} from "chai";
-import {ElasticConnector} from "../../data/elastic";
+import {ElasticConnector} from "../../data/elastic/elastic";
 
 
 describe('Elastic Connector', function() {
@@ -31,10 +31,10 @@ describe('Elastic Connector', function() {
         );
         assert(
             isStorableDocument(sampleIndexedBlock({
-                delta: {
+                block: {
                     block_num: 1, "@global": {block_num: 1}
                 }
-            }, {chainStartTime: new Date()}).delta),
+            }, {chainStartTime: new Date()}).block),
             'sample indexed block is not storable'
         );
     });
@@ -81,8 +81,11 @@ describe('Elastic Connector', function() {
                 "codec": "default",
                 "dumpSize": 1000,
                 "suffix": {
-                    "delta": "delta-v1.5",
+                    "block": "block-v1.5",
                     "transaction": "action-v1.5",
+                    "account": "account-v1.5",
+                    "accountstate": "accountstate-v1.5",
+
                     "error": "error-v1.5",
                     "fork": "fork-v1.5"
                 }
@@ -105,12 +108,12 @@ describe('Elastic Connector', function() {
             lastForked,
             `in order for deltaIndex generated to make sense lastForked has to be < docsPerIndex config`
         ).to.be.lt(config.elastic.docsPerIndex);
-        const deltaIndex = `${config.chain.chainName}-${config.elastic.suffix.delta}-${conn.getSuffixForBlock(lastForked)}`;
+        const deltaIndex = `${config.chain.chainName}-${config.elastic.suffix.block}-${conn.getSuffixForBlock(lastForked)}`;
 
         // populate internal connector ds with documents
         for (let i = lastNonForked - extraBlocks; i <= lastForked; i++) {
             await conn.pushBlock(sampleIndexedBlock({
-                delta: {
+                block: {
                     block_num: i,
                     "@global": {
                         block_num: i - blockNumDelta

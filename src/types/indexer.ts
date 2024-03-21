@@ -17,15 +17,18 @@ export interface ElasticConnectorConfig {
     codec: string;
     dumpSize: number;
     suffix: {
-        delta: string;
+        block: string;
         error: string;
         transaction: string;
         fork: string;
+        account: string;
+        accountstate: string;
     }
 }
 
 export interface ArrowConnectorConfig {
     dataDir: string;
+    writerLogLevel?: string;
     bucketSize?: number;
     dumpSize?: number;
 }
@@ -34,7 +37,7 @@ export interface ChainConfig {
     chainName: string;
     chainId: number;
     startBlock: number;
-    stopBlock: number;
+    stopBlock?: number;
     evmBlockDelta: number;
     evmPrevHash: string;
     evmValidateHash: string;
@@ -51,6 +54,7 @@ export interface ConnectorConfig {
     elastic?: ElasticConnectorConfig;
     arrow?: ArrowConnectorConfig;
 
+    compatLevel?: {mayor: number, minor: number, patch: number}
     logLevel?: string;
     trimFrom?: number;
     skipIntegrityCheck?: boolean;
@@ -97,7 +101,6 @@ export const DEFAULT_CONF: TranslatorConfig = {
             "chainName": "telos-local",
             "chainId": 41,
             "startBlock": 35,
-            "stopBlock": 4294967295,
             "evmBlockDelta": 2,
             "evmPrevHash": "",
             "evmValidateHash": "",
@@ -130,8 +133,11 @@ export const DEFAULT_CONF: TranslatorConfig = {
             "codec": "default",
             "dumpSize": 2000,
             "suffix": {
-                "delta": "delta-v1.5",
-                "transaction": "action-v1.5",
+                "block": "block-v1.5",
+                "transaction": "transaction-v1.5",
+                "account": "account-v1.5",
+                "accountstate": "accountstate-v1.5",
+
                 "error": "error-v1.5",
                 "fork": "fork-v1.5"
             }
@@ -147,10 +153,33 @@ export const DEFAULT_CONF: TranslatorConfig = {
     }
 };
 
+export type IndexedAccountDelta = {
+    block_num: number;
+    ordinal: number;
+    index: number;
+    address: string;
+    account: string;
+    nonce: number;
+    code: number[];
+    balance: string;
+};
+
+export type IndexedAccountStateDelta = {
+    block_num: number;
+    ordinal: number;
+    index: number;
+    key: string;
+    value: string;
+};
+
 export type IndexedBlockInfo = {
     transactions: StorageEosioAction[];
     errors: TxDeserializationError[],
-    delta: StorageEosioDelta;
+    block: StorageEosioDelta;
+    deltas: {
+        account: IndexedAccountDelta[];
+        accountstate: IndexedAccountStateDelta[];
+    }
     nativeHash: string;
     parentHash: string;
     receiptsRoot: string;

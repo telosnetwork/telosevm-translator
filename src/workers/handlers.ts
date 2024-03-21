@@ -186,7 +186,7 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
             gasusedblock: '',
             charged_gas_price: BigInt(addHexPrefix(receipt.charged_gas)).toString(),
             output: receipt.output,
-            raw: evmTx.serialize(),
+            raw: Buffer.from(evmTx.serialize()).toString('base64'),
             v: v.toString(),
             r: unpadHex(bigIntToHex(r)),
             s: unpadHex(bigIntToHex(s))
@@ -321,7 +321,7 @@ async function createDeposit(args: HandlerArguments): Promise<StorageEvmTransact
             gasusedblock: '',
             charged_gas_price: '0',
             output: "",
-            raw: evmTx.serialize(),
+            raw: Buffer.from(evmTx.serialize()).toString('base64'),
             v: v.toString(),
             r: unpadHex(bigIntToHex(r)),
             s: unpadHex(bigIntToHex(s))
@@ -385,7 +385,7 @@ async function createWithdraw(args: HandlerArguments): Promise<StorageEvmTransac
             gasusedblock: '',
             charged_gas_price: '0',
             output: "",
-            raw: evmTx.serialize(),
+            raw: Buffer.from(evmTx.serialize()).toString('base64'),
             v: v.toString(),
             r: unpadHex(bigIntToHex(r)),
             s: unpadHex(bigIntToHex(s))
