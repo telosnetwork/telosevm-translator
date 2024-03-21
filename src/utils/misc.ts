@@ -1,5 +1,3 @@
-import EventEmitter from "events";
-
 export function portFromEndpoint(endpoint: string): number {
     return parseInt(endpoint.split(':')[2]);
 }
@@ -37,6 +35,17 @@ export function mergeDeep(target, ...sources) {
     return mergeDeep(target, ...sources);
 }
 
+export function getB64DecodedLength(base64String: string): number {
+    let padding = 0;
+
+    if (base64String.endsWith('==')) {
+        padding = 2;
+    } else if (base64String.endsWith('=')) {
+        padding = 1;
+    }
+
+    return ((base64String.length / 4) * 3) - padding;
+}
 
 export function humanizeByteSize(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
@@ -56,37 +65,68 @@ export function bigintToUint8Array (big: bigint): Uint8Array {
     return byteArray;
 }
 
-import { Writable } from 'stream';
+// TODO: create ZSTD stream using zstd.ts functions
+// import { Writable } from 'stream';
+//
+// export class MemoryStream extends Writable {
+//     private buffer: Uint8Array;
+//     private maxSize: number;
+//     private currentSize: number;
+//
+//     constructor(buffer: Buffer, maxSize: number) {
+//         super();
+//         this.maxSize = maxSize;
+//         this.buffer = buffer;
+//         this.currentSize = 0;
+//     }
+//
+//     _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
+//         if (chunk.length + this.currentSize > this.maxSize) {
+//             callback(new Error('Buffer overflow'));
+//             return;
+//         }
+//
+//         this.buffer.set(chunk, this.currentSize);
+//         this.currentSize += chunk.length;
+//         callback();
+//     }
+//
+//     getBufferData(): Buffer {
+//         return Buffer.from(this.buffer.buffer, this.buffer.byteOffset, this.currentSize);
+//     }
+//
+//     clearBuffer(): void {
+//         this.currentSize = 0;
+//         // this.buffer.fill(0);
+//     }
+// }
 
-export class MemoryStream extends Writable {
-    private buffer: Uint8Array;
-    private maxSize: number;
-    private currentSize: number;
+import {LogEntry} from "winston";
+import Transport from "winston-transport";
 
-    constructor(buffer: Buffer, maxSize: number) {
-        super();
-        this.maxSize = maxSize;
-        this.buffer = buffer;
-        this.currentSize = 0;
+export interface WorkerLogMessage {
+    name: any;
+    method: 'workerLog';
+    log: LogEntry;
+}
+
+export function isWorkerLogMessage(msg: any): msg is WorkerLogMessage {
+    return 'name' in msg &&
+        'method' in msg && msg.method === 'workerLog' &&
+        'log' in msg;
+}
+
+export class WorkerTransport extends Transport {
+
+    private readonly postLog: (msg: LogEntry) => void;
+
+    constructor(postLog, opts) {
+        super(opts);
+        this.postLog = postLog;
     }
 
-    _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
-        if (chunk.length + this.currentSize > this.maxSize) {
-            callback(new Error('Buffer overflow'));
-            return;
-        }
-
-        this.buffer.set(chunk, this.currentSize);
-        this.currentSize += chunk.length;
+    log(info: LogEntry, callback) {
+        this.postLog(info);
         callback();
-    }
-
-    getBufferData(): Buffer {
-        return Buffer.from(this.buffer.buffer, this.buffer.byteOffset, this.currentSize);
-    }
-
-    clearBuffer(): void {
-        this.currentSize = 0;
-        // this.buffer.fill(0);
     }
 }

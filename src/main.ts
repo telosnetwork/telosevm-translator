@@ -1,8 +1,5 @@
-import {DEFAULT_CONF, TranslatorConfig} from './types/indexer.js';
 import {TEVMIndexer} from './indexer.js';
 import {readFileSync} from "node:fs";
-import cloneDeep from "lodash.clonedeep";
-import {mergeDeep} from "./utils/misc.js";
 import { Command } from 'commander';
 
 const program = new Command();
@@ -16,12 +13,11 @@ program
     .option('-c, --config [path to config.json]', 'Path to config.json file', 'config.json')
     .option('-o, --only-db-check', 'Perform initial db check and exit', false)
     .action(async (options: TranslatorCMDOptions) => {
-        const conf: TranslatorConfig = cloneDeep(DEFAULT_CONF);
 
+        let conf;
         try {
-            const userConf = JSON.parse(readFileSync(options.config).toString());
-            mergeDeep(conf, userConf);
-        } catch (e) {}
+            conf = JSON.parse(readFileSync(options.config).toString());
+        } catch (e) { }
 
         if (options.onlyDBCheck)
             conf.runtime.onlyDBCheck = options.onlyDBCheck;

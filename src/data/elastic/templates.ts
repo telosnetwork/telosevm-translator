@@ -158,7 +158,48 @@ export function getTemplatesForChain(
         }
     };
 
+    const accountDelta = {
+        index_patterns: [
+            `${chain}-${suffixConfig.account}-*`
+        ],
+        settings: {
+            ...indexSettings
+        },
+        mappings: {
+            properties: {
+                "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                "block_num": {"type": "long"},
+                "index": {"type": "long"},
+                "address": {"type": "keyword"},
+                "account": {"type": "keyword"},
+                "nonce": {"type": "long"},
+                "code": {"enabled": false},
+                "balance": {"type": "keyword"},
+            }
+        }
+    };
+
+    const accountStateDelta = {
+        index_patterns: [
+            `${chain}-${suffixConfig.accountstate}-*`
+        ],
+        settings: {
+            ...indexSettings
+        },
+        mappings: {
+            properties: {
+                "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                "block_num": {"type": "long"},
+                "index": {"type": "long"},
+                "key": {"type": "keyword"},
+                "value": {"type": "keyword"},
+            }
+        }
+    };
+
     return {
-        transaction, delta, error, fork
+        transaction, delta, error, fork,
+        account: accountDelta,
+        accountstate: accountStateDelta
     }
 }

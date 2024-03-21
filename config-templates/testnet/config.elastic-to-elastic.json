@@ -4,7 +4,6 @@
             "chainName": "telos-testnet",
             "chainId": 41,
             "startBlock": 136393814,
-            "stopBlock": 4294967295,
             "evmPrevHash": "8e628f82fce3dd33746d363116a8a7db6cdc4a98ef8ba174e3d698f6325b13c1",
             "evmBlockDelta": 57,
             "evmValidateHash": "",
