@@ -107,6 +107,10 @@ export class ProcessedBlock {
     blockTimestamp: string;
     evmTxs: Array<EVMTxWrapper>;
     errors: Array<TxDeserializationError>;
+    deltas: {
+        account: Array<any>;
+        accountstate: Array<any>;
+    };
 
     constructor(obj: Partial<ProcessedBlock>) {
         Object.assign(this, obj);
@@ -125,7 +129,10 @@ export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
 
         const logs: Log[] = [];
 
-        await txsRootHash.put(RLP.encode(i), tx.evmTx.raw);
+        await txsRootHash.put(
+            RLP.encode(i),
+            new Uint8Array(Buffer.from(tx.evmTx.raw, 'base64'))
+        );
 
         let bloom = new Bloom();
         if (tx.evmTx.logsBloom)
@@ -191,10 +198,10 @@ export class TxDeserializationError {
 
 export function isTxDeserializationError(obj: any): obj is TxDeserializationError {
     return (
-        obj.info !== undefined &&
-        obj.timestamp !== undefined &&
-        obj.stack !== undefined &&
-        obj.message !== undefined
+        typeof obj.info !== "undefined" &&
+        typeof obj.timestamp !== "undefined" &&
+        typeof obj.stack !== "undefined" &&
+        typeof obj.message !== "undefined"
     );
 }
 

@@ -1,4 +1,4 @@
-export function getTemplatesForChain(chain: string) {
+export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]: string}) {
     const shards = 2;
     const replicas = 0;
     const refresh = "1s";
@@ -8,7 +8,7 @@ export function getTemplatesForChain(chain: string) {
     // DEFLATE
     const compression = "best_compression";
 
-    const actionSettings = {
+    const transactionSettings = {
         index: {
             codec: compression,
             refresh_interval: refresh,
@@ -21,12 +21,12 @@ export function getTemplatesForChain(chain: string) {
         }
     };
 
-    const action = {
+    const transaction = {
         order: 0,
         index_patterns: [
-            chain + "-action-*"
+            chain + `-${suffixConfig.transaction}-*`
         ],
-        settings: actionSettings,
+        settings: transactionSettings,
         mappings: {
             properties: {
                 "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
@@ -46,6 +46,7 @@ export function getTemplatesForChain(chain: string) {
                         "value": {"type": "text"},
                         "value_d": {"type": "text"},
                         "nonce": {"type": "long"},
+                        "raw": {"type": "binary"},
                         "v": {"enabled": false},
                         "r": {"enabled": false},
                         "s": {"enabled": false},
@@ -92,7 +93,7 @@ export function getTemplatesForChain(chain: string) {
         }
     };
 
-    const deltaSettings = {
+    const blockSettings = {
         "index": {
             "codec": compression,
             "number_of_shards": shards * 2,
@@ -107,9 +108,11 @@ export function getTemplatesForChain(chain: string) {
     //     deltaSettings["routing"] = {"allocation": {"exclude": {"data": "warm"}}};
     // }
 
-    const delta = {
-        "index_patterns": [chain + "-delta-*"],
-        "settings": deltaSettings,
+    const block = {
+        "index_patterns": [
+            chain + `-${suffixConfig.block}-*`
+        ],
+        "settings": blockSettings,
         "mappings": {
             "properties": {
                 "@timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
@@ -148,7 +151,9 @@ export function getTemplatesForChain(chain: string) {
     };
 
     const error = {
-        "index_patterns": [chain + "-error-*"],
+        "index_patterns": [
+            chain + `-${suffixConfig.error}-*`
+        ],
         "settings": errorSettings,
         "mappings": {
             "properties": {
@@ -175,7 +180,9 @@ export function getTemplatesForChain(chain: string) {
     };
 
     const fork = {
-        "index_patterns": [chain + "-fork-*"],
+        "index_patterns": [
+            chain + `-${suffixConfig.fork}-*`
+        ],
         "settings": forkSettings,
         "mappings": {
             "properties": {
@@ -188,7 +195,66 @@ export function getTemplatesForChain(chain: string) {
         }
     };
 
+    const accountDeltaSettings = {
+        "index": {
+            "codec": compression,
+            "number_of_shards": shards * 2,
+            "refresh_interval": refresh,
+            "number_of_replicas": replicas,
+            "sort.field": ["block_num"],
+            "sort.order": ["asc"]
+        }
+    };
+
+    const accountDelta = {
+        "index_patterns": [
+            chain + `-${suffixConfig.account}-*`
+        ],
+        "settings": accountDeltaSettings,
+        "mappings": {
+            "properties": {
+                "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                "block_num": {"type": "long"},
+                "index": {"type": "long"},
+                "address": {"type": "keyword"},
+                "account": {"type": "keyword"},
+                "nonce": {"type": "long"},
+                "code": {"enabled": false},
+                "balance": {"type": "keyword"},
+            }
+        }
+    };
+
+    const accountStateDeltaSettings = {
+        "index": {
+            "codec": compression,
+            "number_of_shards": shards * 2,
+            "refresh_interval": refresh,
+            "number_of_replicas": replicas,
+            "sort.field": ["block_num"],
+            "sort.order": ["asc"]
+        }
+    };
+
+    const accountStateDelta = {
+        "index_patterns": [
+            chain + `-${suffixConfig.accountstate}-*`
+        ],
+        "settings": accountStateDeltaSettings,
+        "mappings": {
+            "properties": {
+                "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                "block_num": {"type": "long"},
+                "index": {"type": "long"},
+                "key": {"type": "keyword"},
+                "value": {"type": "keyword"},
+            }
+        }
+    };
+
     return {
-        action, delta, error, fork
+        transaction, block, error, fork,
+        account: accountDelta,
+        accountstate: accountStateDelta
     }
 }

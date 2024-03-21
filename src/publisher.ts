@@ -71,12 +71,12 @@ export default class RPCBroadcaster {
             parentHash: `0x${blockInfo.parentHash}`,
             extraData: `0x${blockInfo.nativeHash}`,
             receiptsRoot: `0x${blockInfo.receiptsRoot}`,
-            transactionsRoot: `0x${blockInfo.delta['@transactionsRoot']}`,
-            hash: `0x${blockInfo.delta["@evmBlockHash"]}`,
+            transactionsRoot: `0x${blockInfo.block['@transactionsRoot']}`,
+            hash: `0x${blockInfo.block["@evmBlockHash"]}`,
             gasUsed: numToHex(gasUsed),
             logsBloom: `0x${blockInfo.blockBloom}`,
-            number: numToHex(blockInfo.delta['@global'].block_num),
-            timestamp: `0x${this.convertTimestampToEpoch(blockInfo.delta['@timestamp']).toString(16)}`,
+            number: numToHex(blockInfo.block['@global'].block_num),
+            timestamp: `0x${this.convertTimestampToEpoch(blockInfo.block['@timestamp']).toString(16)}`,
         })
 
         for (let trx of blockInfo.transactions)

@@ -4,7 +4,6 @@
             "chainName": "telos-mainnet",
             "chainId": 40,
             "startBlock": 37,
-            "stopBlock": 4294967295,
             "evmPrevHash": "",
             "evmBlockDelta": 36,
             "evmValidateHash": "",

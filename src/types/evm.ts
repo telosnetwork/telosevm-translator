@@ -31,7 +31,7 @@ export interface EosioEvmWithdraw {
 
 import { z } from 'zod';
 
-export const InteralEvmTransactionSchema = z.object({
+export const InternalEvmTransactionSchema = z.object({
     callType: z.string(),
     from: z.string(),
     gas: z.string(),
@@ -48,6 +48,8 @@ export const InteralEvmTransactionSchema = z.object({
     extra: z.any()
 });
 
+export type InternalEvmTransaction = z.infer<typeof InternalEvmTransactionSchema>;
+
 export const StorageEvmTransactionSchema = z.object({
     hash: z.string().refine(obj => isValidEVMHash(obj), { message: "Invalid EVM hash" }),
     from: z.string().optional().refine(obj => isValidAddress(obj) || obj === undefined, { message: "Invalid address" }),
@@ -62,7 +64,7 @@ export const StorageEvmTransactionSchema = z.object({
     gas_price: z.string().refine(isInteger, { message: "Invalid integer" }),
     gas_limit: z.string().refine(isInteger, { message: "Invalid integer" }),
     status: z.number(),
-    itxs: z.array(InteralEvmTransactionSchema),
+    itxs: z.array(InternalEvmTransactionSchema),
     epoch: z.number(),
     createdaddr: z.string().refine(obj => isValidUnprefixedEVMAddress(obj) || obj === '', { message: "Invalid created address" }),
     gasused: z.string().refine(isInteger, { message: "Invalid integer" }),
@@ -84,7 +86,7 @@ export const StorageEvmTransactionSchema = z.object({
             return isInteger(obj);
         }
     }, { message: "Invalid asset string" }),
-    raw: z.instanceof(Uint8Array).optional(),
+    raw: z.string(),
     v: z.string().refine(isInteger, { message: "Invalid integer" }),
     r: z.string().refine(isValidHexString, { message: "Invalid hex string" }),
     s: z.string().refine(isValidHexString, { message: "Invalid hex string" }),

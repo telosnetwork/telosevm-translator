@@ -1,9 +1,9 @@
 import {readFileSync} from "node:fs";
 
 import {HyperionSequentialReader, ThroughputMeasurer} from "@telosnetwork/hyperion-sequential-reader";
-import {createLogger, format, Logger, transports} from 'winston';
+import {loggers, format, Logger, transports} from 'winston';
 import {TEVMBlockHeader} from "telos-evm-custom-ds";
-import {JsonRpc, RpcInterfaces} from 'eosjs';
+import {JsonRpc} from 'eosjs';
 import * as evm from "@ethereumjs/common";
 import cloneDeep from "lodash.clonedeep";
 import {clearInterval} from "timers";
@@ -32,14 +32,15 @@ import {
 
 import EventEmitter from "events";
 
-import {packageInfo, sleep} from "./utils/indexer.js";
+import {packageInfo, prepareTranslatorConfig, sleep} from "./utils/indexer.js";
 import {HandlerArguments} from "./workers/handlers.js";
 import {getRPCClient} from './utils/eosio.js';
 import {humanizeByteSize, mergeDeep} from "./utils/misc.js";
 import {expect} from "chai";
 import {BlockData, Connector} from "./data/connector.js";
-import {ElasticConnector} from "./data/elastic.js";
-import {ArrowConnector} from "./data/arrow.js";
+import {ElasticConnector} from "./data/elastic/elastic.js";
+import {ArrowConnector} from "./data/arrow/arrow.js";
+import {DecodedBlock} from "@telosnetwork/hyperion-sequential-reader/lib/esm/types/antelope";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -49,7 +50,7 @@ export class TEVMIndexer {
     config: TranslatorConfig;  // global translator config as defined by environment or config file
 
     private readonly srcChain: ChainConfig;
-    private readonly dstChain: ChainConfig;
+    private readonly dstChain: Partial<ChainConfig>;
 
     private reader: HyperionSequentialReader;  // websocket state history connector, deserializes nodeos protocol
     private readonly readerAbis: {account: string, abi: ABI}[];
@@ -87,12 +88,10 @@ export class TEVMIndexer {
     private _mustStop: boolean = false;
 
     constructor(config: TranslatorConfig) {
-        this.config = config;
+        this.config = prepareTranslatorConfig(config);
 
-        this.srcChain = cloneDeep(config.source.chain);
-        this.dstChain = cloneDeep(config.source.chain);
-        if (config.target.chain)
-            mergeDeep(this.dstChain, this.config.target.chain);
+        this.srcChain = this.config.source.chain;
+        this.dstChain = this.config.target.chain;
 
         this.srcCommon = evm.Common.custom({
             chainId: this.srcChain.chainId,
@@ -145,12 +144,14 @@ export class TEVMIndexer {
                 format.printf((info: any) => {
                     return `${info.timestamp} [PID:${process.pid}] [${info.level}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
                 })
-            )
+            ),
+            transports: [
+                new transports.Console({
+                    level: this.config.logLevel
+                })
+            ]
         }
-        this.logger = createLogger(loggingOptions);
-        this.logger.add(new transports.Console({
-            level: this.config.logLevel
-        }));
+        this.logger = loggers.add('translator', loggingOptions);
         this.logger.debug('Logger initialized with level ' + this.config.logLevel);
     }
 
@@ -225,34 +226,34 @@ export class TEVMIndexer {
         // generate storeable block info
         const storableActions: StorageEosioAction[] = [];
         const storableBlockInfo: IndexedBlockInfo = {
-            "transactions": storableActions,
-            "errors": block.errors,
-            "delta": {
+            transactions: storableActions,
+            errors: block.errors,
+            block: {
                 "@timestamp": blockTimestamp.format(),
-                "block_num": block.nativeBlockNumber,
+                block_num: block.nativeBlockNumber,
                 "@global": {
-                    "block_num": block.evmBlockNumber
+                    block_num: block.evmBlockNumber
                 },
                 "@evmPrevBlockHash": this.prevHash,
                 "@evmBlockHash": currentBlockHash,
                 "@blockHash": block.nativeBlockHash,
                 "@receiptsRootHash": receiptsHash,
                 "@transactionsRoot": txsHash,
-                "gasUsed": blockApplyInfo.gasUsed.toString(),
-                "gasLimit": BLOCK_GAS_LIMIT.toString(),
-                "size": blockApplyInfo.size.toString(),
-                "txAmount": storableActions.length
+                gasUsed: blockApplyInfo.gasUsed.toString(),
+                gasLimit: BLOCK_GAS_LIMIT.toString(),
+                size: blockApplyInfo.size.toString(),
+                txAmount: storableActions.length
             },
-            "nativeHash": block.nativeBlockHash.toLowerCase(),
-            "parentHash": this.prevHash,
-            "receiptsRoot": receiptsHash,
-            "blockBloom": arrayToHex(blockApplyInfo.blockBloom.bitvector)
+            deltas: block.deltas,
+            nativeHash: block.nativeBlockHash.toLowerCase(),
+            parentHash: this.prevHash,
+            receiptsRoot: receiptsHash,
+            blockBloom: arrayToHex(blockApplyInfo.blockBloom.bitvector)
         };
 
         if (evmTxs.length > 0) {
             for (const evmTxData of evmTxs) {
                 evmTxData.evmTx.block_hash = currentBlockHash;
-                delete evmTxData.evmTx['raw'];
                 storableActions.push({
                     "@timestamp": block.blockTimestamp,
                     "trx_id": evmTxData.trx_id,
@@ -316,7 +317,7 @@ export class TEVMIndexer {
     /*
      * HyperionSequentialReader emit block callback, gets blocks from ship in order.
      */
-    async processBlock(block: any): Promise<void> {
+    async processBlock(block: DecodedBlock): Promise<void> {
         const currentBlock = block.blockInfo.this_block.block_num;
 
         if (this._isRestarting) {
@@ -355,6 +356,23 @@ export class TEVMIndexer {
             "exec" // msig deferred sig catch
         ]
         const actions = [];
+        const accountDeltas = [];
+        const stateDeltas = [];
+        let d = 0;
+        block.deltas.forEach(delta => {
+            const indexedDelta = {
+                block_num: currentEvmBlock,
+                ordinal: d,
+                ...delta.value
+            }
+            if (delta.table == 'account')
+                accountDeltas.push(indexedDelta);
+
+            if (delta.table == 'accountstate')
+                stateDeltas.push(indexedDelta);
+
+            d++;
+        });
         const txTasks = [];
         const startTxTask = (taskType: string, params: HandlerArguments) => {
             txTasks.push(
@@ -383,19 +401,22 @@ export class TEVMIndexer {
 
             const isTokenContract = action.act.account === 'eosio.token';
             const isTransfer = isTokenContract && action.act.name === 'transfer';
-            const isDeposit = isTransfer && action.act.data.to === 'eosio.evm';
+
+            const actData: any = action.act.data;
+
+            const isDeposit = isTransfer && actData.to === 'eosio.evm';
 
             // discard transfers to accounts other than eosio.evm
             // and transfers from system accounts
             if ((isTransfer && action.receiver != 'eosio.evm') ||
-                (isTransfer && action.act.data.from in systemAccounts))
+                (isTransfer && actData.from in systemAccounts))
                 continue;
 
             const params: HandlerArguments = {
                 nativeBlockHash: block.blockInfo.this_block.block_id,
                 trx_index: txTasks.length,
                 blockNum: currentEvmBlock,
-                tx: action.act.data,
+                tx: actData,
                 consoleLog: action.console
             };
 
@@ -448,7 +469,11 @@ export class TEVMIndexer {
             evmBlockNumber: currentEvmBlock,
             blockTimestamp: block.blockHeader.timestamp,
             evmTxs: evmTransactions,
-            errors: errors
+            errors: errors,
+            deltas: {
+                account: accountDeltas,
+                accountstate: stateDeltas
+            }
         });
 
         if (this._isRestarting) {
@@ -512,7 +537,9 @@ export class TEVMIndexer {
                 'eosio.msig': ['exec'],
                 'eosio.evm': ['raw', 'withdraw']
             },
-            tableWhitelist: {},
+            tableWhitelist: {
+                'eosio.evm': ['account', 'accountstate']
+            },
             irreversibleOnly: this.srcChain.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
             maxPayloadMb: Math.floor(1024 * 1.5),
@@ -688,7 +715,7 @@ export class TEVMIndexer {
         await this.targetConnector.pushBlock({
             transactions: [],
             errors: [],
-            delta: {
+            block: {
                 '@timestamp': moment.utc(genesisBlock.timestamp).toISOString(),
                 block_num: genesisBlock.block_num,
                 '@global': {
@@ -699,10 +726,11 @@ export class TEVMIndexer {
                 '@evmBlockHash': genesisHash,
                 "@receiptsRootHash": EMPTY_TRIE,
                 "@transactionsRoot": EMPTY_TRIE,
-                "gasUsed": "0",
-                "gasLimit": BLOCK_GAS_LIMIT.toString(),
-                "size": "0"
+                gasUsed: "0",
+                gasLimit: BLOCK_GAS_LIMIT.toString(),
+                size: "0"
             },
+            deltas: { account: [], accountstate: [] },
             nativeHash: genesisBlock.id.toLowerCase(),
             parentHash: '',
             receiptsRoot: '',
@@ -714,9 +742,9 @@ export class TEVMIndexer {
 
     private reindexBlock(
         parentHash: Uint8Array,
-        block: StorageEosioDelta,
-        evmTxs: StorageEosioAction[]
+        blockData: BlockData,
     ): IndexedBlockInfo {
+        const {block, actions, deltas} = blockData;
         const evmBlockNum = block.block_num - this.dstChain.evmBlockDelta;
 
         let receiptsHash = EMPTY_TRIE_BUF;
@@ -729,7 +757,7 @@ export class TEVMIndexer {
 
         let gasUsed = BigInt(0);
         const blockBloom = new Bloom();
-        for (const tx of evmTxs) {
+        for (const tx of actions) {
             gasUsed += BigInt(tx['@raw'].gasused);
             if (tx['@raw'].logsBloom)
                 blockBloom.or(new Bloom(hexStringToUint8Array(tx['@raw'].logsBloom)));
@@ -751,35 +779,36 @@ export class TEVMIndexer {
         const currentBlockHash = blockHeader.hash();
 
         const storableActions: StorageEosioAction[] = [];
-        if (evmTxs.length > 0) {
-            for (const tx of evmTxs) {
+        if (actions.length > 0) {
+            for (const tx of actions) {
                 tx['@raw'].block_hash = arrayToHex(currentBlockHash);
                 storableActions.push(tx);
             }
         }
         return {
-            "transactions": storableActions,
-            "errors": [],
-            "delta": {
+            transactions: storableActions,
+            errors: [],
+            block: {
                 "@timestamp": block['@timestamp'],
-                "block_num": block.block_num,
+                block_num: block.block_num,
                 "@global": {
-                    "block_num": evmBlockNum
+                    block_num: evmBlockNum
                 },
                 "@evmPrevBlockHash": arrayToHex(parentHash),
                 "@evmBlockHash": arrayToHex(currentBlockHash),
                 "@blockHash": block['@blockHash'],
                 "@receiptsRootHash": block['@receiptsRootHash'],
                 "@transactionsRoot": block['@transactionsRoot'],
-                "gasUsed": gasUsed.toString(),
-                "gasLimit": BLOCK_GAS_LIMIT.toString(),
-                "txAmount": storableActions.length,
-                "size": block['size']
+                gasUsed: gasUsed.toString(),
+                gasLimit: BLOCK_GAS_LIMIT.toString(),
+                txAmount: storableActions.length,
+                size: block['size']
             },
-            "nativeHash": block['@blockHash'],
-            "parentHash": arrayToHex(parentHash),
-            "receiptsRoot": block['@receiptsRootHash'],
-            "blockBloom": arrayToHex(blockBloom.bitvector)
+            deltas: deltas,
+            nativeHash: block['@blockHash'],
+            parentHash: arrayToHex(parentHash),
+            receiptsRoot: block['@receiptsRootHash'],
+            blockBloom: arrayToHex(blockBloom.bitvector)
         };
     }
 
@@ -929,25 +958,25 @@ export class TEVMIndexer {
             if (this._mustStop)
                 break;
 
-            const storableBlock = this.reindexBlock(parentHash, blockData.block, blockData.actions);
+            const storableBlock = this.reindexBlock(parentHash, blockData);
 
             if (this.config.runtime.eval) {
                 await evalFn(
                     blockData,
-                    {block: storableBlock.delta, actions: storableBlock.transactions}
+                    {block: storableBlock.block, actions: storableBlock.transactions, deltas: storableBlock.deltas}
                 );
             }
 
             if (firstHash === '') {
-                firstHash = storableBlock.delta['@evmBlockHash'];
+                firstHash = storableBlock.block['@evmBlockHash'];
                 if (this.dstChain.evmValidateHash &&
                     firstHash !== this.dstChain.evmValidateHash)
                     throw new Error(`initial hash validation failed: got ${firstHash} and expected ${this.dstChain.evmValidateHash}`);
             }
 
-            parentHash = hexStringToUint8Array(storableBlock.delta['@evmBlockHash']);
+            parentHash = hexStringToUint8Array(storableBlock.block['@evmBlockHash']);
             await this.targetConnector.pushBlock(storableBlock);
-            this.lastBlock = storableBlock.delta.block_num;
+            this.lastBlock = storableBlock.block.block_num;
             this.pushedLastUpdate++;
             this.perfMetrics.measure(this.pushedLastUpdate);
         }
