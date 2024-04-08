@@ -10,7 +10,7 @@
     "wsEndpoint": "ws://127.0.0.1:29999",
 
     "evmBlockDelta": 36,
-    "evmValidateHash": "2dd80272e9d5f1cbfdf1a97572b37dd66045f4dcc55adc8d0a7b2287eae71f0a",
+    "evmValidateHash": "36fe7024b760365e3970b7b403e161811c1e626edd68460272fcdfa276272563",
 
     "startBlock": 37,
     "irreversibleOnly": false,

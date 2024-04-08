@@ -35,7 +35,7 @@
     "@ethereumjs/util": "9.0.1",
     "@ethereumjs/vm": "7.1.0",
     "@greymass/eosio": "0.7.0",
-    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc5",
+    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc8",
     "@telosnetwork/telos-evm-custom-ds": "1.0.2",
     "bufferutil": "^4.0.8",
     "commander": "^11.1.0",

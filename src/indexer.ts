@@ -210,6 +210,7 @@ export class TEVMIndexer {
         // generate 'valid' block header
         const blockHeader = TEVMBlockHeader.fromHeaderData({
             'parentHash': hexStringToUint8Array(this.prevHash),
+            'stateRoot': EMPTY_TRIE_BUF,
             'transactionsTrie': blockApplyInfo.txsRootHash.root(),
             'receiptTrie': blockApplyInfo.receiptsTrie.root(),
             'logsBloom': blockApplyInfo.blockBloom.bitvector,
@@ -508,6 +509,7 @@ export class TEVMIndexer {
             tableWhitelist: {},
             irreversibleOnly: this.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
+            maxMsgsInFlight: this.config.perf.maxMessagesInFlight || 15000,
             maxPayloadMb: Math.floor(1024 * 1.5),
             skipInitialBlockCheck: true
         });
@@ -667,6 +669,7 @@ export class TEVMIndexer {
 
         const genesisHeader = TEVMBlockHeader.fromHeaderData({
             'number': BigInt(genesisEvmBlockNum),
+            'stateRoot': EMPTY_TRIE_BUF,
             'gasLimit': BLOCK_GAS_LIMIT,
             'timestamp': BigInt(genesisTimestamp),
             'extraData': hexStringToUint8Array(this.genesisBlock.id)

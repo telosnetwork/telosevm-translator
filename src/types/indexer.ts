@@ -55,6 +55,7 @@ export type IndexerConfig = {
         readerWorkerAmount: number;
         evmWorkerAmount: number;
         elasticDumpSize: number;
+        maxMessagesInFlight?: number;
     },
     elastic: ConnectorConfig;
     broadcast: BroadcasterConfig;
