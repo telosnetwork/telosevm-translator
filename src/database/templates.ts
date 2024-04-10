@@ -1,16 +1,23 @@
-export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]: string}) {
-    const defaultIndexSettings = {
-        number_of_shards: 1,
-        refresh_interval: -1,  // no auto refresh, translator bulk writes should trigger refresh
-        number_of_replicas: 0,
-        codec: 'best_compression'  // other option: 'default'
+export function getTemplatesForChain(
+    chain: string,
+    suffixConfig: {[key: string]: string},
+    numberOfShards: number,
+    numberOfReplicas: number,
+    refreshInterval: number,
+    codec: string
+) {
+    const indexSettings = {
+        number_of_shards: numberOfShards,
+        number_of_replicas: numberOfReplicas,
+        refresh_interval: refreshInterval,
+        codec
     };
 
     const transaction = {
         index_patterns: [`${chain}-${suffixConfig.transaction}-*`],
         settings: {
             index: {
-                ...defaultIndexSettings,
+                ...indexSettings,
                 sort: {
                     field: ['@raw.block', '@raw.trx_index'],
                     order: ['desc', 'desc']
@@ -86,7 +93,7 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
         index_patterns: [`${chain}-${suffixConfig.delta}-*`],
         settings: {
             index: {
-                ...defaultIndexSettings,
+                ...indexSettings,
                 sort: {
                     field: 'block_num',
                     order: 'desc'
@@ -121,7 +128,7 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
         index_patterns: [`${chain}-${suffixConfig.error}-*`],
         settings: {
             index: {
-                ...defaultIndexSettings
+                ...indexSettings
             }
         },
         mappings: {
@@ -139,7 +146,7 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
         index_patterns: [`${chain}-${suffixConfig.fork}-*`],
         settings: {
             index: {
-                ...defaultIndexSettings
+                ...indexSettings
             }
         },
         mappings: {

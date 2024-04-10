@@ -273,7 +273,14 @@ export class Connector {
     }
 
     async init() {
-        const indexConfig: ConfigInterface = getTemplatesForChain(this.chainName, this.config.elastic.subfix);
+        const indexConfig: ConfigInterface = getTemplatesForChain(
+            this.chainName,
+            this.config.elastic.subfix,
+            this.config.elastic.numberOfShards || 1,
+            this.config.elastic.numberOfReplicas || 0,
+            this.config.elastic.refreshInterval || -1,
+            this.config.elastic.codec || 'best_compression'
+        );
 
         this.logger.info(`Updating index templates for ${this.chainName}...`);
         let updateCounter = 0;

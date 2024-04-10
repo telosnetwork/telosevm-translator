@@ -11,6 +11,10 @@ export type ConnectorConfig = {
     docsPerIndex: number,
     scrollSize: number,
     scrollWindow: string,
+    numberOfShards?: number,
+    numberOfReplicas?: number,
+    refreshInterval?: number,
+    codec?: string,
     subfix: {
         delta: string;
         error: string;
