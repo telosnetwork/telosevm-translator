@@ -276,10 +276,10 @@ export class Connector {
         const indexConfig: ConfigInterface = getTemplatesForChain(
             this.chainName,
             this.config.elastic.subfix,
-            this.config.elastic.numberOfShards || 1,
-            this.config.elastic.numberOfReplicas || 0,
-            this.config.elastic.refreshInterval || -1,
-            this.config.elastic.codec || 'best_compression'
+            this.config.elastic.numberOfShards,
+            this.config.elastic.numberOfReplicas,
+            this.config.elastic.refreshInterval,
+            this.config.elastic.codec
         );
 
         this.logger.info(`Updating index templates for ${this.chainName}...`);

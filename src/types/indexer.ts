@@ -11,10 +11,10 @@ export type ConnectorConfig = {
     docsPerIndex: number,
     scrollSize: number,
     scrollWindow: string,
-    numberOfShards?: number,
-    numberOfReplicas?: number,
-    refreshInterval?: number,
-    codec?: string,
+    numberOfShards: number,
+    numberOfReplicas: number,
+    refreshInterval: number,
+    codec: string,
     subfix: {
         delta: string;
         error: string;
@@ -102,6 +102,10 @@ export const DEFAULT_CONF = {
         "docsPerIndex": 10000000,
         "scrollSize": 6000,
         "scrollWindow": "8s",
+        "numberOfShards": 1,
+        "numberOfReplicas": 0,
+        "refreshInterval": -1,
+        "codec": "best_compression",
         "subfix": {
             "delta": "delta-v1.5",
             "transaction": "action-v1.5",

@@ -39,6 +39,7 @@
     "@telosnetwork/telos-evm-custom-ds": "1.0.2",
     "bufferutil": "^4.0.8",
     "commander": "^11.1.0",
+    "envalid": "^8.0.0",
     "eosjs": "22.1.0",
     "ethereum-cryptography": "2.1.2",
     "lodash.clonedeep": "^4.5.0",
