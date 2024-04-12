@@ -58,6 +58,14 @@ export const StorageEvmTransactionSchema = z.object({
     input_data: z.string().refine(obj => isValidHexString(obj) || obj === '', { message: "Invalid hex string" }),
     input_trimmed: z.string().refine(obj => isValidHexString(obj) || obj === '', { message: "Invalid hex string" }),
     value: z.string().refine(isValidUnprefixedHexString, { message: "Invalid unprefixed hex string" }),
+    value_d: z.string().refine(obj => {
+        try {
+            Asset.fromString(obj);
+            return true;
+        } catch {
+            return isInteger(obj);
+        }
+    }, { message: "Invalid asset string" }),
     nonce: z.string().refine(isInteger, { message: "Invalid integer" }),
     gas_price: z.string().refine(isInteger, { message: "Invalid integer" }),
     gas_limit: z.string().refine(isInteger, { message: "Invalid integer" }),
@@ -76,14 +84,6 @@ export const StorageEvmTransactionSchema = z.object({
     })).optional(),
     logsBloom: z.string().optional().refine(obj => isValidUnprefixedHexString(obj) || obj === undefined, { message: "Invalid unprefixed hex string" }),
     errors: z.array(z.string()).optional(),
-    value_d: z.string().refine(obj => {
-        try {
-            Asset.fromString(obj);
-            return true;
-        } catch {
-            return isInteger(obj);
-        }
-    }, { message: "Invalid asset string" }),
     raw: z.instanceof(Uint8Array).optional(),
     v: z.string().refine(isInteger, { message: "Invalid integer" }),
     r: z.string().refine(isValidHexString, { message: "Invalid hex string" }),

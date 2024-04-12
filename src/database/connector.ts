@@ -273,31 +273,28 @@ export class Connector {
     }
 
     async init() {
-        const indexConfig: ConfigInterface = getTemplatesForChain(this.chainName);
-
-        const indicesList = [
-            {name: "action", type: "action"},
-            {name: "delta", type: "delta"},
-            {name: "error", type: "error"}
-        ];
+        const indexConfig: ConfigInterface = getTemplatesForChain(
+            this.chainName,
+            this.config.elastic.subfix,
+            this.config.elastic.numberOfShards,
+            this.config.elastic.numberOfReplicas,
+            this.config.elastic.refreshInterval,
+            this.config.elastic.codec
+        );
 
         this.logger.info(`Updating index templates for ${this.chainName}...`);
         let updateCounter = 0;
-        for (const index of indicesList) {
+        for (const [name, template] of Object.entries(indexConfig)) {
             try {
-                if (indexConfig[index.name]) {
-                    const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
-                        name: `${this.chainName}-${index.type}`,
-                        body: indexConfig[index.name]
-                    });
-                    if (!creation_status || !creation_status['acknowledged']) {
-                        this.logger.error(`Failed to create template: ${this.chainName}-${index}`);
-                    } else {
-                        updateCounter++;
-                        this.logger.info(`${this.chainName}-${index.type} template updated!`);
-                    }
+                const creation_status: estypes.IndicesPutTemplateResponse = await this.elastic.indices.putTemplate({
+                    name: `${this.chainName}-${name}`,
+                    body: template
+                });
+                if (!creation_status || !creation_status['acknowledged']) {
+                    this.logger.error(`Failed to create template: ${this.chainName}-${name}`);
                 } else {
-                    this.logger.warn(`${index.name} template not found!`);
+                    updateCounter++;
+                    this.logger.info(`${this.chainName}-${name} template updated!`);
                 }
             } catch (e) {
                 this.logger.error(`[FATAL] ${e.message}`);
