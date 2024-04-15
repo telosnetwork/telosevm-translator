@@ -209,6 +209,7 @@ export class TEVMIndexer {
         // generate 'valid' block header
         const blockHeader = TEVMBlockHeader.fromHeaderData({
             'parentHash': hexStringToUint8Array(this.prevHash),
+            'stateRoot': EMPTY_TRIE_BUF,
             'transactionsTrie': blockApplyInfo.txsRootHash.root(),
             'receiptTrie': blockApplyInfo.receiptsTrie.root(),
             'logsBloom': blockApplyInfo.blockBloom.bitvector,
@@ -220,6 +221,15 @@ export class TEVMIndexer {
         }, {common: this.srcCommon});
 
         const currentBlockHash = arrayToHex(blockHeader.hash());
+
+        if (block.nativeBlockNumber === this.dstChain.startBlock) {
+            if (this.dstChain.evmValidateHash &&
+                currentBlockHash !== this.dstChain.evmValidateHash) {
+                this.logger.error(`Generated first block:\n${JSON.stringify(blockHeader, null, 4)}`);
+                throw new Error(`initial hash validation failed: got ${currentBlockHash} and expected ${this.dstChain.evmValidateHash}`);
+            }
+        }
+
         const receiptsHash = arrayToHex(blockApplyInfo.receiptsTrie.root());
         const txsHash = arrayToHex(blockApplyInfo.txsRootHash.root());
 
@@ -368,8 +378,10 @@ export class TEVMIndexer {
             if (delta.table == 'account')
                 accountDeltas.push(indexedDelta);
 
-            if (delta.table == 'accountstate')
+            if (delta.table == 'accountstate') {
+                indexedDelta.scope = delta.scope;
                 stateDeltas.push(indexedDelta);
+            }
 
             d++;
         });
@@ -542,6 +554,7 @@ export class TEVMIndexer {
             },
             irreversibleOnly: this.srcChain.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
+            maxMsgsInFlight: nodeos.maxMsgsInFlight ?? 4000,
             maxPayloadMb: Math.floor(1024 * 1.5),
             skipInitialBlockCheck: true
         });
@@ -689,14 +702,16 @@ export class TEVMIndexer {
         const genesisHeader = TEVMBlockHeader.fromHeaderData({
             'number': BigInt(genesisEvmBlockNum),
             'gasLimit': BLOCK_GAS_LIMIT,
+            'stateRoot': EMPTY_TRIE_BUF,
             'timestamp': BigInt(genesisTimestamp),
             'extraData': hexStringToUint8Array(genesisBlock.id)
-        }, {common: this.srcCommon});
+        }, {common: this.dstCommon});
 
         const genesisHash = arrayToHex(genesisHeader.hash());
 
         if (this.dstChain.evmValidateHash != "" &&
             genesisHash != this.dstChain.evmValidateHash) {
+            this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
             throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
         }
 

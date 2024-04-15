@@ -1,5 +1,6 @@
 import {StorageEosioAction, StorageEosioDelta} from './evm.js';
 import {TxDeserializationError} from '../utils/evm.js';
+import {ArrowBatchCompression} from "../data/arrow/protocol";
 
 export interface ElasticConnectorConfig {
     node: string;
@@ -27,6 +28,7 @@ export interface ArrowConnectorConfig {
     writerLogLevel?: string;
     bucketSize?: number;
     dumpSize?: number;
+    compression?: ArrowBatchCompression;
 }
 
 export interface ChainConfig {
@@ -67,6 +69,7 @@ export interface SourceConnectorConfig extends ConnectorConfig {
         stallCounter: number;
         evmWorkerAmount: number;
         readerWorkerAmount: number;
+        maxMsgsInFlight?: number;
 
         skipStartBlockCheck?: boolean;
         skipRemoteCheck?: boolean;
@@ -156,6 +159,7 @@ export type IndexedAccountDelta = {
 export type IndexedAccountStateDelta = {
     block_num: number;
     ordinal: number;
+    scope: string;
     index: number;
     key: string;
     value: string;
