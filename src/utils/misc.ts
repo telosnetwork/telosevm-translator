@@ -1,3 +1,5 @@
+import {Readable, Writable} from "stream";
+
 export function portFromEndpoint(endpoint: string): number {
     return parseInt(endpoint.split(':')[2]);
 }
@@ -65,44 +67,100 @@ export function bigintToUint8Array (big: bigint): Uint8Array {
     return byteArray;
 }
 
-// TODO: create ZSTD stream using zstd.ts functions
-// import { Writable } from 'stream';
-//
-// export class MemoryStream extends Writable {
-//     private buffer: Uint8Array;
-//     private maxSize: number;
-//     private currentSize: number;
-//
-//     constructor(buffer: Buffer, maxSize: number) {
-//         super();
-//         this.maxSize = maxSize;
-//         this.buffer = buffer;
-//         this.currentSize = 0;
-//     }
-//
-//     _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
-//         if (chunk.length + this.currentSize > this.maxSize) {
-//             callback(new Error('Buffer overflow'));
-//             return;
-//         }
-//
-//         this.buffer.set(chunk, this.currentSize);
-//         this.currentSize += chunk.length;
-//         callback();
-//     }
-//
-//     getBufferData(): Buffer {
-//         return Buffer.from(this.buffer.buffer, this.buffer.byteOffset, this.currentSize);
-//     }
-//
-//     clearBuffer(): void {
-//         this.currentSize = 0;
-//         // this.buffer.fill(0);
-//     }
-// }
+import {ZSTDCompress} from 'simple-zstd';
+export async function compressUint8Array(input: Uint8Array, compressionLevel = 3) {
+    // Convert Uint8Array to a Buffer since Node.js streams work with Buffers
+    const inputBuffer = Buffer.from(input);
+
+    // Create a readable stream from the input buffer
+    const readableStream = new Readable({
+        read() {
+            this.push(inputBuffer);
+            this.push(null); // Signal end of stream
+        }
+    });
+
+    // Create a writable stream to collect the output
+    const chunks = [];
+    const writableStream = new Writable({
+        write(chunk, encoding, callback) {
+            chunks.push(chunk);
+            callback();
+        }
+    });
+
+    // Pipe the readable stream through the compression stream and into the writable stream
+    readableStream
+        .pipe(ZSTDCompress(compressionLevel))
+        .pipe(writableStream);
+
+    // Wait for the stream to finish
+    await finished(writableStream);
+
+    // Combine the chunks into a single Buffer
+    const outputBuffer = Buffer.concat(chunks);
+
+    // Convert the output Buffer back to a Uint8Array and return it
+    return new Uint8Array(outputBuffer);
+}
+
+export class MemoryWriteStream extends Writable {
+    private buffer: Uint8Array;
+    private maxSize: number;
+    private currentSize: number;
+
+    constructor(buffer: Buffer, maxSize: number) {
+        super();
+        this.maxSize = maxSize;
+        this.buffer = buffer;
+        this.currentSize = 0;
+    }
+
+    _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
+        if (chunk.length + this.currentSize > this.maxSize) {
+            callback(new Error('Buffer overflow'));
+            return;
+        }
+
+        this.buffer.set(chunk, this.currentSize);
+        this.currentSize += chunk.length;
+        callback();
+    }
+
+    getBufferData(): Buffer {
+        return Buffer.from(this.buffer.buffer, this.buffer.byteOffset, this.currentSize);
+    }
+
+    clearBuffer(): void {
+        this.currentSize = 0;
+        // this.buffer.fill(0);
+    }
+}
+
+export class MemoryReadStream extends Readable {
+    private buffer: Buffer;
+    private currentIndex: number;
+
+    constructor(buffer: Buffer, options?: ConstructorParameters<typeof Readable>[0]) {
+        super(options);
+        this.buffer = buffer;
+        this.currentIndex = 0;
+    }
+
+    _read(size: number): void {
+        if (this.currentIndex < this.buffer.length) {
+            const chunk = this.buffer.slice(this.currentIndex, this.currentIndex + size);
+            this.currentIndex += chunk.length;
+            this.push(chunk);
+        } else {
+            this.push(null); // Signal the end of the stream
+        }
+    }
+}
 
 import {LogEntry} from "winston";
 import Transport from "winston-transport";
+import {finished} from "stream/promises";
 
 export interface WorkerLogMessage {
     name: any;
