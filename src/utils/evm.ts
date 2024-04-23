@@ -1,5 +1,4 @@
 import {addHexPrefix} from '@ethereumjs/util';
-import {StorageEvmTransaction} from "../types/evm.js";
 import {Trie} from "@ethereumjs/trie";
 import RLP from "rlp";
 import {Bloom, encodeReceipt, TxReceipt} from "@ethereumjs/vm";
@@ -8,7 +7,8 @@ import {TransactionType} from "@ethereumjs/tx";
 import {Logger} from "winston";
 import {sleep} from "./indexer.js";
 import moment from "moment";
-import {APIClient, Name, UInt64} from "@wharfkit/antelope";
+import {APIClient, Name} from "@wharfkit/antelope";
+import {IndexedTx} from "../types/indexer.js";
 
 export function arrayToHex(array: Uint8Array) {
     if (!array)
@@ -41,7 +41,11 @@ export function hexStringToUint8Array(hexString: string): Uint8Array {
 }
 
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+export const ZERO_ADDR_BUF = new Uint8Array(20);
+
 export const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
+export const ZERO_HASH_BUF = new Uint8Array(32)
+
 export const EMPTY_TRIE_BUF = new Trie().EMPTY_TRIE_ROOT;
 export const EMPTY_TRIE = arrayToHex(EMPTY_TRIE_BUF);
 
@@ -65,7 +69,7 @@ export const NEW_HEADS_TEMPLATE = {
 };
 
 
-export function numToHex(input: number | string) {
+export function numToHex(input: number | string | bigint) {
     if (typeof input === 'number') {
         return '0x' + input.toString(16);
     } else {
@@ -93,54 +97,31 @@ export function generateUniqueVRS(
     return [v, r, s];
 }
 
-export interface EVMTxWrapper {
-    action_ordinal: number,
-    trx_id: string,
-    evmTx: StorageEvmTransaction
-};
-
-export class ProcessedBlock {
-    nativeBlockHash: string;
-    nativeBlockNumber: number;
-    evmBlockNumber: number;
-    blockTimestamp: string;
-    evmTxs: Array<EVMTxWrapper>;
-    errors: Array<TxDeserializationError>;
-    deltas: {
-        account: Array<any>;
-        accountstate: Array<any>;
-    };
-
-    constructor(obj: Partial<ProcessedBlock>) {
-        Object.assign(this, obj);
-    }
-}
-
-export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
+export async function generateBlockApplyInfo(evmTxs: IndexedTx[]) {
     let gasUsed = BigInt(0);
     let size = BigInt(0);
     const txsRootHash = new Trie();
     const receiptsTrie = new Trie();
     const blockBloom = new Bloom();
     for (const [i, tx] of evmTxs.entries()) {
-        gasUsed += BigInt(tx.evmTx.gasused);
-        size += BigInt(tx.evmTx.raw.length);
+        gasUsed += tx.gasUsed;
+        size += BigInt(tx.raw.length);
 
         const logs: Log[] = [];
 
         await txsRootHash.put(
             RLP.encode(i),
-            new Uint8Array(Buffer.from(tx.evmTx.raw, 'base64'))
+            tx.raw
         );
 
         let bloom = new Bloom();
-        if (tx.evmTx.logsBloom)
-            bloom = new Bloom(hexStringToUint8Array(tx.evmTx.logsBloom));
+        if (tx.logsBloom)
+            bloom = new Bloom(tx.logsBloom);
 
         blockBloom.or(bloom);
 
-        if (tx.evmTx.logs) {
-            for (const hexLogs of tx.evmTx.logs) {
+        if (tx.logs) {
+            for (const hexLogs of tx.logs) {
                 const topics: Uint8Array[] = [];
 
                 for (const topic of hexLogs.topics)
@@ -155,11 +136,10 @@ export async function generateBlockApplyInfo(evmTxs: Array<EVMTxWrapper>) {
         }
 
         const receipt: TxReceipt = {
-            cumulativeBlockGasUsed: BigInt(tx.evmTx.gasusedblock),
+            cumulativeBlockGasUsed: BigInt(tx.gasUsedBlock),
             bitvector: bloom.bitvector,
             logs: logs,
-            // @ts-ignore
-            status: tx.evmTx.status
+            status: tx.status
         };
         const encodedReceipt = encodeReceipt(receipt, TransactionType.Legacy);
         await receiptsTrie.put(RLP.encode(i), encodedReceipt);

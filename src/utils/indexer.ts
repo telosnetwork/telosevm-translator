@@ -23,15 +23,15 @@ export async function waitEvent(emitter: EventEmitter, event: string): Promise<v
 
 
 import cloneDeep from "lodash.clonedeep";
-import {TranslatorConfig} from "../types/indexer.js";
 import {mergeDeep} from "./misc.js";
+import {TranslatorConfig} from "../types/config.js";
 
 export function prepareTranslatorConfig(cfg: TranslatorConfig): TranslatorConfig {
     const config = cloneDeep(cfg);
 
     // if stop block not present fill -1
     if (typeof cfg.source.chain.stopBlock === 'undefined')
-        config.source.chain.stopBlock = -1;
+        config.source.chain.stopBlock = -1n;
 
     // fill dst chain with source chain as default
     const dstChain = cloneDeep(cfg.source.chain);

@@ -9,92 +9,14 @@ import {decompressFile, maybeFetchResource, maybeLoadElasticDump} from "./resour
 import {TEVMIndexer} from "../indexer.js";
 import {initializeNodeos} from "./nodeos.js";
 import {mergeDeep} from "./misc.js";
-import {DEFAULT_CONF, TranslatorConfig} from "../types/indexer.js";
 
 import {fetch} from 'node-fetch';
 
 import moment from "moment";
 import {expect} from "chai";
 import cloneDeep from "lodash.clonedeep";
+import {DEFAULT_CONF, TranslatorConfig} from "../types/config.js";
 
-
-export async function getElasticDeltas(esclient, index, from, to) {
-    try {
-        const hits = [];
-        let result = await esclient.search({
-            index: index,
-            query: {
-                range: {
-                    block_num: {
-                        gte: from,
-                        lte: to
-                    }
-                }
-            },
-            size: 1000,
-            sort: [{ 'block_num': 'asc' }],
-            scroll: '3s'
-        });
-
-        let scrollId = result._scroll_id;
-        while (result.hits.hits.length) {
-            result.hits.hits.forEach(hit => hits.push(hit._source));
-            result = await esclient.scroll({
-                scroll_id: scrollId,
-                scroll: '3s'
-            });
-            scrollId = result._scroll_id;
-        }
-        await esclient.clearScroll({scroll_id: scrollId});
-
-        return hits;
-    } catch (e) {
-        if (!e.message.includes('index_not_found')) {
-            console.error(e.message);
-            console.error(e.stack);
-        }
-        return [];
-    }
-}
-
-export async function getElasticActions(esclient, index, from, to) {
-    try {
-        const hits = [];
-        let result = await esclient.search({
-            index: index,
-            query: {
-                range: {
-                    '@raw.block': {
-                        gte: from,
-                        lte: to
-                    }
-                }
-            },
-            size: 1000,
-            sort: [{ '@raw.block': 'asc' }, { '@raw.trx_index': 'asc' }],
-            scroll: '3s' // Keep the search context alive for 1 minute
-        });
-
-        let scrollId = result._scroll_id;
-        while (result.hits.hits.length) {
-            result.hits.hits.forEach(hit => hits.push(hit._source));
-            result = await esclient.scroll({
-                scroll_id: scrollId,
-                scroll: '3s'
-            });
-            scrollId = result._scroll_id;
-        }
-        await esclient.clearScroll({scroll_id: scrollId});
-
-        return hits;
-    } catch (e) {
-        if (!e.message.includes('index_not_found')) {
-            console.error(e.message);
-            console.error(e.stack);
-        }
-        return [];
-    }
-}
 
 export function chance(percent) {
     return Math.random() <= percent;
@@ -260,6 +182,7 @@ export async function translatorESReplayVerificationTest(
     const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
     const translatorConfig = config ? config : genConfig;
 
+    // @ts-ignore
     const esClient = new Client(translatorConfig.target.elastic);
     try {
         await esClient.ping();
@@ -286,7 +209,7 @@ export async function translatorESReplayVerificationTest(
     const startBlock = translatorConfig.source.chain.startBlock;
     const totalBlocks = translatorConfig.source.chain.stopBlock - startBlock;
 
-    const adjustedNum = Math.floor(startBlock / translatorConfig.target.elastic.docsPerIndex);
+    const adjustedNum = startBlock / BigInt(translatorConfig.target.elastic.docsPerIndex);
     const numericIndexSuffix = String(adjustedNum).padStart(8, '0');
     const genDeltaIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.block}-${numericIndexSuffix}`;
     const genActionIndexName = `${translatorConfig.target.chain.chainName}-${translatorConfig.target.elastic.suffix.transaction}-${numericIndexSuffix}`;
@@ -447,7 +370,7 @@ export async function translatorESReplayVerificationTest(
         const currentSyncTimeElapsed = moment.duration(now - translatorLaunchTime, 'ms').humanize();
 
         const checkedBlocksCount = writeInfo.to - startBlock;
-        const progressPercent = (((checkedBlocksCount / totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
+        const progressPercent = ((Number(checkedBlocksCount / totalBlocks) * 100).toFixed(2) + '%').padStart(6, ' ');
         const currentProgress = (writeInfo.to - startBlock).toLocaleString();
 
         console.log('-'.repeat(32));
@@ -494,7 +417,7 @@ export async function translatorESReplayVerificationTest(
             console.log(`applied jitter:     ${latencyConfig.attributes.jitter}ms`);
         }
     }
-    console.log(`average speed:      ${(totalBlocks / posibleSyncTimeSeconds).toFixed(2).toLocaleString()}`);
+    console.log(`average speed:      ${(Number(totalBlocks) / posibleSyncTimeSeconds).toFixed(2).toLocaleString()}`);
 
     if (dropTask)
         clearInterval(dropTask);
@@ -521,6 +444,7 @@ export async function translatorESReindexVerificationTest(
     const [genConfig, toxiConfig] = generateTranslatorConfig(testParams);
     const translatorConfig = config ? config : genConfig;
 
+    // @ts-ignore
     const esClient = new Client(translatorConfig.source.elastic);
     try {
         await esClient.ping();
@@ -567,7 +491,7 @@ export async function translatorESReindexVerificationTest(
     console.log('Test passed!');
     console.log(`total time elapsed: ${moment.duration(totalTestTimeElapsed, 'ms').humanize()}`);
     console.log(`sync time:          ${moment.duration(translatorReindexTimeElapsed, 'ms').humanize()}`);
-    console.log(`average speed:      ${(translator.targetConnector.totalPushed / translatorReindexTimeElapsed).toFixed(2).toLocaleString()}`);
+    console.log(`average speed:      ${(Number(translator.targetConnector.totalPushed) / translatorReindexTimeElapsed).toFixed(2).toLocaleString()}`);
 
     await esClient.close();
 }

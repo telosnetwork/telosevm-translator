@@ -153,6 +153,7 @@ export function getTemplatesForChain(
             properties: {
                 "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "block_num": {"type": "long"},
+                "ordinal": {"type": "long"},
                 "index": {"type": "long"},
                 "address": {"type": "keyword"},
                 "account": {"type": "keyword"},
@@ -174,6 +175,7 @@ export function getTemplatesForChain(
             properties: {
                 "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "block_num": {"type": "long"},
+                "ordinal": {"type": "long"},
                 "index": {"type": "long"},
                 "key": {"type": "keyword"},
                 "value": {"type": "keyword"},

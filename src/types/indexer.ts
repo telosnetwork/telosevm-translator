@@ -1,194 +1,136 @@
-import {StorageEosioAction, StorageEosioDelta} from './evm.js';
-import {TxDeserializationError} from '../utils/evm.js';
-import {ArrowBatchCompression} from "../data/arrow/protocol";
-
-export interface ElasticConnectorConfig {
-    node: string;
-    auth: {
-        username: string;
-        password: string;
-    },
-    requestTimeout: number;
-    docsPerIndex: number;
-    scrollSize: number;
-    scrollWindow: string;
-    numberOfShards: number;
-    numberOfReplicas: number;
-    refreshInterval: number;
-    codec: string;
-    dumpSize: number;
-    suffix: {
-        block: string;
-        error: string;
-        transaction: string;
-        fork: string;
-        account: string;
-        accountstate: string;
-    }
+// relevant native action parameter type specs
+export interface EosioEvmRaw {
+    ram_payer: string,
+    tx: string,
+    estimate_gas: boolean,
+    sender: null | string
 }
 
-export interface ArrowConnectorConfig {
-    dataDir: string;
-    writerLogLevel?: string;
-    bucketSize?: number;
-    dumpSize?: number;
-    compression?: ArrowBatchCompression;
+export interface EosioEvmDeposit {
+    from: string,
+    to: string,
+    quantity: string,
+    memo: string
 }
 
-export interface ChainConfig {
-    chainName: string;
-    chainId: number;
-    startBlock: number;
-    stopBlock?: number;
-    evmBlockDelta: number;
-    evmPrevHash: string;
-    evmValidateHash: string;
-    irreversibleOnly: boolean;
+export interface EosioEvmWithdraw {
+    to: string,
+    quantity: string
 }
 
-export interface BroadcasterConfig {
-    wsHost: string;
-    wsPort: number;
-};
+// generic representations of data as it goes through the translator from source
+// connector to target.
 
-export interface ConnectorConfig {
-    chain?: Partial<ChainConfig>;
-    elastic?: ElasticConnectorConfig;
-    arrow?: ArrowConnectorConfig;
-
-    compatLevel?: {mayor: number, minor: number, patch: number}
-    logLevel?: string;
-    trimFrom?: number;
-    skipIntegrityCheck?: boolean;
-    gapsPurge?: boolean;
+export interface IndexedInternalTx {
+    callType: string
+    from: string
+    gas: bigint
+    input: string
+    to: string
+    value: bigint
+    gasUsed: bigint
+    output: string
+    subTraces: string
+    traceAddress: string[]
+    type: string
+    depth: string
 }
 
-export interface SourceConnectorConfig extends ConnectorConfig {
-    chain: ChainConfig;
-    nodeos?: {
-        endpoint: string;
-        remoteEndpoint: string;
-        wsEndpoint: string;
-        blockHistorySize: number;
-        stallCounter: number;
-        evmWorkerAmount: number;
-        readerWorkerAmount: number;
-        maxMsgsInFlight?: number;
-
-        skipStartBlockCheck?: boolean;
-        skipRemoteCheck?: boolean;
-
-        maxMessagesInFlight?: number;
-        maxWsPayloadMb?: number;
-    },
+export interface IndexedTxLog {
+    address?: string
+    topics?: string[]
+    data?: string
 }
 
-export interface TranslatorConfig {
-    source: SourceConnectorConfig;
-    target: ConnectorConfig;
+export interface IndexedTx {
+    trxId: string
+    trxIndex: number
+    actionOrdinal: number
+    blockNum: bigint
+    blockHash: string
 
-    // process config
-    logLevel: string;
-    readerLogLevel: string;
-    runtime: {
-        eval?: boolean;
-        timeout?: number;
-        onlyDBCheck?: boolean;
-    };
-    broadcast: BroadcasterConfig;
-};
+    hash: string
+    raw: Uint8Array
 
-export const DEFAULT_CONF: TranslatorConfig = {
-    "source": {
-        "chain": {
-            "chainName": "telos-local",
-            "chainId": 41,
-            "startBlock": 35,
-            "evmBlockDelta": 2,
-            "evmPrevHash": "",
-            "evmValidateHash": "",
-            "irreversibleOnly": false,
-        },
-        "nodeos": {
-            "endpoint": "http://127.0.0.1:8888",
-            "remoteEndpoint": "http://127.0.0.1:8888",
-            "wsEndpoint": "ws://127.0.0.1:29999",
-            "blockHistorySize": (15 * 60 * 2),  // 15 minutes in blocks
-            "stallCounter": 5,
-            "readerWorkerAmount": 4,
-            "evmWorkerAmount": 4,
-        }
-    },
-    "target": {
-        "elastic": {
-            "node": "http://127.0.0.1:9200",
-            "auth": {
-                "username": "elastic",
-                "password": "password"
-            },
-            "requestTimeout": 5 * 1000,
-            "docsPerIndex": 10000000,
-            "scrollSize": 6000,
-            "scrollWindow": "1m",
-            "numberOfShards": 1,
-            "numberOfReplicas": 0,
-            "refreshInterval": -1,
-            "codec": "default",
-            "dumpSize": 2000,
-            "suffix": {
-                "block": "block-v1.5",
-                "transaction": "transaction-v1.5",
-                "account": "account-v1.5",
-                "accountstate": "accountstate-v1.5",
+    // tx params
+    from?: string
+    to?: string
+    inputData: Uint8Array
+    value: bigint
+    nonce: bigint
+    gasPrice: bigint
+    gasLimit: bigint
+    v: bigint
+    r: bigint
+    s: bigint
 
-                "error": "error-v1.5",
-                "fork": "fork-v1.5"
-            }
-        }
-    },
+    // receipt
+    status: 0 | 1
+    itxs: IndexedInternalTx[]
+    epoch: number
+    createAddr?: string
+    gasUsed: bigint
+    gasUsedBlock: bigint
+    chargedGasPrice: bigint
+    output: string
+    logs: IndexedTxLog[]
+    logsBloom: Uint8Array
+    errors: string[]
+}
 
-    "logLevel": "debug",
-    "readerLogLevel": "info",
-    "runtime": {},
-    "broadcast": {
-        "wsHost": "127.0.0.1",
-        "wsPort": 7300
-    }
-};
+export interface IndexedAccountDelta {
+    timestamp: bigint
+    blockNum: bigint
+    ordinal: number
+    index: number
+    address: string
+    account: string
+    nonce: number
+    code: string
+    balance: string
+}
 
-export type IndexedAccountDelta = {
-    block_num: number;
-    ordinal: number;
-    index: number;
-    address: string;
-    account: string;
-    nonce: number;
-    code: number[];
-    balance: string;
-};
+export interface IndexedAccountStateDelta {
+    timestamp: bigint
+    blockNum: bigint
+    ordinal: number
+    scope: string
+    index: number
+    key: string
+    value: string
+}
 
-export type IndexedAccountStateDelta = {
-    block_num: number;
-    ordinal: number;
-    scope: string;
-    index: number;
-    key: string;
-    value: string;
-};
+export interface IndexedBlockHeader {
+    timestamp: bigint
 
-export type IndexedBlockInfo = {
-    transactions: StorageEosioAction[];
-    errors: TxDeserializationError[],
-    block: StorageEosioDelta;
+    blockNum: bigint
+    blockHash: Uint8Array
+
+    evmBlockNum: bigint
+    evmBlockHash: Uint8Array
+    evmPrevHash: Uint8Array
+
+    receiptsRoot: Uint8Array
+    transactionsRoot: Uint8Array
+
+    gasUsed: bigint
+    gasLimit: bigint
+
+    size: bigint
+
+    transactionAmount: number
+}
+
+export interface IndexedBlock extends IndexedBlockHeader {
+
+    transactions: IndexedTx[]
+    logsBloom: Uint8Array
+
     deltas: {
         account: IndexedAccountDelta[];
         accountstate: IndexedAccountStateDelta[];
     }
-    nativeHash: string;
-    parentHash: string;
-    receiptsRoot: string;
-    blockBloom: string;
-};
+}
 
 export enum IndexerState {
     SYNC = 0,
@@ -196,7 +138,7 @@ export enum IndexerState {
 }
 
 export type StartBlockInfo = {
-    startBlock: number;
-    startEvmBlock?: number;
-    prevHash: string;
+    startBlock: bigint;
+    startEvmBlock?: bigint;
+    prevHash: Uint8Array;
 }
