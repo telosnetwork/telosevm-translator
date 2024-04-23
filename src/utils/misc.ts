@@ -1,5 +1,20 @@
 import {Readable, Writable} from "stream";
 
+export function bigIntMin(...args: bigint[]) {
+    if (args.length === 0) {
+        throw new Error('At least one argument is required');
+    }
+
+    let min = args[0];
+    for (let i = 1; i < args.length; i++) {
+        if (args[i] < min) {
+            min = args[i];
+        }
+    }
+
+    return min;
+}
+
 export function portFromEndpoint(endpoint: string): number {
     return parseInt(endpoint.split(':')[2]);
 }

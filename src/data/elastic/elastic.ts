@@ -1,20 +1,28 @@
 import {
-    ConnectorConfig,
-    ElasticConnectorConfig,
-    IndexedBlockInfo,
+    IndexedAccountDelta, IndexedAccountStateDelta,
+    IndexedBlock, IndexedBlockHeader, IndexedTx,
     IndexerState,
 } from '../../types/indexer.js';
 import {getTemplatesForChain} from './templates.js';
 
 import {Client, estypes} from '@elastic/elasticsearch';
 import {
-    isStorableDocument, StorageEosioAction, StorageEosioActionSchema,
+    InternalEvmTransaction,
+    isStorableDocument, StorageAccountDelta, StorageAccountStateDelta, StorageEosioAction, StorageEosioActionSchema,
     StorageEosioDelta,
-    StorageEosioDeltaSchema, StorageEosioGenesisDeltaSchema
-} from '../../types/evm.js';
-import {createLogger, format, Logger, transports} from "winston";
+    StorageEosioDeltaSchema
+} from './types.js';
+import {createLogger, format, transports} from "winston";
 import EventEmitter from "events";
-import {BlockData, BlockScroller, Connector} from "../connector.js";
+import {BlockScroller, Connector} from "../connector.js";
+import {ConnectorConfig, ElasticConnectorConfig} from "../../types/config.js";
+import {BIGINT_0, BIGINT_1, BIGINT_2} from "@ethereumjs/util";
+import moment from "moment";
+import {SearchResponse} from "@elastic/elasticsearch/lib/api/types";
+import {bigIntMin} from "../../utils/misc.js";
+import {featureManager} from "../../features.js";
+import {hexStringToUint8Array} from "../../utils/evm.js";
+import {Bloom} from "@ethereumjs/vm";
 
 
 interface ConfigInterface {
@@ -38,9 +46,9 @@ export class ElasticScroller extends BlockScroller {
     private readonly conn: ElasticConnector;
     private readonly scrollOpts: ScrollOptions;  // es scroll options
 
-    private last: number;         // native block num of last block available on current range array, starts at `from` - 1
-    private lastYielded: number;  // last block yielded on iterator, starts at `from` - 1
-    private lastBlockTx: number;  // last evm block we have full transactions on current rangeTx array, starts at evm equivalent for `last`
+    private last: bigint;         // native block num of last block available on current range array, starts at `from` - 1
+    private lastYielded: bigint;  // last block yielded on iterator, starts at `from` - 1
+    private lastBlockTx: bigint;  // last evm block we have full transactions on current rangeTx array, starts at evm equivalent for `last`
 
     // we should at most have only two open scroll contexts per BlockScroller
     private currentDeltaScrollId: string;  // one for deltas
@@ -51,36 +59,30 @@ export class ElasticScroller extends BlockScroller {
     private _deltaIndices: string[];  // array of relevant delta indices found for range `from` - `to`, must have at least one to start
     private _actionIndices: string[]; // array of relevant action indices found for range `from` - `to`, can be empty array
 
-    private range: BlockData[] = [];  // contains latest batch of blocks we have prepared to yield
+    private range: IndexedBlock[] = [];  // contains latest batch of blocks we have prepared to yield
     private rangeTxs: StorageEosioAction[] = [];  // contains latest batch of action documents we need to unpack into the right block BlockData
 
     constructor(
         connector: ElasticConnector,
         params: {
-            from: number,
-            to: number,
+            from: bigint,
+            to: bigint,
             tag: string
             logLevel?: string,
             validate?: boolean,
             scrollOpts?: ScrollOptions
         }
     ) {
-        super();
-        this.conn = connector;
-        this.from = params.from;
-        this.to = params.to;
-        this.tag = params.tag;
-
+        super(connector, params);
         this.scrollOpts = params.scrollOpts ? params.scrollOpts : {
             size: 1000,
             scroll: '3m'
         };
-        this.validate = params.validate ? params.validate : false;
 
-        this.last = this.from - 1;
-        this.lastBlockTx = this.last - this.conn.config.chain.evmBlockDelta;
+        this.last = this.from - BIGINT_1;
+        this.lastBlockTx = this.last - BigInt(this.conn.config.chain.evmBlockDelta);
 
-        this.lastYielded = this.from - 1;
+        this.lastYielded = this.from - BIGINT_1;
 
         const logLevel = params.logLevel ? params.logLevel : 'warning';
         const loggingOptions = {
@@ -102,32 +104,12 @@ export class ElasticScroller extends BlockScroller {
         this.logger.debug('Logger initialized with level ' + logLevel);
     }
 
-    get currentDeltaIndexNum() {
-        return this._currentDeltaIndex;
-    }
-
-    get currentActionIndexNum() {
-        return this._currentActionIndex;
-    }
-
-    get currentDeltaIndex() {
-        return this.deltaIndices[this._currentDeltaIndex];
-    }
-
-    get currentActionIndex() {
-        return this.actionIndices[this._currentActionIndex];
-    }
-
-    get deltaIndices() {
-        return this._deltaIndices;
-    }
-
     get actionIndices() {
         return this._actionIndices;
     }
 
     get lastBlock() {
-        if (this.lastYielded > this.from - 1)
+        if (this.lastYielded > this.from - BIGINT_1)
             return this.lastYielded;
         else
             return undefined;
@@ -139,7 +121,7 @@ export class ElasticScroller extends BlockScroller {
     private unwrapDeltaHit(hit): StorageEosioDelta {
         const doc = hit._source;
         if (this.validate)
-            return StorageEosioGenesisDeltaSchema.parse(doc);
+            return StorageEosioDeltaSchema.parse(doc);
 
         return doc
     }
@@ -181,9 +163,9 @@ export class ElasticScroller extends BlockScroller {
      * Set current block data batch to read from also maybe update last block available var,
      * deltas assumed to be length > 0
      */
-    private addRange(deltas: BlockData[]) {
+    private addRange(deltas: IndexedBlock[]) {
         this.range.push(...deltas);
-        this.last = deltas[deltas.length - 1].block.block_num;
+        this.last = deltas[deltas.length - 1].blockNum;
         this.logger.debug(`set last to ${this.last}, range length: ${this.range.length}`);
     }
 
@@ -199,8 +181,8 @@ export class ElasticScroller extends BlockScroller {
             query: {
                 range: {
                     block_num: {
-                        gte: this.from,
-                        lte: this.to
+                        gte: this.from.toString(),
+                        lte: this.to.toString()
                     }
                 }
             },
@@ -225,7 +207,7 @@ export class ElasticScroller extends BlockScroller {
         if (this.rangeTxs.length > 0) {
             const _lastBlockTx = this.rangeTxs[this.rangeTxs.length - 1]['@raw'].block;
             for (let i = this.rangeTxs.length - 1; i >= 0; i--) {
-                const curEvmBlock = this.rangeTxs[i]['@raw'].block;
+                const curEvmBlock = BigInt(this.rangeTxs[i]['@raw'].block);
                 if (curEvmBlock < _lastBlockTx) {
                     this.lastBlockTx = curEvmBlock;
                     break;
@@ -249,8 +231,8 @@ export class ElasticScroller extends BlockScroller {
             query: {
                 range: {
                     '@raw.block': {
-                        gte: this.from - this.conn.config.chain.evmBlockDelta,
-                        lte: this.to - this.conn.config.chain.evmBlockDelta + 1
+                        gte: (this.from - this.conn.config.chain.evmBlockDelta).toString(),
+                        lte: (this.to - this.conn.config.chain.evmBlockDelta + BIGINT_1).toString()
                     }
                 }
             }
@@ -270,7 +252,7 @@ export class ElasticScroller extends BlockScroller {
      * If we scrolled all available action indices and haven't found more txs assume we reached end and no
      * more txs are present on indices.
      */
-    private async nextActionScroll(target: number): Promise<void> {
+    private async nextActionScroll(target: bigint): Promise<void> {
         this.logger.debug(`nextActionScroll: target ${target}, rangeTx length: ${this.rangeTxs.length}, lastBlockTx: ${this.lastBlockTx}`);
         if (this.lastBlockTx < (this.from - this.conn.config.chain.evmBlockDelta)) {
             await this.actionScrollRequest();
@@ -292,7 +274,7 @@ export class ElasticScroller extends BlockScroller {
                 });
                 if (this.lastBlockTx < target) {
                     if (this._currentActionIndex == this._actionIndices.length - 1) {
-                        this.lastBlockTx = this.to - this.conn.config.chain.evmBlockDelta;
+                        this.lastBlockTx = this.to - BigInt(this.conn.config.chain.evmBlockDelta);
                         this.logger.debug(`Action scroller reached end, set lastBlockTx to ${this.lastBlockTx}`);
                         return;
                     }
@@ -322,11 +304,11 @@ export class ElasticScroller extends BlockScroller {
      * Remove all transactions from rangeTxs array that match target block
      * and calculate total gasused
      */
-    private drainTxsFromRange(target: number): [bigint, StorageEosioAction[]] {
+    private drainTxsFromRange(target: bigint): [bigint, StorageEosioAction[]] {
         const txs = [];
         let calculatedGasUsed = BigInt(0);
         while (this.rangeTxs.length > 0 &&
-               this.rangeTxs[0]['@raw'].block == target) {
+               this.rangeTxs[0]['@raw'].block == Number(target)) {
             const tx = this.rangeTxs.shift();
             calculatedGasUsed += BigInt(tx['@raw'].gasused);
             txs.push(tx);
@@ -338,7 +320,7 @@ export class ElasticScroller extends BlockScroller {
      * Pump action scroll search until `lastBlockTx` >= target, then
      * drain Txs using `drainTxsFromRange`
      */
-    private async buildBlockTxArray(target: number): Promise<[bigint, StorageEosioAction[]]> {
+    private async buildBlockTxArray(target: bigint): Promise<[bigint, StorageEosioAction[]]> {
         if (this._currentActionIndex == this.actionIndices.length)
             return [BigInt(0), []];
 
@@ -364,7 +346,7 @@ export class ElasticScroller extends BlockScroller {
         const newRange = [];
         for (const delta of deltaHits) {
             curBlock = delta.block_num;
-            const evmBlockNum = curBlock - this.conn.config.chain.evmBlockDelta;
+            const evmBlockNum = BigInt(curBlock) - this.conn.config.chain.evmBlockDelta;
             const [calculatedGasUsed, blockTxs] = await this.buildBlockTxArray(evmBlockNum);
 
             const gasUsed = delta.gasUsed ? BigInt(delta.gasUsed) : BigInt(0);
@@ -474,14 +456,14 @@ export class ElasticScroller extends BlockScroller {
         );
     }
 
-    async nextResult(): Promise<BlockData> {
+    async nextResult(): Promise<IndexedBlock> {
         if (!this._isInit) throw new Error('Must call init() before nextResult()!');
 
-        const nextBlock = this.lastYielded + 1;
+        const nextBlock = this.lastYielded + BIGINT_1;
         while (!this._isDone && nextBlock > this.last)
             await this.nextScroll();
 
-        if (!this._isDone && nextBlock !== this.range[0].block.block_num)
+        if (!this._isDone && nextBlock !== this.range[0].blockNum)
             throw new Error(`from ${this.tag}: nextblock != range[0]`)
 
         const block = this.range.shift();
@@ -495,15 +477,12 @@ export class ElasticConnector extends Connector {
     elastic: Client;
     esconfig: ElasticConnectorConfig;
 
-    blockDrain: IndexedBlockInfo[];
+    blockDrain: IndexedBlock[];
     opDrain: any[];
 
-    totalPushed: number = 0;
-    lastPushed: number = 0;
-
     writeCounter: number = 0;
-    lastDeltaIndexSuff: number = undefined;
-    lastActionIndexSuff: number = undefined;
+    lastDeltaIndexSuff: bigint = undefined;
+    lastActionIndexSuff: bigint = undefined;
 
     events = new EventEmitter();
 
@@ -514,6 +493,7 @@ export class ElasticConnector extends Connector {
             throw new Error(`Tried to init elastic connector with null config`);
 
         this.esconfig = config.elastic;
+        // @ts-ignore
         this.elastic = new Client(this.esconfig);
 
         this.opDrain = [];
@@ -522,20 +502,20 @@ export class ElasticConnector extends Connector {
         this.state = IndexerState.SYNC;
     }
 
-    getSuffixForBlock(blockNum: number) {
-        const adjustedNum = Math.floor(blockNum / this.esconfig.docsPerIndex);
+    getSuffixForBlock(blockNum: bigint) {
+        const adjustedNum = blockNum / BigInt(this.esconfig.docsPerIndex);
         return String(adjustedNum).padStart(8, '0');
     }
 
-    getDeltaIndexForBlock(blockNum: number) {
+    getDeltaIndexForBlock(blockNum: bigint) {
         return `${this.chainName}-${this.esconfig.suffix.block}-${this.getSuffixForBlock(blockNum)}`;
     }
 
-    getActionIndexForBlock(blockNum: number) {
+    getActionIndexForBlock(blockNum: bigint) {
         return `${this.chainName}-${this.esconfig.suffix.transaction}-${this.getSuffixForBlock(blockNum)}`;
     }
 
-    async init(): Promise<number | null> {
+    async init(): Promise<bigint | null> {
         const gap = await super.init();
         if (gap != null)
             return gap;
@@ -609,9 +589,9 @@ export class ElasticConnector extends Connector {
         return deltaIndices;
     }
 
-    async getRelevantDeltaIndicesForRange(from: number, to: number): Promise<string[]> {
-        const startSuffNum = Math.floor(from / this.esconfig.docsPerIndex);
-        const endSuffNum = Math.floor(to / this.esconfig.docsPerIndex);
+    async getRelevantDeltaIndicesForRange(from: bigint, to: bigint): Promise<string[]> {
+        const startSuffNum = Number(from / BigInt(this.esconfig.docsPerIndex));
+        const endSuffNum = Number(to / BigInt(this.esconfig.docsPerIndex));
         return (await this.getOrderedDeltaIndices()).filter((index) => {
             const indexSuffNum = indexToSuffixNum(index.index);
             return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum)
@@ -640,16 +620,16 @@ export class ElasticConnector extends Connector {
         return actionIndices;
     }
 
-    async getRelevantActionIndicesForRange(from: number, to: number): Promise<string[]> {
-        const startSuffNum = Math.floor(from / this.esconfig.docsPerIndex);
-        const endSuffNum = Math.floor(to / this.esconfig.docsPerIndex);
+    async getRelevantActionIndicesForRange(from: bigint, to: bigint): Promise<string[]> {
+        const startSuffNum = Number(from / BigInt(this.esconfig.docsPerIndex));
+        const endSuffNum = Number(to / BigInt(this.esconfig.docsPerIndex));
         return (await this.getOrderedActionIndices()).filter((index) => {
             const indexSuffNum = indexToSuffixNum(index.index);
             return (indexSuffNum >= startSuffNum && indexSuffNum <= endSuffNum);
         }).map(index => index.index);
     }
 
-    private unwrapSingleElasticResult(result) {
+    private unwrapElasticResult(result: SearchResponse) : any {
         const hits = result?.hits?.hits;
 
         if (!hits)
@@ -658,43 +638,231 @@ export class ElasticConnector extends Connector {
         if (hits.length != 1)
             throw new Error(`Elastic unwrap error expected one and got ${hits.length}`);
 
-        const document = hits[0]._source;
-
-        this.logger.debug(`elastic unwrap document:\n${JSON.stringify(document, null, 4)}`);
-
-        let parseResult = StorageEosioDeltaSchema.safeParse(document);
-        if (parseResult.success)
-            return parseResult.data;
-
-        parseResult = StorageEosioGenesisDeltaSchema.safeParse(document);
-        if (parseResult.success)
-            return parseResult.data;
-
-        throw new Error(`Document is not a valid StorageEosioDelta!`);
+        return hits[0]._source;
     }
 
-    async getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta | null> {
-        const suffix = this.getSuffixForBlock(blockNum);
+    private unwrapElasticResults(results: SearchResponse) : any[] {
+        const hits = results?.hits?.hits;
+
+        if (!hits)
+            throw new Error(`Elastic unwrap error hits undefined`);
+
+        return hits.map(h => h._source);
+    }
+
+    async getTransactionsForBlock(blockNum: bigint) : Promise<IndexedTx[]> {
+        const txsResults = await this.elastic.search({
+            index: `${this.chainName}-${this.esconfig.suffix.transaction}-*`,
+            size: 2000,
+            sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
+            query: {
+                match: {
+                    '@raw.block': (blockNum - BigInt(this.config.chain.evmBlockDelta)).toString()
+                }
+            }
+        });
+
+        const txDocs = this.unwrapElasticResults(txsResults);
+        const txs = [];
+        for (const txDoc of txDocs) {
+
+            let itxs = undefined;
+            if (this.config.compatLevel.mayor == 1) {
+                itxs = txDoc.itxs.map((itx: InternalEvmTransaction) => {
+                    return {
+                        callType: itx.callType,
+                        from: itx.from,
+                        gas: BigInt(itx.gas),
+                        input: itx.input,
+                        to: itx.to,
+                        value: BigInt(itx.value),
+                        gasUsed: BigInt(itx.gasUsed),
+                        output: itx.output,
+                        subTraces: itx.subtraces,
+                        type: itx.type,
+                        depth: itx.depth
+                    };
+                });
+            }
+
+            txs.push({
+                trxIndex: txDoc.trx_index,
+                blockNum: BigInt(txDoc.block),
+                blockHash: txDoc.block_hash,
+
+                hash: txDoc.hash,
+
+                raw: txDoc.raw,
+                from: txDoc.from,
+                to: txDoc.to,
+                inputData: txDoc.input_data,
+                value: BigInt(txDoc.value),
+                nonce: BigInt(txDoc.nonce),
+                gasPrice: BigInt(txDoc.gas_price),
+                gasLimit: BigInt(txDoc.gas_limit),
+                v: BigInt(txDoc.v),
+                r: BigInt(txDoc.r),
+                s: BigInt(txDoc.s),
+
+                status: txDoc.status,
+                itxs: itxs,
+                epoch: txDoc.epoch,
+                createAddr: txDoc.createdaddr,
+                gasUsed: BigInt(txDoc.gasused),
+                gasUsedBlock: BigInt(txDoc.gasusedblock),
+                chargedGasPrice: BigInt(txDoc.charged_gas_price),
+                output: txDoc.output,
+                logs: txDoc.logs,
+                logsBloom: txDoc.logsBloom,
+                errors: txDoc.errors
+            });
+        }
+
+        return txs;
+    }
+
+    async getAccountDeltasForBlock(blockNum: bigint): Promise<IndexedAccountDelta[]> {
+        const searchResponse = await this.elastic.search({
+            index: `${this.chainName}-${this.esconfig.suffix.account}-*`,
+            size: 2000,
+            sort: [{'block_num': 'asc', 'ordinal': 'asc'}],
+            query: {
+                match: {
+                    'block_num': blockNum.toString()
+                }
+            }
+        });
+
+        return this.unwrapElasticResults(searchResponse).map((accDelta: StorageAccountDelta) => {
+            return {
+                timestamp: BigInt(moment.utc(accDelta.timestamp).unix()),
+                blockNum: BigInt(accDelta.block_num),
+                ordinal: accDelta.ordinal,
+                index: accDelta.index,
+                address: accDelta.address,
+                account: accDelta.account,
+                nonce: accDelta.nonce,
+                code: accDelta.code,
+                balance: accDelta.balance
+            }
+        });
+    }
+
+    async getAccountStateDeltasForBlock(blockNum: bigint): Promise<IndexedAccountStateDelta[]> {
+        const searchResponse = await this.elastic.search({
+            index: `${this.chainName}-${this.esconfig.suffix.accountstate}-*`,
+            size: 2000,
+            sort: [{'block_num': 'asc', 'ordinal': 'asc'}],
+            query: {
+                match: {
+                    'block_num': blockNum.toString()
+                }
+            }
+        });
+
+        return this.unwrapElasticResults(searchResponse).map((accDelta: StorageAccountStateDelta) => {
+            return {
+                timestamp: BigInt(moment.utc(accDelta.timestamp).unix()),
+                blockNum: BigInt(accDelta.block_num),
+                ordinal: accDelta.ordinal,
+                scope: accDelta.scope,
+                index: accDelta.index,
+                key: accDelta.key,
+                value: accDelta.value,
+            }
+        });
+    }
+
+    private packHeader(header: StorageEosioDelta) : IndexedBlockHeader {
+        return {
+            timestamp: BigInt(moment.utc(header['@timestamp']).unix()),
+
+            blockNum: BigInt(header.block_num),
+            blockHash: hexStringToUint8Array(header["@blockHash"]),
+
+            evmBlockNum: BigInt(header["@global"].block_num),
+            evmBlockHash: hexStringToUint8Array(header["@evmBlockHash"]),
+            evmPrevHash: hexStringToUint8Array(header["@evmPrevBlockHash"]),
+
+            receiptsRoot: hexStringToUint8Array(header["@receiptsRootHash"]),
+            transactionsRoot: hexStringToUint8Array(header["@transactionsRoot"]),
+
+            gasUsed: BigInt(header.gasUsed),
+            gasLimit: BigInt(header.gasLimit),
+
+            size: BigInt(header.size),
+
+            transactionAmount: header.txAmount
+        }
+
+    }
+
+    async getBlockHeader(blockNum: bigint): Promise<IndexedBlockHeader | null> {
         try {
+            const suffix = this.getSuffixForBlock(blockNum);
             const result = await this.elastic.search({
                 index: `${this.chainName}-${this.esconfig.suffix.block}-${suffix}`,
                 query: {
                     match: {
-                        block_num: {
-                            query: blockNum
-                        }
+                        block_num: blockNum.toString()
                     }
                 }
             });
 
-            return this.unwrapSingleElasticResult(result);
+            const blockDoc = this.unwrapElasticResult(result);
+            const parseResult = StorageEosioDeltaSchema.safeParse(blockDoc);
+            if (!parseResult.success)
+                throw new Error(`block result is not a valid StorageEosioDelta!`);
 
-        } catch (error) {
+            return this.packHeader(parseResult.data);
+        } catch (e) {
             return null;
         }
     }
 
-    async getFirstIndexedBlock() : Promise<StorageEosioDelta> {
+    private packBlock(
+        header: IndexedBlockHeader,
+        txs: IndexedTx[],
+        accDeltas: IndexedAccountDelta[],
+        accStateDeltas: IndexedAccountStateDelta[]
+    ): IndexedBlock {
+        const bloom = new Bloom();
+        for (const tx of txs)
+            bloom.or(new Bloom(tx.logsBloom))
+
+        return {
+            ...header,
+            transactions: txs,
+            logsBloom:  bloom.bitvector,
+            deltas: {
+                account: accDeltas,
+                accountstate: accStateDeltas
+            }
+        }
+    }
+
+    async getIndexedBlock(blockNum: bigint): Promise<IndexedBlock | null> {
+        try {
+            const [
+                header,
+                txs,
+                accDeltas,
+                accStateDeltas
+            ] = await Promise.all([
+                this.getBlockHeader(blockNum),
+                this.getTransactionsForBlock(blockNum),
+                this.getAccountDeltasForBlock(blockNum),
+                this.getAccountStateDeltasForBlock(blockNum)
+            ]);
+
+            return this.packBlock(header, txs, accDeltas, accStateDeltas);
+        } catch (e) {
+            return null;
+        }
+    }
+
+
+    async getFirstIndexedBlock() : Promise<IndexedBlock | null> {
         const indices = await this.getOrderedDeltaIndices();
 
         if (indices.length == 0)
@@ -710,14 +878,28 @@ export class ElasticConnector extends Connector {
                 ]
             });
 
-            return this.unwrapSingleElasticResult(result);
+            const header = this.packHeader(this.unwrapElasticResult(result));
+
+            let txs, accDeltas, accStateDeltas;
+            if (header.transactionAmount > 0) {
+                [txs, accDeltas, accStateDeltas] = await Promise.all([
+                    this.getTransactionsForBlock(header.blockNum),
+                    this.getAccountDeltasForBlock(header.blockNum),
+                    this.getAccountStateDeltasForBlock(header.blockNum)
+                ]);
+            }
+
+            return this.packBlock(
+                this.packHeader(this.unwrapElasticResult(result)),
+                txs, accDeltas, accStateDeltas
+            );
 
         } catch (error) {
             return null;
         }
     }
 
-    async getLastIndexedBlock() : Promise<StorageEosioDelta> {
+    async getLastIndexedBlock() : Promise<IndexedBlock | null> {
         const indices = await this.getOrderedDeltaIndices();
         if (indices.length == 0)
             return null;
@@ -735,7 +917,21 @@ export class ElasticConnector extends Connector {
                 if (result?.hits?.hits?.length == 0)
                     continue;
 
-                return this.unwrapSingleElasticResult(result);
+                const header = this.packHeader(this.unwrapElasticResult(result));
+
+                let txs, accDeltas, accStateDeltas;
+                if (header.transactionAmount > 0) {
+                    [txs, accDeltas, accStateDeltas] = await Promise.all([
+                        this.getTransactionsForBlock(header.blockNum),
+                        this.getAccountDeltasForBlock(header.blockNum),
+                        this.getAccountStateDeltasForBlock(header.blockNum)
+                    ]);
+                }
+
+                return this.packBlock(
+                    this.packHeader(this.unwrapElasticResult(result)),
+                    txs, accDeltas, accStateDeltas
+                );
 
             } catch (error) {
                 this.logger.error(error);
@@ -744,15 +940,6 @@ export class ElasticConnector extends Connector {
         }
 
         return null;
-    }
-
-    async getBlockRange(from: number, to: number): Promise<BlockData[]> {
-        const blocks: BlockData[] = [];
-        const scroll = this.blockScroll({from, to, tag: 'get-block-range'});
-        await scroll.init();
-        for await (const block of scroll)
-            blocks.push(block);
-        return blocks;
     }
 
     async findGapInIndices() {
@@ -775,7 +962,7 @@ export class ElasticConnector extends Connector {
         return null;
     }
 
-    async runHistogramGapCheck(lower: number, upper: number, interval: number): Promise<any> {
+    async runHistogramGapCheck(lower: bigint, upper: bigint, interval: bigint): Promise<any> {
         const results = await this.elastic.search<any, any>({
             index: `${this.config.chain.chainName}-${this.esconfig.suffix.block}-*`,
             size: 0,
@@ -783,8 +970,8 @@ export class ElasticConnector extends Connector {
                 query: {
                     range: {
                         "@global.block_num": {
-                            gte: lower,
-                            lte: upper
+                            gte: lower.toString(),
+                            lte: upper.toString()
                         }
                     }
                 },
@@ -792,7 +979,7 @@ export class ElasticConnector extends Connector {
                     "block_histogram": {
                         "histogram": {
                             "field": "@global.block_num",
-                            "interval": interval,
+                            "interval": Number(interval),
                             "min_doc_count": 0
                         },
                         "aggs": {
@@ -820,7 +1007,7 @@ export class ElasticConnector extends Connector {
         return buckets;
     }
 
-    async findDuplicateDeltas(lower: number, upper: number): Promise<number[]> {
+    async findDuplicateDeltas(lower: bigint, upper: bigint): Promise<number[]> {
         const results = await this.elastic.search<any, any>({
             index: `${this.config.chain.chainName}-${this.esconfig.suffix.block}-*`,
             size: 0,
@@ -828,8 +1015,8 @@ export class ElasticConnector extends Connector {
                 query: {
                     range: {
                         "@global.block_num": {
-                            gte: lower,
-                            lte: upper
+                            gte: lower.toString(),
+                            lte: upper.toString()
                         }
                     }
                 },
@@ -858,7 +1045,7 @@ export class ElasticConnector extends Connector {
         }
     }
 
-    async findDuplicateActions(lower: number, upper: number): Promise<number[]> {
+    async findDuplicateActions(lower: bigint, upper: bigint): Promise<number[]> {
         const results = await this.elastic.search<any, any>({
             index: `${this.config.chain.chainName}-${this.esconfig.suffix.transaction}-*`,
             size: 0,
@@ -866,8 +1053,8 @@ export class ElasticConnector extends Connector {
                 query: {
                     range: {
                         "@raw.block": {
-                            gte: lower,
-                            lte: upper
+                            gte: lower.toString(),
+                            lte: upper.toString()
                         }
                     }
                 },
@@ -896,36 +1083,35 @@ export class ElasticConnector extends Connector {
         }
     }
 
-    async checkGaps(lowerBound: number, upperBound: number, interval: number): Promise<number> {
-        interval = Math.ceil(interval);
-
+    async checkGaps(lowerBound: bigint, upperBound: bigint, interval: bigint): Promise<bigint | null> {
         // Base case
-        if (interval == 1) {
+        if (interval == BIGINT_1) {
             return lowerBound;
         }
 
-        const middle = Math.floor((upperBound + lowerBound) / 2);
+        const middle = (upperBound + lowerBound) / BIGINT_2;
 
         this.logger.debug(`calculated middle ${middle}`);
 
         this.logger.debug('first half');
         // Recurse on the first half
-        const lowerBuckets = await this.runHistogramGapCheck(lowerBound, middle, interval / 2);
+        const lowerBuckets = await this.runHistogramGapCheck(lowerBound, middle, interval / BIGINT_2);
         if (lowerBuckets.length === 0) {
             return middle; // Gap detected
         } else if (lowerBuckets[lowerBuckets.length - 1].max_block.value < middle) {
-            const lowerGap = await this.checkGaps(lowerBound, middle, interval / 2);
+            const lowerGap = await this.checkGaps(lowerBound, middle, interval / BIGINT_2);
             if (lowerGap)
                 return lowerGap;
         }
 
         this.logger.debug('second half');
         // Recurse on the second half
-        const upperBuckets = await this.runHistogramGapCheck(middle + 1, upperBound, interval / 2);
+        const upperBuckets = await this.runHistogramGapCheck(middle + BIGINT_1, upperBound, interval / BIGINT_2);
         if (upperBuckets.length === 0) {
-            return middle + 1; // Gap detected
-        } else if (upperBuckets[0].min_block.value > middle + 1) {
-            const upperGap = await this.checkGaps(middle + 1, upperBound, interval / 2);
+            return middle + BIGINT_1; // Gap detected
+
+        } else if (upperBuckets[0].min_block.value > middle + BIGINT_1) {
+            const upperGap = await this.checkGaps(middle + BIGINT_1, upperBound, interval / BIGINT_2);
             if (upperGap)
                 return upperGap;
         }
@@ -939,7 +1125,7 @@ export class ElasticConnector extends Connector {
         const buckets = [...lowerBuckets, ...upperBuckets];
         for (let i = 0; i < buckets.length; i++) {
             if (buckets[i].doc_count != (buckets[i].max_block.value - buckets[i].min_block.value) + 1) {
-                const insideGap = await this.checkGaps(buckets[i].min_block.value, buckets[i].max_block.value, interval / 2);
+                const insideGap = await this.checkGaps(buckets[i].min_block.value, buckets[i].max_block.value, interval / BIGINT_2);
                 if (insideGap)
                     return insideGap;
             }
@@ -949,36 +1135,36 @@ export class ElasticConnector extends Connector {
         return null;
     }
 
-    async fullIntegrityCheck(): Promise<number | null> {
-        const lowerBoundDoc = await this.getFirstIndexedBlock();
-        const upperBoundDoc = await this.getLastIndexedBlock();
+    async fullIntegrityCheck(): Promise<bigint | null> {
+        const lowerBoundBlock = await this.getFirstIndexedBlock();
+        const upperBoundBlock = await this.getLastIndexedBlock();
 
-        if (!lowerBoundDoc || !upperBoundDoc) {
+        if (!lowerBoundBlock || !upperBoundBlock) {
             return null;
         }
 
-        const lowerBound = lowerBoundDoc['@global'].block_num;
-        const upperBound = upperBoundDoc['@global'].block_num;
+        const lowerBound = lowerBoundBlock.evmBlockNum;
+        const upperBound = upperBoundBlock.evmBlockNum;
 
-        const lowerBoundDelta = lowerBoundDoc.block_num - lowerBound;
-        if (lowerBoundDelta != this.config.chain.evmBlockDelta) {
+        const lowerBoundDelta = lowerBoundBlock.blockNum - lowerBound;
+        if (lowerBoundDelta != BigInt(this.config.chain.evmBlockDelta)) {
             this.logger.error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
             throw new Error(`wrong block delta on lower bound doc ${lowerBoundDelta}`);
         }
 
-        const upperBoundDelta = upperBoundDoc.block_num - upperBound;
-        if (upperBoundDelta != this.config.chain.evmBlockDelta) {
+        const upperBoundDelta = upperBoundBlock.blockNum - upperBound;
+        if (upperBoundDelta != BigInt(this.config.chain.evmBlockDelta)) {
             this.logger.error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
             throw new Error(`wrong block delta on upper bound doc ${upperBoundDelta}`);
         }
 
-        const step = 10000000; // 10 million blocks
+        const step = BigInt(this.config.elastic.docsPerIndex);
 
         const deltaDups = [];
         const actionDups = [];
 
         for (let currentLower = lowerBound; currentLower < upperBound; currentLower += step) {
-            const currentUpper = Math.min(currentLower + step, upperBound);
+            const currentUpper = bigIntMin(currentLower + step, upperBound);
 
             // check duplicates for the current range
             deltaDups.push(...(await this.findDuplicateDeltas(currentLower, currentUpper)));
@@ -1007,8 +1193,8 @@ export class ElasticConnector extends Connector {
             const lower = gap.gapStart * this.esconfig.docsPerIndex;
             const upper = (gap.gapStart + 1) * this.esconfig.docsPerIndex;
             const agg = await this.runHistogramGapCheck(
-                lower, upper, this.esconfig.docsPerIndex)
-            return agg[0].max_block.value;
+                BigInt(lower), BigInt(upper), BigInt(this.esconfig.docsPerIndex))
+            return BigInt(agg[0].max_block.value);
         }
 
         const initialInterval = upperBound - lowerBound;
@@ -1018,7 +1204,7 @@ export class ElasticConnector extends Connector {
         return this.checkGaps(lowerBound, upperBound, initialInterval);
     }
 
-    async _deleteBlocksInRange(startBlock: number, endBlock: number) {
+    async _deleteBlocksInRange(startBlock: bigint, endBlock: bigint) {
         const targetSuffix = this.getSuffixForBlock(endBlock);
         const deltaIndex = `${this.chainName}-${this.esconfig.suffix.block}-${targetSuffix}`;
         const actionIndex = `${this.chainName}-${this.esconfig.suffix.transaction}-${targetSuffix}`;
@@ -1026,7 +1212,11 @@ export class ElasticConnector extends Connector {
         try {
             await this._deleteFromIndex(deltaIndex, 'block_num', startBlock, endBlock);
             await this._deleteFromIndex(
-                actionIndex, '@raw.block', startBlock - this.config.chain.evmBlockDelta, endBlock - this.config.chain.evmBlockDelta);
+                actionIndex,
+                '@raw.block',
+                startBlock - BigInt(this.config.chain.evmBlockDelta),
+                endBlock - BigInt(this.config.chain.evmBlockDelta)
+            );
         } catch (e) {
             if (e.name != 'ResponseError' || e.meta.body.error.type != 'index_not_found_exception') {
                 throw e;
@@ -1034,15 +1224,15 @@ export class ElasticConnector extends Connector {
         }
     }
 
-    async _deleteFromIndex(index: string, blockField: string, startBlock: number, endBlock: number) {
+    async _deleteFromIndex(index: string, blockField: string, startBlock: bigint, endBlock: bigint) {
         const result = await this.elastic.deleteByQuery({
             index: index,
             body: {
                 query: {
                     range: {
                         [blockField]: {
-                            gte: startBlock,
-                            lte: endBlock
+                            gte: startBlock.toString(),
+                            lte: endBlock.toString()
                         }
                     }
                 }
@@ -1054,30 +1244,30 @@ export class ElasticConnector extends Connector {
         this.logger.debug(`${index} delete result: ${JSON.stringify(result, null, 4)}`);
     }
 
-    async _purgeBlocksNewerThan(blockNum: number) {
+    async _purgeBlocksNewerThan(blockNum: bigint) {
         const lastBlock = await this.getLastIndexedBlock();
         if (lastBlock == null)
             return;
-        const maxBlockNum = lastBlock.block_num;
-        const batchSize = Math.min(maxBlockNum, 20000); // Batch size set to 20,000
-        const maxConcurrentDeletions = 4; // Maximum of 4 deletions in parallel
+        const maxBlockNum = lastBlock.blockNum;
+        const batchSize = bigIntMin(maxBlockNum, BigInt(20000)); // Batch size set to 20,000
+        const maxConcurrentDeletions = BigInt(4); // Maximum of 4 deletions in parallel
 
         for (let startBlock = blockNum; startBlock <= maxBlockNum; startBlock += batchSize * maxConcurrentDeletions) {
             const deletionTasks = [];
 
-            for (let i = 0; i < maxConcurrentDeletions && (startBlock + i * batchSize) <= maxBlockNum; i++) {
+            for (let i = BIGINT_0; i < maxConcurrentDeletions && (startBlock + i * batchSize) <= maxBlockNum; i++) {
                 const batchStart = startBlock + i * batchSize;
-                const batchEnd = Math.min(batchStart + batchSize - 1, maxBlockNum);
+                const batchEnd = bigIntMin(batchStart + batchSize - BIGINT_1, maxBlockNum);
                 deletionTasks.push(this._deleteBlocksInRange(batchStart, batchEnd));
             }
 
             await Promise.all(deletionTasks);
-            const batchEnd = Math.min(startBlock + (batchSize * maxConcurrentDeletions), maxBlockNum);
+            const batchEnd = bigIntMin(startBlock + (batchSize * maxConcurrentDeletions), maxBlockNum);
             this.logger.info(`deleted blocks from ${startBlock} to ${batchEnd}`);
         }
     }
 
-    async _purgeIndicesNewerThan(blockNum: number) {
+    async _purgeIndicesNewerThan(blockNum: bigint) {
         this.logger.info(`purging indices in db from block ${blockNum}...`);
         const targetSuffix = this.getSuffixForBlock(blockNum);
         const targetNum = parseInt(targetSuffix);
@@ -1112,7 +1302,7 @@ export class ElasticConnector extends Connector {
         return deleteList;
     }
 
-    async purgeNewerThan(blockNum: number) {
+    async purgeNewerThan(blockNum: bigint) {
         await this._purgeIndicesNewerThan(blockNum);
         await this._purgeBlocksNewerThan(blockNum);
     }
@@ -1123,47 +1313,62 @@ export class ElasticConnector extends Connector {
         await this.writeBlocks();
     }
 
-    async pushBlock(blockInfo: IndexedBlockInfo) {
-        const currentBlock = blockInfo.block.block_num;
-        if (this.totalPushed != 0 && currentBlock != this.lastPushed + 1)
-            throw new Error(`Expected: ${this.lastPushed + 1} and got ${currentBlock}`);
+    async pushBlock(block: IndexedBlock) {
+        const currentBlock = block.blockNum;
+        if (this.totalPushed != BIGINT_0 && currentBlock != this.lastPushed + BIGINT_1)
+            throw new Error(`Expected: ${this.lastPushed + BIGINT_1} and got ${currentBlock}`);
 
-        const suffix = this.getSuffixForBlock(blockInfo.block.block_num);
+        const suffix = this.getSuffixForBlock(block.blockNum);
         const txIndex = `${this.chainName}-${this.esconfig.suffix.transaction}-${suffix}`;
         const bkIndex = `${this.chainName}-${this.esconfig.suffix.block}-${suffix}`;
-        const acIndex = `${this.chainName}-${this.esconfig.suffix.account}-${suffix}`;
-        const acsIndex = `${this.chainName}-${this.esconfig.suffix.accountstate}-${suffix}`;
-        const errIndex = `${this.chainName}-${this.esconfig.suffix.error}-${suffix}`;
-
-        const txOperations = blockInfo.transactions.flatMap(
-            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc['@raw'].trx_index}`}}, doc]);
-
-        const accOperations = blockInfo.deltas.account.flatMap(
-            doc => [
-                {create: {_index: acIndex, _id: `${this.chainName}-acc-${currentBlock}-${doc.ordinal}`}},
-                {timestamp: blockInfo.block["@timestamp"], ...doc}
-            ]
-        );
-
-        const accStateOperations = blockInfo.deltas.accountstate.flatMap(
-            doc => [
-                {create: {_index: acIndex, _id: `${this.chainName}-accstate-${currentBlock}-${doc.ordinal}`}},
-                {timestamp: blockInfo.block["@timestamp"], ...doc}
-            ]
-        );
-
-        const errOperations = blockInfo.errors.flatMap(
-            doc => [{index: {_index: errIndex}}, doc]);
 
         const operations = [];
-        Array.prototype.push.apply(operations, errOperations);
+
+        const txOperations = block.transactions.flatMap(
+            doc => [{create: {_index: txIndex, _id: `${this.chainName}-tx-${currentBlock}-${doc['@raw'].trx_index}`}}, doc]);
+
         Array.prototype.push.apply(operations, txOperations);
-        Array.prototype.push.apply(operations, accOperations);
-        Array.prototype.push.apply(operations, accStateOperations);
-        operations.push({create: {_index: bkIndex, _id: `${this.chainName}-block-${currentBlock}`}}, blockInfo.block);
+
+        if (featureManager.isFeatureEnabled('STORE_ACC_DELTAS')) {
+            const acIndex = `${this.chainName}-${this.esconfig.suffix.account}-${suffix}`;
+            const acsIndex = `${this.chainName}-${this.esconfig.suffix.accountstate}-${suffix}`;
+
+            const accOperations = block.deltas.account.flatMap(
+                doc => [
+                    {create: {_index: acIndex, _id: `${this.chainName}-acc-${currentBlock}-${doc.ordinal}`}},
+                    {timestamp: block.timestamp, ...doc}
+                ]
+            );
+
+            const accStateOperations = block.deltas.accountstate.flatMap(
+                doc => [
+                    {create: {_index: acsIndex, _id: `${this.chainName}-accstate-${currentBlock}-${doc.ordinal}`}},
+                    {timestamp: block.timestamp, ...doc}
+                ]
+            );
+
+            Array.prototype.push.apply(operations, accOperations);
+            Array.prototype.push.apply(operations, accStateOperations);
+        }
+        operations.push({create: {_index: bkIndex, _id: `${this.chainName}-block-${currentBlock}`}}, {
+            '@timestamp': block.timestamp,
+            block_num: block.blockNum.toString(),
+            '@global': {
+                block_num: block.evmBlockNum.toString()
+            },
+            '@blockHash': block.blockHash,
+            '@evmBlockHash': block.evmBlockHash,
+            '@evmPrevBlockHash': block.evmPrevHash,
+            '@receiptsRootHash': block.receiptsRoot,
+            '@transactionsRoot': block.transactionsRoot,
+            gasUsed: block.gasUsed.toString(),
+            gasLimit: block.gasLimit.toString(),
+            txAmount: block.transactionAmount,
+            size: block.size.toString()
+        });
 
         Array.prototype.push.apply(this.opDrain, operations);
-        this.blockDrain.push(blockInfo);
+        this.blockDrain.push(block);
 
         this.lastPushed = currentBlock;
         this.totalPushed++;
@@ -1175,9 +1380,9 @@ export class ElasticConnector extends Connector {
     }
 
     forkCleanup(
-        timestamp: string,
-        lastNonForked: number,
-        lastForked: number
+        timestamp: bigint,
+        lastNonForked: bigint,
+        lastForked: bigint
     ) {
         // fix state flag
         this.lastPushed = lastNonForked;
@@ -1198,7 +1403,7 @@ export class ElasticConnector extends Connector {
         i = this.blockDrain.length;
         while (i > 0) {
             const block = this.blockDrain[i];
-            if (block && block.block.block_num > lastNonForked) {
+            if (block && block.blockNum > lastNonForked) {
                 this.blockDrain.splice(i);
             }
             i--;
@@ -1208,7 +1413,7 @@ export class ElasticConnector extends Connector {
         const suffix = this.getSuffixForBlock(lastNonForked);
         const frkIndex = `${this.chainName}-${this.esconfig.suffix.fork}-${suffix}`;
         this.opDrain.push({index: {_index: frkIndex}});
-        this.opDrain.push({timestamp, lastNonForked, lastForked});
+        this.opDrain.push({timestamp: timestamp.toString(), lastNonForked: lastNonForked.toString(), lastForked: lastForked.toString()});
     }
 
     async writeBlocks() {
@@ -1218,10 +1423,10 @@ export class ElasticConnector extends Connector {
             error_trace: true
         })
 
-        const first = this.blockDrain[0].block.block_num;
-        const last = this.blockDrain[this.blockDrain.length - 1].block.block_num;
+        const first = this.blockDrain[0].blockNum;
+        const last = this.blockDrain[this.blockDrain.length - 1].blockNum;
 
-        const lastAdjusted = Math.floor(last / this.esconfig.docsPerIndex);
+        const lastAdjusted = last / BigInt(this.esconfig.docsPerIndex);
 
         if (lastAdjusted !== this.lastDeltaIndexSuff)
             this.lastDeltaIndexSuff = lastAdjusted;
@@ -1276,8 +1481,8 @@ export class ElasticConnector extends Connector {
     }
 
     blockScroll(params: {
-        from: number,
-        to: number,
+        from: bigint,
+        to: bigint,
         tag: string,
         logLevel?: string,
         validate?: boolean,

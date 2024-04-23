@@ -201,8 +201,8 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
             "number_of_shards": shards * 2,
             "refresh_interval": refresh,
             "number_of_replicas": replicas,
-            "sort.field": ["block_num"],
-            "sort.order": ["asc"]
+            "sort.field": ["block_num", "ordinal"],
+            "sort.order": ["asc", "asc"]
         }
     };
 
@@ -215,6 +215,7 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
             "properties": {
                 "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "block_num": {"type": "long"},
+                "ordinal": {"type": "long"},
                 "index": {"type": "long"},
                 "address": {"type": "keyword"},
                 "account": {"type": "keyword"},
@@ -231,8 +232,8 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
             "number_of_shards": shards * 2,
             "refresh_interval": refresh,
             "number_of_replicas": replicas,
-            "sort.field": ["block_num"],
-            "sort.order": ["asc"]
+            "sort.field": ["block_num", "ordinal"],
+            "sort.order": ["asc", "asc"]
         }
     };
 
@@ -245,6 +246,7 @@ export function getTemplatesForChain(chain: string, suffixConfig: {[key: string]
             "properties": {
                 "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 "block_num": {"type": "long"},
+                "ordinal": {"type": "long"},
                 "index": {"type": "long"},
                 "key": {"type": "keyword"},
                 "value": {"type": "keyword"},

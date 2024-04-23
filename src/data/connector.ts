@@ -1,27 +1,15 @@
 import RPCBroadcaster from '../publisher.js';
 import {
-    BroadcasterConfig,
-    ConnectorConfig,
-    IndexedBlockInfo,
+    IndexedAccountDelta,
+    IndexedAccountStateDelta,
+    IndexedBlock, IndexedBlockHeader, IndexedTx,
     IndexerState,
 } from '../types/indexer.js';
 
-import {
-    StorageEosioAction,
-    StorageEosioDelta,
-} from '../types/evm.js';
 import {createLogger, format, Logger, transports} from "winston";
 import EventEmitter from "events";
+import {BroadcasterConfig, ConnectorConfig} from "../types/config.js";
 
-
-export interface BlockData {
-    block: StorageEosioDelta,
-    actions: StorageEosioAction[],
-    deltas: {
-        account: any[];
-        accountstate: any[];
-    }
-};
 
 export abstract class BlockScroller {
 
@@ -35,23 +23,42 @@ export abstract class BlockScroller {
     protected _isInit: boolean;
     protected _isDone: boolean;
 
-    protected from: number;               // will push blocks >= `from`
-    protected to: number;                 // will stop pushing blocks when `to` is reached
+    protected from: bigint;               // will push blocks >= `from`
+    protected to: bigint;                 // will stop pushing blocks when `to` is reached
     protected validate: boolean;          // perform schema validation on docs read from source index
 
     tag: string;                        // tag scroller, usefull when using multiple to tell them apart on logs
 
     protected logger: Logger;
 
+    protected connector: Connector;
+
+    constructor(
+        connector: Connector,
+        params: {
+            from: bigint,
+            to: bigint,
+            tag: string
+            logLevel?: string,
+            validate?: boolean
+        }
+    ) {
+        this.connector = connector;
+        this.from = params.from;
+        this.to = params.to;
+        this.tag = params.tag;
+        this.validate = params.validate ? params.validate : false;
+    }
+
     abstract init(): Promise<void>;
-    abstract nextResult(): Promise<BlockData>;
+    abstract nextResult(): Promise<IndexedBlock>;
 
     /*
      * Important before using this in a for..of statement,
      * call this.init! class gets info about indexes needed
      * for scroll from elastic
      */
-    async *[Symbol.asyncIterator](): AsyncIterableIterator<BlockData> {
+    async *[Symbol.asyncIterator](): AsyncIterableIterator<IndexedBlock> {
         do {
             const block = await this.nextResult();
             yield block;
@@ -65,8 +72,8 @@ export abstract class Connector {
     chainName: string;
     state: IndexerState;
 
-    totalPushed: number = 0;
-    lastPushed: number = 0;
+    totalPushed: bigint = 0n;
+    lastPushed: bigint = 0n;
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
@@ -96,9 +103,9 @@ export abstract class Connector {
         }));
     }
 
-    async init(): Promise<number | null> {
+    async init(): Promise<bigint | null> {
         if (typeof this.config.trimFrom === 'number') {
-            const trimBlockNum = this.config.trimFrom;
+            const trimBlockNum = BigInt(this.config.trimFrom);
             await this.purgeNewerThan(trimBlockNum);
         }
 
@@ -141,31 +148,46 @@ export abstract class Connector {
             this.stopBroadcast();
     }
 
-    abstract getIndexedBlock(blockNum: number) : Promise<StorageEosioDelta | null>;
+    abstract getTransactionsForBlock(blockNum: bigint) : Promise<IndexedTx[]>;
 
-    abstract getFirstIndexedBlock() : Promise<StorageEosioDelta | null>;
+    abstract getAccountDeltasForBlock(blockNum: bigint): Promise<IndexedAccountDelta[]>;
 
-    abstract getLastIndexedBlock() : Promise<StorageEosioDelta | null>;
+    abstract getAccountStateDeltasForBlock(blockNum: bigint): Promise<IndexedAccountStateDelta[]>;
 
-    abstract getBlockRange(from: number, to: number): Promise<BlockData[]>;
+    abstract getBlockHeader(blockNum: bigint) : Promise<IndexedBlockHeader | null>
 
-    abstract fullIntegrityCheck(): Promise<number | null>;
+    abstract getIndexedBlock(blockNum: bigint) : Promise<IndexedBlock | null>;
 
-    abstract purgeNewerThan(blockNum: number) : Promise<void>;
+    abstract getFirstIndexedBlock() : Promise<IndexedBlock | null>;
+
+    abstract getLastIndexedBlock() : Promise<IndexedBlock | null>;
+
+    async getBlockRange(from: bigint, to: bigint): Promise<IndexedBlock[]> {
+        const blocks: IndexedBlock[] = [];
+        const scroll = this.blockScroll({from, to, tag: 'get-block-range'});
+        await scroll.init();
+        for await (const block of scroll)
+            blocks.push(block);
+        return blocks;
+    }
+
+    abstract fullIntegrityCheck(): Promise<bigint | null>;
+
+    abstract purgeNewerThan(blockNum: bigint) : Promise<void>;
 
     abstract flush() : Promise<void>;
 
-    abstract pushBlock(blockInfo: IndexedBlockInfo): Promise<void>;
+    abstract pushBlock(blockInfo: IndexedBlock): Promise<void>;
 
     abstract forkCleanup(
-        timestamp: string,
-        lastNonForked: number,
-        lastForked: number
+        timestamp: bigint,
+        lastNonForked: bigint,
+        lastForked: bigint
     ): void;
 
     abstract blockScroll(params: {
-        from: number,
-        to: number,
+        from: bigint,
+        to: bigint,
         tag: string,
         logLevel?: string,
         validate?: boolean,

@@ -1,13 +1,14 @@
 import {describeMockChainTests, TestContext} from "./utils.js";
 import cloneDeep from "lodash.clonedeep";
-import {DEFAULT_CONF} from "../types/indexer.js";
 import {TelosEVMCreate, AntelopeTransfer} from "leap-mock";
 import {expect} from "chai";
+import {DEFAULT_CONF} from "../types/config";
+import {BIGINT_0} from "@ethereumjs/util";
 
 const quantity = '420.0000 TLOS';
 
 const translatorConfig = cloneDeep(DEFAULT_CONF);
-translatorConfig.source.chain.evmBlockDelta = 0;
+translatorConfig.source.chain.evmBlockDelta = BIGINT_0;
 translatorConfig.source.nodeos.stallCounter = 2;
 translatorConfig.source.nodeos.readerWorkerAmount = 1;
 translatorConfig.source.nodeos.evmWorkerAmount = 1;
@@ -64,7 +65,7 @@ describeMockChainTests(
                 }
             },
             testFn: async function (testCtx: TestContext): Promise<void> {
-                expect(testCtx.blocks[2].actions.length).to.be.eq(1);
+                expect(testCtx.blocks[2].transactions.length).to.be.eq(1);
             }
         }
     }

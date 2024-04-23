@@ -1,9 +1,10 @@
 import uWS, {TemplatedApp} from "uWebSockets.js";
 import { v4 as uuidv4 } from 'uuid';
 
-import {BroadcasterConfig, IndexedBlockInfo} from "./types/indexer.js";
-import {NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm.js";
+import {arrayToHex, NEW_HEADS_TEMPLATE, numToHex} from "./utils/evm.js";
 import {Logger} from "winston";
+import {BroadcasterConfig} from "./types/config.js";
+import {IndexedBlock} from "./types/indexer.js";
 
 
 export default class RPCBroadcaster {
@@ -61,25 +62,20 @@ export default class RPCBroadcaster {
         return Math.floor(new Date(timestamp).getTime() / 1000);
     }
 
-    broadcastBlock(blockInfo: IndexedBlockInfo) {
-        let gasUsed = 0;
-
-        if (blockInfo.transactions.length > 0)
-            gasUsed = parseInt(blockInfo.transactions[blockInfo.transactions.length - 1]['@raw'].gasusedblock, 10);
-
+    broadcastBlock(block: IndexedBlock) {
         const head = Object.assign({}, NEW_HEADS_TEMPLATE, {
-            parentHash: `0x${blockInfo.parentHash}`,
-            extraData: `0x${blockInfo.nativeHash}`,
-            receiptsRoot: `0x${blockInfo.receiptsRoot}`,
-            transactionsRoot: `0x${blockInfo.block['@transactionsRoot']}`,
-            hash: `0x${blockInfo.block["@evmBlockHash"]}`,
-            gasUsed: numToHex(gasUsed),
-            logsBloom: `0x${blockInfo.blockBloom}`,
-            number: numToHex(blockInfo.block['@global'].block_num),
-            timestamp: `0x${this.convertTimestampToEpoch(blockInfo.block['@timestamp']).toString(16)}`,
+            parentHash: `0x${arrayToHex(block.evmPrevHash)}`,
+            extraData: `0x${arrayToHex(block.blockHash)}`,
+            receiptsRoot: `0x${arrayToHex(block.receiptsRoot)}`,
+            transactionsRoot: `0x${arrayToHex(block.transactionsRoot)}`,
+            hash: `0x${arrayToHex(block.evmBlockHash)}`,
+            gasUsed: numToHex(block.gasUsed),
+            logsBloom: `0x${arrayToHex(block.logsBloom)}`,
+            number: numToHex(block.evmBlockNum),
+            timestamp: numToHex(block.timestamp),
         })
 
-        for (let trx of blockInfo.transactions)
+        for (let trx of block.transactions)
             this.broadcastData('raw', trx);
 
         this.broadcastData('head', head);
