@@ -1,10 +1,16 @@
-import {IndexerState, TranslatorConfig} from "../types/indexer.js";
+import {IndexedBlock, IndexerState} from "../types/indexer.js";
 import {TEVMIndexer} from "../indexer.js";
-import {BlockData, Connector} from "../data/connector.js";
 
 import {assert, expect} from "chai";
-import {sleep, logger, ControllerContext, NewChainInfo, ChainRuntime, getRandomPort, ControllerConfig} from "leap-mock";
+import {sleep, ControllerContext, NewChainInfo, ChainRuntime, getRandomPort, ControllerConfig} from "leap-mock";
 import {describe} from "mocha";
+
+import {portFromEndpoint} from "../utils/misc.js";
+import {ActionDescriptor} from "leap-mock/build/types.js";
+import cloneDeep from "lodash.clonedeep";
+import {TranslatorConfig} from "../types/config.js";
+import {BIGINT_2} from "@ethereumjs/util";
+
 
 
 export async function expectTranslatorSequence(
@@ -15,7 +21,7 @@ export async function expectTranslatorSequence(
     translator.state = IndexerState.HEAD;
 
     await translator.targetConnector.init();
-    await translator.targetConnector.purgeNewerThan(1);
+    await translator.targetConnector.purgeNewerThan(1n);
     await translator.targetConnector.deinit();
 
     let i = 0;
@@ -51,23 +57,11 @@ export async function expectTranslatorSequence(
         receivedSequence, blockSequence, 'Received wrong sequence from ship');
 }
 
-import {portFromEndpoint} from "../utils/misc.js";
-import {ActionDescriptor} from "leap-mock/build/types.js";
-import {
-    StorageEosioAction,
-    StorageEosioActionSchema, StorageEosioDelta,
-    StorageEosioDeltaSchema, StorageEosioGenesisDelta, StorageEosioGenesisDeltaSchema
-} from "../types/evm.js";
-import {Client} from "@elastic/elasticsearch";
-import cloneDeep from "lodash.clonedeep";
-import {arrayToHex, removeHexPrefix, ZERO_ADDR} from "../utils/evm.js";
-import {Bloom} from "@ethereumjs/vm";
-
 export interface TestContext {
     ctx: ControllerContext;
     chainInfo: NewChainInfo;
     runtime: ChainRuntime;
-    blocks: BlockData[];
+    blocks: IndexedBlock[];
 }
 
 export function describeMockChainTests(
@@ -112,8 +106,8 @@ export function describeMockChainTests(
             it(testName, async function() {
                 const chainInfo = context.getTestChain(testName);
                 const customConfig = cloneDeep(translatorConfig);
-                const minBlock = Math.min(...testInfo.sequence);
-                const maxBlock = Math.max(...testInfo.sequence);
+                const minBlock = BigInt(Math.min(...testInfo.sequence));
+                const maxBlock = BigInt(Math.max(...testInfo.sequence));
                 customConfig.target.chain = {};
                 customConfig.target.chain.startBlock = minBlock;
                 customConfig.target.chain.stopBlock = maxBlock;
@@ -125,7 +119,7 @@ export function describeMockChainTests(
                 await translator.targetConnector.init();
                 const blocks = await translator.targetConnector.getBlockRange(minBlock, maxBlock);
 
-                const blockAmount = maxBlock - minBlock + 1;
+                const blockAmount = maxBlock - minBlock + 1n;
                 expect(blocks.length).to.be.eq(blockAmount);
 
                 if (testInfo.testFn) {

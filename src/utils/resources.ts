@@ -13,7 +13,7 @@ import {ZSTDDecompress} from "simple-zstd";
 import {Client} from "@elastic/elasticsearch";
 import {TEST_RESOURCES_DIR} from "./indexer.js";
 import {runCommand} from "./docker.js";
-import {ElasticConnectorConfig} from "../types/indexer";
+import {ElasticConnectorConfig} from "../types/config.js";
 
 
 export function makeDirectory(directoryPath: string) {
@@ -208,6 +208,7 @@ export async function maybeLoadElasticDump(
     if (!existsSync(manifestPath))
         throw new Error(`elasticdump manifest not found at ${manifestPath}`);
 
+    // @ts-ignore
     const es = new Client(esConfig);
 
     const manifest = JSON.parse(readFileSync(manifestPath).toString()) as {[key: string]: ESDumpManifestEntry};

@@ -1,20 +1,15 @@
 import {
-    ConnectorConfig,
-    IndexedBlockInfo,
-    ArrowConnectorConfig,
     IndexedAccountDelta,
-    IndexedAccountStateDelta
+    IndexedAccountStateDelta, IndexedBlock, IndexedBlockHeader, IndexedInternalTx, IndexedTx, IndexedTxLog
 } from "../../types/indexer.js";
-import {BlockData, BlockScroller, Connector} from "../connector.js";
-import {BLOCK_GAS_LIMIT, EMPTY_TRIE} from "../../utils/evm.js";
-import {InternalEvmTransaction, StorageEosioAction, StorageEosioDelta} from "../../types/evm.js";
-
-import moment from "moment";
+import {BlockScroller, Connector} from "../connector.js";
+import {BLOCK_GAS_LIMIT} from "../../utils/evm.js";
 
 import {Name} from "@wharfkit/antelope";
-import {ArrowTableMapping} from "./protocol.js";
-import {ArrowBatchContextDef, ArrowBatchWriter} from "./batch.js";
 import cloneDeep from "lodash.clonedeep";
+import {ArrowConnectorConfig, ConnectorConfig} from "../../types/config.js";
+import {ArrowBatchContextDef, ArrowBatchWriter, ArrowTableMapping, RowWithRefs} from "@guilledk/arrowbatch-nodejs";
+import {featureManager} from "../../features.js";
 
 
 export const translatorDataContext: ArrowBatchContextDef = {
@@ -77,6 +72,7 @@ export const translatorDataContext: ArrowBatchContextDef = {
 
         // telos.evm state deltas
         account: [
+            {name: 'timestamp', type: 'u64'},
             {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
             {name: 'block_index', type: 'u32'},
             {name: 'index', type: 'u64'},
@@ -87,6 +83,7 @@ export const translatorDataContext: ArrowBatchContextDef = {
             {name: 'balance', type: 'bytes', length: 32},
         ],
         accountstate: [
+            {name: 'timestamp', type: 'u64'},
             {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
             {name: 'block_index', type: 'u32'},
             {name: 'scope', type: 'u64'},
@@ -115,6 +112,33 @@ const itxDef: ArrowTableMapping[] = [
 ];
 
 
+export class ArrowBlockScroller extends BlockScroller {
+
+    private lastBlock: bigint;
+
+    constructor(
+        connector: ArrowConnector,
+        params: {
+            from: bigint,
+            to: bigint,
+            tag: string
+            logLevel?: string,
+            validate?: boolean
+        }
+    ) {
+        super(connector, params);
+        this.lastBlock = params.from - 1n;
+    }
+
+    async init(): Promise<void> {}
+
+    async nextResult(): Promise<IndexedBlock> {
+       const nextBlock = await this.connector.getIndexedBlock(this.lastBlock + 1n);
+       this.lastBlock++;
+       return nextBlock;
+    }
+}
+
 export class ArrowConnector extends Connector {
 
     readonly pconfig: ArrowConnectorConfig;
@@ -142,40 +166,28 @@ export class ArrowConnector extends Connector {
         );
     }
 
-    private addBlockRow(delta: StorageEosioDelta) {
-        let receiptHash = EMPTY_TRIE;
-        if (delta["@receiptsRootHash"])
-            receiptHash = delta["@receiptsRootHash"];
-
-        let txsHash = EMPTY_TRIE;
-        if (delta["@transactionsRoot"])
-            txsHash = delta["@transactionsRoot"];
-
-        let gasUsed = 0;
-        if (delta.gasUsed)
-            gasUsed = parseInt(delta.gasUsed, 10);
-
+    private addBlockRow(block: IndexedBlockHeader) {
         this.writer.addRow(
             'block',
             [
-                delta.block_num,
-                moment.utc(delta["@timestamp"]).unix(),
-                delta["@blockHash"],
-                delta["@evmBlockHash"],
-                delta['@evmPrevBlockHash'],
-                receiptHash,
-                txsHash,
-                gasUsed,
-                delta.txAmount,
-                parseInt(delta.size, 10)
+                block.blockNum,
+                block.timestamp,
+                block.blockHash,
+                block.evmBlockHash,
+                block.evmPrevHash,
+                block.receiptsRoot,
+                block.transactionsRoot,
+                block.gasUsed,
+                block.transactionAmount,
+                Number(block.size)
             ],
-            delta
+            block
         );
     }
 
     private addItxRow(
         ordinal: number,
-        itx: InternalEvmTransaction,
+        itx: IndexedInternalTx,
         ref: any
     ) {
         this.writer.addRow(
@@ -191,7 +203,7 @@ export class ArrowConnector extends Connector {
               itx.value,
               itx.gasUsed,
               itx.output,
-              itx.subtraces,
+              itx.subTraces,
               itx.type,
               itx.depth
             ],
@@ -199,13 +211,27 @@ export class ArrowConnector extends Connector {
         );
     }
 
+    itxFromRow(fullRow: RowWithRefs): IndexedInternalTx {
+        const row = fullRow.row;
+        return {
+            callType: row[2],
+            from: row[3],
+            gas: row[4],
+            input: row[5],
+            to: row[6],
+            value: row[7],
+            gasUsed: row[8],
+            output: row[9],
+            subTraces: row[10],
+            traceAddress: row[11],
+            type: row[12],
+            depth: row[13]
+        }
+    }
+
     private addTxLogRow(
         ordinal: number,
-        log: {
-            address?: string;
-            topics?: string[];
-            data?: string;
-        },
+        log: IndexedTxLog,
         ref: any
     ) {
         this.writer.addRow(
@@ -221,72 +247,127 @@ export class ArrowConnector extends Connector {
         );
     }
 
+    txLogFromRow(fullRow: RowWithRefs): IndexedTxLog {
+        const row = fullRow.row;
+        return {
+            address: row[2],
+            topics: row[3],
+            data: row[4]
+        }
+    }
+
     private addTxRow(
-        blockNum: number,
-        tx: StorageEosioAction
+        tx: IndexedTx
     ) {
-        const evm_tx = tx['@raw'];
-        const itxs = evm_tx.itxs ?? [];
-        const logs = evm_tx.logs ?? [];
         this.writer.addRow(
             'tx',
             [
-                tx.trx_id,
+                tx.trxId,
                 this.globalTxIndex,
-                blockNum,
-                tx.action_ordinal,
+                tx.blockNum,
+                tx.actionOrdinal,
 
-                evm_tx.raw,
-                evm_tx.hash,
-                evm_tx.from,
-                evm_tx.trx_index,
-                evm_tx.block_hash,
-                evm_tx.to,
-                evm_tx.input_data,
-                evm_tx.value,
-                evm_tx.nonce,
-                evm_tx.gas_price,
-                evm_tx.gas_limit,
-                evm_tx.status,
-                itxs.length,
-                evm_tx.epoch,
-                evm_tx.createdaddr,
-                evm_tx.gasused,
-                evm_tx.gasusedblock,
-                evm_tx.charged_gas_price,
-                evm_tx.output,
-                logs.length,
-                evm_tx.logsBloom,
-                evm_tx.errors,
-                evm_tx.v, evm_tx.r, evm_tx.s
+                tx.raw,
+                tx.hash,
+                tx.from,
+                tx.trxIndex,
+                tx.blockHash,
+                tx.to,
+                tx.inputData,
+                tx.value,
+                tx.nonce,
+                tx.gasPrice,
+                tx.gasLimit,
+                tx.status,
+                tx.itxs.length,
+                tx.epoch,
+                tx.createAddr,
+                tx.gasUsed,
+                tx.gasUsedBlock,
+                tx.chargedGasPrice,
+                tx.output,
+                tx.logs.length,
+                tx.logsBloom,
+                tx.errors,
+                tx.v, tx.r, tx.s
             ],
-            evm_tx
+            tx
         );
 
-        if (this.config.compatLevel.mayor == 1)
-            itxs.forEach(
-                (itx, index) => this.addItxRow(index, itx, evm_tx));
+        if (featureManager.isFeatureEnabled('STORE_ITXS')) {
+            tx.itxs.forEach(
+                (itx, index) => this.addItxRow(index, itx, tx));
+        }
 
-        logs.forEach(
-            (log, index) => this.addTxLogRow(index, log, evm_tx));
+        tx.logs.forEach(
+            (log, index) => this.addTxLogRow(index, log, tx));
 
         this.globalTxIndex++;
+    }
+
+    txFromRow(fullRow: RowWithRefs): IndexedTx {
+        const row = fullRow.row;
+
+        let itxs = undefined;
+        if (featureManager.isFeatureEnabled('STORE_ITXS')) {
+            const refs = fullRow.refs.get('itx') ?? [];
+            itxs = refs.map(itxRow => this.itxFromRow(itxRow));
+        }
+
+        const refs = fullRow.refs.get('tx_log') ?? [];
+        const logs = refs.map(logRow => this.txLogFromRow(logRow));
+
+        return {
+            trxId: row[0],
+            trxIndex: row[7],
+            actionOrdinal: row[3],
+            blockNum: row[2],
+            blockHash: row[8],
+
+            hash: row[5],
+            raw: row[4],
+
+            from: row[6],
+            to: row[9],
+            inputData: row[10],
+            value:  row[11],
+            nonce:  row[12],
+            gasPrice:  row[13],
+            gasLimit:  row[14],
+            v:  row[26],
+            r:  row[27],
+            s:  row[28],
+
+            // receipt
+            status: row[15],
+            itxs,
+            epoch: row[17],
+            createAddr: row[18],
+            gasUsed: row[19],
+            gasUsedBlock: row[20],
+            chargedGasPrice: row[21],
+            output:  row[22],
+            logs,
+            logsBloom: row[24],
+            errors: row[25]
+        }
     }
 
     private addAccountRow(delta: IndexedAccountDelta) {
         this.writer.addRow(
             'account',
             [
-                delta.block_num,
+                delta.timestamp,
+                delta.blockNum,
                 delta.ordinal,
                 delta.index,
                 delta.address,
                 Name.from(delta.account).value.toString(),
                 delta.nonce,
-                new Uint8Array(delta.code),
+                delta.code,
                 delta.balance
             ],
-            delta
+            `block: ${delta.blockNum} ord: ${delta.ordinal}`
         );
     }
 
@@ -294,37 +375,91 @@ export class ArrowConnector extends Connector {
         this.writer.addRow(
             'accountstate',
             [
-                delta.block_num,
+                delta.timestamp,
+                delta.blockNum,
                 delta.ordinal,
                 Name.from(delta.scope).value.toString(),
                 delta.index,
                 delta.key,
                 delta.value
             ],
-            delta
+            `block: ${delta.blockNum} ord: ${delta.ordinal}`
         );
     }
 
-    deltaFromRow(row: any[]): StorageEosioDelta {
+    accountDeltaFromRow(fullRow: RowWithRefs): IndexedAccountDelta {
+        const row = fullRow.row;
         return {
-            '@timestamp': moment.utc(Number(row[1]) * 1000).toISOString(),
-            block_num: parseInt(row[0].toString(10), 10),
-            '@global': {
-                block_num: Number(row[0]) - this.config.chain.evmBlockDelta
-            },
-            '@blockHash': row[2],
-            '@evmBlockHash': row[3],
-            '@evmPrevBlockHash': row[4],
-            '@receiptsRootHash': row[5],
-            '@transactionsRoot': row[6],
-            gasUsed: row[7].toString(),
-            gasLimit: BLOCK_GAS_LIMIT.toString(),
-            txAmount: row[8],
-            size: String(row[9])
+            timestamp: row[0],
+            blockNum: row[1],
+            ordinal: row[2],
+            index: row[3],
+            address: row[4],
+            account: row[5],
+            nonce: row[6],
+            code: row[7],
+            balance: row[8]
         }
     }
 
-    async init(): Promise<number | null> {
+    accountStateDeltaFromRow(fullRow: RowWithRefs): IndexedAccountStateDelta {
+        const row = fullRow.row;
+        return {
+            timestamp: row[0],
+            blockNum: row[1],
+            ordinal: row[2],
+            scope: row[3],
+            index: row[4],
+            key: row[5],
+            value: row[6]
+        }
+    }
+
+    blockFromRow(fullRow: RowWithRefs): IndexedBlock {
+        const row = fullRow.row;
+
+        const txRefs = fullRow.refs.get('tx') ?? [];
+        const transactions = txRefs.map(txRow => this.txFromRow(txRow));
+
+        let account = [];
+        let accountstate = [];
+
+        if (featureManager.isFeatureEnabled('STORE_ACC_DELTAS')) {
+            const accDeltaRefs = fullRow.refs.get('account') ?? [];
+            account = accDeltaRefs.map(accDeltaRow => this.accountDeltaFromRow(accDeltaRow));
+
+            const accStateDeltaRefs = fullRow.refs.get('accountstate') ?? [];
+            accountstate = accStateDeltaRefs.map(
+                accStateDeltaRow => this.accountStateDeltaFromRow(accStateDeltaRow));
+        }
+
+        return {
+            timestamp: row[1],
+
+            blockNum: row[0],
+            blockHash: row[2],
+
+            evmBlockNum: row[0] - this.config.chain.evmBlockDelta,
+            evmBlockHash: row[3],
+            evmPrevHash: row[4],
+
+            receiptsRoot: row[5],
+            transactionsRoot: row[6],
+            gasUsed: row[7],
+            gasLimit: BLOCK_GAS_LIMIT,
+            transactionAmount: row[8],
+            size: row[9],
+
+            transactions,
+            logsBloom: new Uint8Array(),
+            deltas: {
+                account,
+                accountstate
+            }
+        }
+    }
+
+    async init(): Promise<bigint | null> {
         await this.writer.init(
             this.config.chain.startBlock);
         return null;
@@ -339,61 +474,54 @@ export class ArrowConnector extends Connector {
             this.stopBroadcast();
     }
 
-    async getBlockRange(from: number, to: number): Promise<BlockData[]> {
-        return [];
+    async getAccountDeltasForBlock(blockNum: bigint): Promise<IndexedAccountDelta[]> {
+        const block = await this.getIndexedBlock(blockNum);
+        return block.deltas.account;
     }
 
-    async getFirstIndexedBlock(): Promise<StorageEosioDelta | null> {
+    async getAccountStateDeltasForBlock(blockNum: bigint): Promise<IndexedAccountStateDelta[]> {
+        const block = await this.getIndexedBlock(blockNum);
+        return block.deltas.accountstate;
+    }
+
+    async getBlockHeader(blockNum: bigint): Promise<IndexedBlockHeader | null> {
+        const block = await this.getIndexedBlock(blockNum);
+        delete block.deltas;
+        delete block.transactions;
+        return block;
+    }
+
+    async getTransactionsForBlock(blockNum: bigint): Promise<IndexedTx[]> {
+        const block = await this.getIndexedBlock(blockNum);
+        return block.transactions;
+    }
+
+    async getFirstIndexedBlock(): Promise<IndexedBlock | null> {
         if (!this.writer.firstOrdinal)
             return null;
 
-        return this.deltaFromRow(
-            await this.writer.getRootRow(this.writer.firstOrdinal));
+        const rootRow = await this.writer.getRow(this.writer.firstOrdinal);
+        return this.blockFromRow(rootRow);
     }
 
-    async getIndexedBlock(blockNum: number): Promise<StorageEosioDelta | null> {
-        return this.deltaFromRow(
-            await this.writer.getRootRow(BigInt(blockNum)));
+    async getIndexedBlock(blockNum: bigint): Promise<IndexedBlock | null> {
+        const rootRow = await this.writer.getRow(blockNum);
+        return this.blockFromRow(rootRow);
     }
 
-    async getLastIndexedBlock(): Promise<StorageEosioDelta> {
+    async getLastIndexedBlock(): Promise<IndexedBlock> {
         if (!this.writer.lastOrdinal)
             return null;
 
-        return this.deltaFromRow(
-            await this.writer.getRootRow(this.writer.lastOrdinal));
+        const rootRow = await this.writer.getRow(this.writer.lastOrdinal);
+        return this.blockFromRow(rootRow);
     }
 
-    private purgeMemoryFrom(blockNum: number) {
-        // purge on mem
-        // const bucketStartNum = this._currentWriteBucket * this.pconfig.bucketSize;
-        // const targetIndex = blockNum - bucketStartNum;
-
-        throw new Error(`unimplemented`);
-        // for (let i = 0; i < 10; i++)
-        //     this._blocks.columns[i].values = this._blocks.columns[i].values.slice(0, targetIndex);
+    async purgeNewerThan(blockNum: bigint): Promise<void> {
+        await this.writer.trimFrom(blockNum);
     }
 
-    async purgeNewerThan(blockNum: number): Promise<void> {
-        // purge on disk
-        // await this.reloadOnDiskBuckets();
-
-        // const deleteList = [];
-        // for (const bucket of this._blockBuckets)
-        //     if (this._bucketNameToNum(bucket) > this._adjustBlockNum(blockNum))
-        //         deleteList.push(bucket);
-
-        // for (const bucket of this._txBuckets)
-        //     if (this._bucketNameToNum(bucket) > this._adjustBlockNum(blockNum))
-        //         deleteList.push(bucket);
-
-        // await Promise.all(deleteList.map(b => this.removeBucket(b)));
-
-        // this.purgeMemoryFrom(blockNum);
-        throw new Error(`unimplemented`);
-    }
-
-    async fullIntegrityCheck(): Promise<number | null> { return null; }
+    async fullIntegrityCheck(): Promise<bigint | null> { return null; }
 
     async flush(): Promise<void> {
         await new Promise<void>(resolve => {
@@ -404,36 +532,34 @@ export class ArrowConnector extends Connector {
         });
     }
 
-    async pushBlock(blockInfo: IndexedBlockInfo): Promise<void> {
-        this.addBlockRow(blockInfo.block);
+    async pushBlock(block: IndexedBlock): Promise<void> {
+        this.addBlockRow(block);
 
-        blockInfo.transactions.forEach(
-            tx => this.addTxRow(this.lastPushed, tx));
+        block.transactions.forEach(
+            tx => this.addTxRow(tx));
 
-        blockInfo.deltas.account.forEach(
-            accountDelta => this.addAccountRow(accountDelta));
+        if (featureManager.isFeatureEnabled('STORE_ACC_DELTAS')) {
+            block.deltas.account.forEach(
+                accountDelta => this.addAccountRow(accountDelta));
 
-        blockInfo.deltas.accountstate.forEach(
-            stateDelta => this.addAccountStateRow(stateDelta));
+            block.deltas.accountstate.forEach(
+                stateDelta => this.addAccountStateRow(stateDelta));
+        }
 
-        this.lastPushed = blockInfo.block.block_num;
+        this.lastPushed = block.blockNum;
         this.writer.updateOrdinal(this.lastPushed);
     }
 
-    forkCleanup(timestamp: string, lastNonForked: number, lastForked: number): void {
-        this.purgeMemoryFrom(lastNonForked + 1);
-        this.lastPushed = lastNonForked;
-        // this.lastBlock = this._rowFromCurrentSeries(lastNonForked);
-    }
+    forkCleanup(timestamp: bigint, lastNonForked: bigint, lastForked: bigint): void {}
 
     blockScroll(params: {
-        from: number;
-        to: number;
+        from: bigint;
+        to: bigint;
         tag: string;
         logLevel?: string;
         validate?: boolean;
         scrollOpts?: any
     }): BlockScroller {
-        return null;
+        return new ArrowBlockScroller(this, params);
     }
 }

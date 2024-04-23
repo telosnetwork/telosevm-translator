@@ -8,27 +8,7 @@ import {
     isValidUnprefixedEVMAddress,
     isValidUnprefixedEVMHash,
     isValidUnprefixedHexString,
-} from "../utils/validation.js";
-
-export interface EosioEvmRaw {
-    ram_payer: string,
-    tx: string,
-    estimate_gas: boolean,
-    sender: null | string
-}
-
-export interface EosioEvmDeposit {
-    from: string,
-    to: string,
-    quantity: string,
-    memo: string
-}
-
-export interface EosioEvmWithdraw {
-    to: string,
-    quantity: string
-}
-
+} from "../../utils/validation.js";
 import { z } from 'zod';
 
 export const InternalEvmTransactionSchema = z.object({
@@ -137,40 +117,49 @@ export const StorageEosioDeltaSchema = z.object({
     gasLimit: z.string().refine(isInteger, {
         message: "Invalid gasLimit format",
     }),
-    txAmount: z.number().optional(),
+    txAmount: z.number(),
     size: z.string().refine(isInteger, {
         message: "Invalid size format",
     }),
-    code: z.string().optional(),
-    table: z.string().optional(),
 });
 
 export type StorageEosioDelta = z.infer<typeof StorageEosioDeltaSchema>;
 
-export const StorageEosioGenesisDeltaSchema = z.object({
-    "@timestamp": z.string().refine((ts) => !isNaN(Date.parse(ts)), {
+export const StorageAccountDeltaSchema = z.object({
+    timestamp: z.string().refine((ts) => !isNaN(Date.parse(ts)), {
         message: "Invalid timestamp format",
     }),
     block_num: z.number(),
-    "@global": z.object({
-        block_num: z.number(),
-    }),
-    "@blockHash": z.string().refine(isValidAntelopeHash, {
-        message: "Invalid block hash format",
-    }),
-    "@evmBlockHash": z.string().refine(isValidUnprefixedEVMHash, {
-        message: "Invalid EVM block hash format",
-    }),
-    "@evmPrevBlockHash": z.string().refine(isValidUnprefixedEVMHash, {
-        message: "Invalid EVM previous block hash format",
-    })
+    ordinal: z.number(),
+    index: z.number(),
+    address: z.string(),
+    account: z.string(),
+    nonce: z.number(),
+    code: z.string(),
+    balance: z.string(),
 });
 
-export type StorageEosioGenesisDelta = z.infer<typeof StorageEosioGenesisDeltaSchema>;
+export type StorageAccountDelta = z.infer<typeof StorageAccountDeltaSchema>;
+
+export const StorageAccountStateDeltaSchema = z.object({
+    timestamp: z.string().refine((ts) => !isNaN(Date.parse(ts)), {
+        message: "Invalid timestamp format",
+    }),
+    block_num: z.number(),
+    ordinal: z.number(),
+    scope: z.string(),
+    index: z.number(),
+    key: z.string(),
+    value: z.string(),
+});
+
+export type StorageAccountStateDelta = z.infer<typeof StorageAccountStateDeltaSchema>;
 
 export function isStorableDocument(obj: any): boolean {
     // use genesis schema for delta docs as its more permissive
-    const isDelta = StorageEosioGenesisDeltaSchema.safeParse(obj).success;
+    const isDelta = StorageEosioDeltaSchema.safeParse(obj).success;
     const isAction = StorageEosioActionSchema.safeParse(obj).success;
-    return isAction || isDelta;
+    const isAccDelta = StorageAccountDeltaSchema.safeParse(obj).success;
+    const isAccStateDelta = StorageAccountStateDeltaSchema.safeParse(obj).success;
+    return isAction || isDelta || isAccDelta || isAccStateDelta;
 }

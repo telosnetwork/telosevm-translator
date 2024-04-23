@@ -1,7 +1,8 @@
-import {IndexedBlockInfo} from "../types/indexer.js";
-import {arrayToHex, removeHexPrefix, ZERO_HASH} from "../utils/evm.js";
+import {IndexedBlock} from "../types/indexer.js";
+import {arrayToHex, EMPTY_TRIE_BUF, removeHexPrefix, ZERO_HASH, ZERO_HASH_BUF} from "../utils/evm.js";
 import {Bloom} from "@ethereumjs/vm";
 import {mergeDeep} from "../utils/misc.js";
+import {undefined} from "zod";
 
 export const sampleActionDocument = {
     "@timestamp": "2022-05-02T22:42:51.500",
@@ -69,40 +70,32 @@ function getBlockTimeFrom(from: Date): Date {
     return new Date(roundedNow);
 }
 
-export function sampleIndexedBlock(block: Partial<IndexedBlockInfo>, opts: {
+export function sampleIndexedBlock(block: Partial<IndexedBlock>, opts: {
     chainStartTime?: Date
-}): IndexedBlockInfo {
-    const defaultBlock = {
-        "transactions": [],
-        "errors": [],
-        "delta": {
-            "@timestamp": new Date().toISOString(),
-            "block_num": 0,
-            "code": "eosio",
-            "table": "global",
-            "@global": {
-                "block_num": 0
-            },
-            "@evmPrevBlockHash": removeHexPrefix(ZERO_HASH),
-            "@evmBlockHash": removeHexPrefix(ZERO_HASH),
-            "@blockHash": removeHexPrefix(ZERO_HASH),
-            "@receiptsRootHash": removeHexPrefix(ZERO_HASH),
-            "@transactionsRoot": removeHexPrefix(ZERO_HASH),
-            "gasUsed": '0',
-            "gasLimit": '0',
-            "size": '0'
-        },
-        "nativeHash": removeHexPrefix(ZERO_HASH),
-        "parentHash": removeHexPrefix(ZERO_HASH),
-        "receiptsRoot": removeHexPrefix(ZERO_HASH),
-        "blockBloom": arrayToHex(new Bloom().bitvector)
+}): IndexedBlock {
+    const defaultBlock: IndexedBlock = {
+        blockHash: ZERO_HASH_BUF,
+        blockNum: 0n,
+        deltas: {account: [], accountstate: []},
+        evmBlockHash: ZERO_HASH_BUF,
+        evmBlockNum: 0n,
+        evmPrevHash: ZERO_HASH_BUF,
+        gasLimit: 0n,
+        gasUsed: 0n,
+        logsBloom: (new Bloom()).bitvector,
+        receiptsRoot: EMPTY_TRIE_BUF,
+        size: 0n,
+        timestamp: 0n,
+        transactionAmount: 0,
+        transactions: [],
+        transactionsRoot: EMPTY_TRIE_BUF
     };
-    const sample = mergeDeep(defaultBlock, block);
+    const sample: IndexedBlock = mergeDeep(defaultBlock, block);
 
     if (opts.chainStartTime) {
-        const blockSecondOffset = Math.floor(sample.delta.block_num / 2);
-        const adjustedTime = opts.chainStartTime.getTime() + (blockSecondOffset * 1000);
-        sample.delta['@timestamp'] = getBlockTimeFrom(new Date(adjustedTime)).toISOString();
+        const blockSecondOffset = sample.blockNum / 2n;
+        const adjustedTime = BigInt(opts.chainStartTime.getTime()) + blockSecondOffset;
+        sample.timestamp = adjustedTime;
     }
 
     return sample;
