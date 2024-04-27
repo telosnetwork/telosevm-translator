@@ -44,8 +44,8 @@ export function getTemplatesForChain(
                         'value': {'type': 'text'},
                         'value_d': {'type': 'text'},
                         'nonce': {'type': 'long'},
-                        'gas_price': {'type': 'text'},
-                        'gas_limit': {'type': 'text'},
+                        'gas_price': {'type': 'double'},
+                        'gas_limit': {'type': 'double'},
                         'status': {'type': 'byte'},
                         'itxs': {
                             'properties': {
@@ -67,9 +67,9 @@ export function getTemplatesForChain(
                         },
                         'epoch': {'type': 'long'},
                         'createdaddr': {'type': 'keyword'},
-                        'charged_gas_price': {'type': 'text'},
-                        'gasused': {'type': 'text'},
-                        'gasusedblock': {'type': 'text'},
+                        'charged_gas_price': {'type': 'double'},
+                        'gasused': {'type': 'long'},
+                        'gasusedblock': {'type': 'long'},
                         'output': {'enabled': false},
                         'logs': {
                             'properties': {
@@ -116,8 +116,8 @@ export function getTemplatesForChain(
                 '@receiptsRootHash': {'type': 'keyword'},
                 '@transactionsRoot': {'type': 'keyword'},
 
-                'gasUsed': {'type': 'text'},
-                'gasLimit': {'type': 'text'},
+                'gasUsed': {'type': 'long'},
+                'gasLimit': {'type': 'long'},
                 'size': {'type': 'long'},
                 'txAmount': {'type': 'long'},
             }
