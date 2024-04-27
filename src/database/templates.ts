@@ -118,7 +118,7 @@ export function getTemplatesForChain(
 
                 'gasUsed': {'type': 'long'},
                 'gasLimit': {'type': 'long'},
-                'size': {'type': 'long'},
+                'size': {'type': 'text'},
                 'txAmount': {'type': 'long'},
             }
         }
