@@ -509,7 +509,7 @@ export class TEVMIndexer {
             tableWhitelist: {},
             irreversibleOnly: this.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
-            maxMsgsInFlight: this.config.perf.maxMessagesInFlight || 15000,
+            maxMsgsInFlight: this.config.perf.maxMessagesInFlight || 10000,
             maxPayloadMb: Math.floor(1024 * 1.5),
             skipInitialBlockCheck: true
         });
