@@ -67,7 +67,7 @@
     "pretty-bytes": "^6.1.1",
     "progress-stream": "^2.0.0",
     "simple-zstd": "^1.4.2",
-    "tar": "^6.2.0",
+    "tar": "^6.2.1",
     "toxiproxy-node-client": "^3.0.0",
     "typescript": "4.9.5"
   }
