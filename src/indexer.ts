@@ -510,7 +510,7 @@ export class TEVMIndexer {
             irreversibleOnly: this.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
             maxMsgsInFlight: this.config.perf.maxMessagesInFlight || 10000,
-            maxPayloadMb: Math.floor(1024 * 1.5),
+            maxPayloadMb: Math.floor(this.config.perf.maxPayloadMb || (1024 * 2)),
             skipInitialBlockCheck: true
         });
 
