@@ -617,7 +617,7 @@ export class TEVMIndexer {
         let lastBlock = await this.targetConnector.getLastIndexedBlock();
 
         if (lastBlock != null &&
-            !Buffer.compare(lastBlock.evmPrevHash, ZERO_HASH_BUF)) {
+            Buffer.compare(lastBlock.evmPrevHash, ZERO_HASH_BUF) != 0) {
             // if there is a last block found on db other than genesis doc
 
             if (gap == null) {
@@ -630,21 +630,25 @@ export class TEVMIndexer {
                         `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
             }
 
-        } else if (this.dstChain.evmPrevHash != ZERO_HASH_BUF) {
+        } else if (
+            this.dstChain.evmPrevHash &&
+            Buffer.compare(this.dstChain.evmPrevHash, ZERO_HASH_BUF) !== 0) {
             // if there is an evmPrevHash set state directly
             prevHash = this.dstChain.evmPrevHash;
         }
-        this.srcChain.startBlock = startBlock;
-        this.lastBlock = startBlock - 1n;
-        this.targetConnector.lastPushed = this.lastBlock;
-        this.dstChain.evmPrevHash = prevHash;
 
         if (prevHash)
             this.logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
         else {
             this.logger.info(`starting from genesis block ${startBlock}`);
-            await this.genesisBlockInitialization();
+            startBlock = (await this.genesisBlockInitialization()) + 1n;
+            prevHash = EMPTY_TRIE_BUF;
         }
+
+        this.srcChain.startBlock = startBlock;
+        this.lastBlock = startBlock - 1n;
+        this.targetConnector.lastPushed = this.lastBlock;
+        this.dstChain.evmPrevHash = prevHash;
 
         if (this.config.source.nodeos) {
             const nodeosConfig = this.config.source.nodeos;
@@ -672,9 +676,7 @@ export class TEVMIndexer {
             process.env.ENDPOINT = this.config.source.nodeos.endpoint;
             process.env.LOG_LEVEL = this.config.logLevel;
 
-            process.env.COMPAT_MAYOR = this.config.target.compatLevel.mayor.toString();
-            process.env.COMPAT_MINOR = this.config.target.compatLevel.minor.toString();
-            process.env.COMPAT_PATCH = this.config.target.compatLevel.patch.toString();
+            process.env.COMPAT_TARGET = this.config.target.compatLevel;
 
             this.evmDeserializationPool = workerpool.pool(
                 './build/workers/handlers.js', {
@@ -694,14 +696,14 @@ export class TEVMIndexer {
         this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
-    async genesisBlockInitialization() {
+    async genesisBlockInitialization(): Promise<bigint> {
         const genesisBlock = await this.getGenesisBlock();
 
         // number of seconds since epoch
         const genesisTimestamp = moment.utc(genesisBlock.timestamp).unix();
 
         // genesis evm block num
-        const genesisEvmBlockNum = genesisBlock.block_num - this.dstChain.evmBlockDelta;
+        const genesisEvmBlockNum = BigInt(genesisBlock.block_num) - this.dstChain.evmBlockDelta;
 
         const genesisHeader = TEVMBlockHeader.fromHeaderData({
             'number': BigInt(genesisEvmBlockNum),
@@ -713,15 +715,15 @@ export class TEVMIndexer {
 
         const genesisHash = genesisHeader.hash();
 
-        if (this.dstChain.evmValidateHash != ZERO_HASH_BUF &&
+        if (this.dstChain.evmValidateHash &&
+            Buffer.compare(this.dstChain.evmValidateHash, ZERO_HASH_BUF) !== 0  &&
             genesisHash != this.dstChain.evmValidateHash) {
             this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
             throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
         }
 
         // Init state tracking attributes
-        this.lastBlock = genesisBlock.block_num;
-        this.targetConnector.lastPushed = this.lastBlock;
+        const lastBlock = BigInt(genesisBlock.block_num);
 
         this.logger.info('ethereum genesis header: ');
         this.logger.info(JSON.stringify(genesisHeader.toJSON(), null, 4));
@@ -731,7 +733,7 @@ export class TEVMIndexer {
         // if we are starting from genesis store block skeleton doc
         // for rpc to be able to find parent hash for fist block
         await this.targetConnector.pushBlock({
-            timestamp: BigInt(genesisBlock.timestamp),
+            timestamp: BigInt(genesisTimestamp),
 
             blockNum: BigInt(genesisBlock.block_num),
             blockHash: hexStringToUint8Array(genesisBlock.id.toLowerCase()),
@@ -761,6 +763,8 @@ export class TEVMIndexer {
         })
 
         this.events.emit('start');
+
+        return lastBlock;
     }
 
     private async reindexBlock(parentHash: Uint8Array, block: IndexedBlock): Promise<IndexedBlock> {
@@ -997,7 +1001,7 @@ export class TEVMIndexer {
             try {
                 // get genesis information
                 genesisBlock = await this.rpc.get_block(
-                    (this.srcChain.startBlock - 1n).toLocaleString());
+                    (this.srcChain.startBlock - 1n).toString());
 
             } catch (e) {
                 this.logger.error(e);

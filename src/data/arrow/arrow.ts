@@ -8,7 +8,13 @@ import {BLOCK_GAS_LIMIT} from "../../utils/evm.js";
 import {Name} from "@greymass/eosio";
 import cloneDeep from "lodash.clonedeep";
 import {ArrowConnectorConfig, ConnectorConfig} from "../../types/config.js";
-import {ArrowBatchContextDef, ArrowBatchWriter, ArrowTableMapping, RowWithRefs} from "@guilledk/arrowbatch-nodejs";
+import {
+    ArrowBatchContextDef,
+    ArrowBatchTableDef,
+    ArrowBatchWriter,
+    ArrowTableMapping,
+    RowWithRefs
+} from "@guilledk/arrowbatch-nodejs";
 import {featureManager} from "../../features.js";
 
 
@@ -30,86 +36,97 @@ export const translatorDataContext: ArrowBatchContextDef = {
     },
     others: {
         // transactions
-        tx: [
-            {name: 'id', type: 'checksum256'},
-            {name: 'global_index', type: 'u64'},
-            {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
-            {name: 'action_ordinal', type: 'u32'},
+        tx: {
+            map: [
+                {name: 'id', type: 'checksum256'},
+                {name: 'global_index', type: 'u64'},
+                {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
+                {name: 'action_ordinal', type: 'u32'},
 
-            {name: 'raw', type: 'bytes'},
-            {name: 'hash', type: 'checksum256'},
-            {name: 'from', type: 'checksum160', optional: true},
-            {name: 'evm_ordinal', type: 'u32'},
-            {name: 'block_hash', type: 'checksum256'},
-            {name: 'to', type: 'bytes', optional: true},
-            {name: 'input', type: 'bytes'},
-            {name: 'value', type: 'uintvar'},
-            {name: 'nonce', type: 'uintvar'},
-            {name: 'gas_price', type: 'uintvar'},
-            {name: 'gas_limit', type: 'uintvar'},
-            {name: 'status', type: 'u8'},
-            {name: 'itx_amount', type: 'u32'},
-            {name: 'epoch', type: 'u32'},
-            {name: 'created_addr', type: 'checksum160', optional: true},
-            {name: 'gas_used', type: 'uintvar'},
-            {name: 'gas_used_block', type: 'uintvar'},
-            {name: 'charged_price', type: 'uintvar'},
-            {name: 'output', type: 'bytes'},
-            {name: 'logs_amount', type: 'u32'},
-            {name: 'logs_bloom', type: 'bytes', optional: true},
-            {name: 'errors', type: 'string', optional: true, array: true},
-            {name: 'v', type: 'uintvar'},
-            {name: 'r', type: 'uintvar'},
-            {name: 's', type: 'uintvar'}
-        ],
-        tx_log: [
-            {name: 'tx_index', type: 'u64', ref: {table: 'tx', field: 'global_index'}},
-            {name: 'log_index', type: 'u32'},
-            {name: 'address', type: 'checksum160', optional: true},
-            {name: 'data', type: 'bytes', optional: true},
-            {name: 'topics', type: 'bytes', array: true, optional: true},
-        ],
+                {name: 'raw', type: 'bytes'},
+                {name: 'hash', type: 'checksum256'},
+                {name: 'from', type: 'checksum160', optional: true},
+                {name: 'evm_ordinal', type: 'u32'},
+                {name: 'block_hash', type: 'checksum256'},
+                {name: 'to', type: 'bytes', optional: true},
+                {name: 'input', type: 'bytes'},
+                {name: 'value', type: 'uintvar'},
+                {name: 'nonce', type: 'uintvar'},
+                {name: 'gas_price', type: 'uintvar'},
+                {name: 'gas_limit', type: 'uintvar'},
+                {name: 'status', type: 'u8'},
+                {name: 'itx_amount', type: 'u32'},
+                {name: 'epoch', type: 'u32'},
+                {name: 'created_addr', type: 'checksum160', optional: true},
+                {name: 'gas_used', type: 'uintvar'},
+                {name: 'gas_used_block', type: 'uintvar'},
+                {name: 'charged_price', type: 'uintvar'},
+                {name: 'output', type: 'bytes'},
+                {name: 'logs_amount', type: 'u32'},
+                {name: 'logs_bloom', type: 'bytes', optional: true},
+                {name: 'errors', type: 'string', optional: true, array: true},
+                {name: 'v', type: 'uintvar'},
+                {name: 'r', type: 'uintvar'},
+                {name: 's', type: 'uintvar'}
+            ],
+            streamSize: "256MB"
+        },
+        tx_log: {
+            map: [
+                {name: 'tx_index', type: 'u64', ref: {table: 'tx', field: 'global_index'}},
+                {name: 'log_index', type: 'u32'},
+                {name: 'address', type: 'checksum160', optional: true},
+                {name: 'data', type: 'bytes', optional: true},
+                {name: 'topics', type: 'bytes', array: true, optional: true},
+            ]
+        },
 
         // telos.evm state deltas
-        account: [
-            {name: 'timestamp', type: 'u64'},
-            {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
-            {name: 'block_index', type: 'u32'},
-            {name: 'index', type: 'u64'},
-            {name: 'address', type: 'checksum160'},
-            {name: 'account', type: 'u64'},
-            {name: 'nonce', type: 'u64'},
-            {name: 'code', type: 'bytes'},
-            {name: 'balance', type: 'bytes', length: 32},
-        ],
-        accountstate: [
-            {name: 'timestamp', type: 'u64'},
-            {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
-            {name: 'block_index', type: 'u32'},
-            {name: 'scope', type: 'u64'},
-            {name: 'index', type: 'u64'},
-            {name: 'key', type: 'bytes', length: 32},
-            {name: 'value', type: 'bytes', length: 32}
-        ]
+        account: {
+            map: [
+                {name: 'timestamp', type: 'u64'},
+                {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
+                {name: 'block_index', type: 'u32'},
+                {name: 'index', type: 'u64'},
+                {name: 'address', type: 'checksum160'},
+                {name: 'account', type: 'u64'},
+                {name: 'nonce', type: 'u64'},
+                {name: 'code', type: 'bytes'},
+                {name: 'balance', type: 'bytes', length: 32},
+            ]
+        },
+        accountstate: {
+            map: [
+                {name: 'timestamp', type: 'u64'},
+                {name: 'block_num', type: 'u64', ref: {table: 'root', field: 'block_num'}},
+                {name: 'block_index', type: 'u32'},
+                {name: 'scope', type: 'u64'},
+                {name: 'index', type: 'u64'},
+                {name: 'key', type: 'bytes', length: 32},
+                {name: 'value', type: 'bytes', length: 32}
+            ]
+        }
     }
 };
 
 // 1.x compat, internal transactions
-const itxDef: ArrowTableMapping[] = [
-    {name: 'tx_index', type: 'u64', ref: {table: 'tx', field: 'global_index'}},
-    {name: 'itx_index', type: 'u32'},
-    {name: 'call_type', type: 'bytes'},
-    {name: 'from', type: 'checksum160'},
-    {name: 'gas', type: 'uintvar'},
-    {name: 'input', type: 'bytes'},
-    {name: 'to', type: 'bytes'},
-    {name: 'value', type: 'uintvar'},
-    {name: 'gas_used', type: 'uintvar'},
-    {name: 'output', type: 'bytes'},
-    {name: 'subtraces', type: 'u16'},
-    {name: 'type', type: 'string'},
-    {name: 'depth', type: 'string'}
-];
+const itxDef: ArrowBatchTableDef = {
+    map: [
+        {name: 'tx_index', type: 'u64', ref: {table: 'tx', field: 'global_index'}},
+        {name: 'itx_index', type: 'u32'},
+        {name: 'call_type', type: 'bytes'},
+        {name: 'from', type: 'checksum160'},
+        {name: 'gas', type: 'uintvar'},
+        {name: 'input', type: 'bytes'},
+        {name: 'to', type: 'bytes'},
+        {name: 'value', type: 'uintvar'},
+        {name: 'gas_used', type: 'uintvar'},
+        {name: 'output', type: 'bytes'},
+        {name: 'subtraces', type: 'u16'},
+        {name: 'type', type: 'string'},
+        {name: 'depth', type: 'string'}
+    ]
+};
 
 
 export class ArrowBlockScroller extends BlockScroller {
@@ -156,7 +173,7 @@ export class ArrowConnector extends Connector {
         this.pconfig = config.arrow;
 
         const dataContext = cloneDeep(translatorDataContext);
-        if (config.compatLevel.mayor == 1)
+        if (featureManager.isFeatureEnabled('STORE_ITXS'))
             dataContext.others.itx = itxDef;
 
         this.writer = new ArrowBatchWriter(
@@ -166,49 +183,29 @@ export class ArrowConnector extends Connector {
         );
     }
 
-    private addBlockRow(block: IndexedBlockHeader) {
-        this.writer.addRow(
-            'block',
-            [
-                block.blockNum,
-                block.timestamp,
-                block.blockHash,
-                block.evmBlockHash,
-                block.evmPrevHash,
-                block.receiptsRoot,
-                block.transactionsRoot,
-                block.gasUsed,
-                block.transactionAmount,
-                Number(block.size)
-            ],
-            block
-        );
-    }
-
-    private addItxRow(
+    private rowFromItx(
         ordinal: number,
         itx: IndexedInternalTx,
         ref: any
     ) {
-        this.writer.addRow(
-          'itx',
-          [
-              this.globalTxIndex,
-              ordinal,
-              itx.callType,
-              itx.from,
-              itx.gas,
-              itx.input,
-              itx.to,
-              itx.value,
-              itx.gasUsed,
-              itx.output,
-              itx.subTraces,
-              itx.type,
-              itx.depth
-            ],
-            ref
-        );
+          return {
+              row: [
+                  this.globalTxIndex,
+                  ordinal,
+                  itx.callType,
+                  itx.from,
+                  itx.gas,
+                  itx.input,
+                  itx.to,
+                  itx.value,
+                  itx.gasUsed,
+                  itx.output,
+                  itx.subTraces,
+                  itx.type,
+                  itx.depth
+                ],
+            refs: new Map()
+        };
     }
 
     itxFromRow(fullRow: RowWithRefs): IndexedInternalTx {
@@ -229,22 +226,21 @@ export class ArrowConnector extends Connector {
         }
     }
 
-    private addTxLogRow(
+    private rowFromTxLog(
         ordinal: number,
         log: IndexedTxLog,
         ref: any
     ) {
-        this.writer.addRow(
-            'tx_log',
-            [
+        return {
+            row: [
                 this.globalTxIndex,
                 ordinal,
                 log.address,
                 log.data,
                 log.topics
             ],
-            ref
-        );
+            refs: new Map()
+        };
     }
 
     txLogFromRow(fullRow: RowWithRefs): IndexedTxLog {
@@ -256,53 +252,61 @@ export class ArrowConnector extends Connector {
         }
     }
 
-    private addTxRow(
+    private rowFromTx(
         tx: IndexedTx
     ) {
-        this.writer.addRow(
-            'tx',
-            [
-                tx.trxId,
-                this.globalTxIndex,
-                tx.blockNum,
-                tx.actionOrdinal,
+        const refs = new Map<string, RowWithRefs[]>();
+        const row = [
+            tx.trxId,
+            this.globalTxIndex,
+            tx.blockNum + this.config.chain.evmBlockDelta,
+            tx.actionOrdinal,
 
-                tx.raw,
-                tx.hash,
-                tx.from,
-                tx.trxIndex,
-                tx.blockHash,
-                tx.to,
-                tx.inputData,
-                tx.value,
-                tx.nonce,
-                tx.gasPrice,
-                tx.gasLimit,
-                tx.status,
-                tx.itxs.length,
-                tx.epoch,
-                tx.createAddr,
-                tx.gasUsed,
-                tx.gasUsedBlock,
-                tx.chargedGasPrice,
-                tx.output,
-                tx.logs.length,
-                tx.logsBloom,
-                tx.errors,
-                tx.v, tx.r, tx.s
-            ],
-            tx
-        );
+            tx.raw,
+            tx.hash,
+            tx.from,
+            tx.trxIndex,
+            tx.blockHash,
+            tx.to,
+            tx.inputData,
+            tx.value,
+            tx.nonce,
+            tx.gasPrice,
+            tx.gasLimit,
+            tx.status,
+            tx.itxs.length,
+            tx.epoch,
+            tx.createAddr,
+            tx.gasUsed,
+            tx.gasUsedBlock,
+            tx.chargedGasPrice,
+            tx.output,
+            tx.logs.length,
+            tx.logsBloom,
+            tx.errors,
+            tx.v, tx.r, tx.s
+        ];
 
         if (featureManager.isFeatureEnabled('STORE_ITXS')) {
-            tx.itxs.forEach(
-                (itx, index) => this.addItxRow(index, itx, tx));
+            refs.set(
+                'itx',
+                tx.itxs.map(
+                    (itx, index) => this.rowFromItx(index, itx, tx))
+            );
         }
 
-        tx.logs.forEach(
-            (log, index) => this.addTxLogRow(index, log, tx));
+        refs.set(
+            'itx',
+            tx.logs.map(
+                (log, index) => this.rowFromTxLog(index, log, tx))
+        );
 
         this.globalTxIndex++;
+
+        return {
+            row,
+            refs
+        }
     }
 
     txFromRow(fullRow: RowWithRefs): IndexedTx {
@@ -353,10 +357,9 @@ export class ArrowConnector extends Connector {
         }
     }
 
-    private addAccountRow(delta: IndexedAccountDelta) {
-        this.writer.addRow(
-            'account',
-            [
+    private rowFromAccount(delta: IndexedAccountDelta) {
+        return {
+            row: [
                 delta.timestamp,
                 delta.blockNum,
                 delta.ordinal,
@@ -367,14 +370,13 @@ export class ArrowConnector extends Connector {
                 delta.code,
                 delta.balance
             ],
-            `block: ${delta.blockNum} ord: ${delta.ordinal}`
-        );
+            refs: new Map()
+        };
     }
 
-    private addAccountStateRow(delta: IndexedAccountStateDelta) {
-        this.writer.addRow(
-            'accountstate',
-            [
+    private rowFromAccountState(delta: IndexedAccountStateDelta) {
+        return {
+            row: [
                 delta.timestamp,
                 delta.blockNum,
                 delta.ordinal,
@@ -383,8 +385,8 @@ export class ArrowConnector extends Connector {
                 delta.key,
                 delta.value
             ],
-            `block: ${delta.blockNum} ord: ${delta.ordinal}`
-        );
+            refs: new Map()
+        };
     }
 
     accountDeltaFromRow(fullRow: RowWithRefs): IndexedAccountDelta {
@@ -457,6 +459,46 @@ export class ArrowConnector extends Connector {
                 accountstate
             }
         }
+    }
+
+    private rowFromBlock(block: IndexedBlock) {
+        const blockRow = {
+            row: [
+                block.blockNum,
+                block.timestamp,
+                block.blockHash,
+                block.evmBlockHash,
+                block.evmPrevHash,
+                block.receiptsRoot,
+                block.transactionsRoot,
+                block.gasUsed,
+                block.transactionAmount,
+                Number(block.size)
+            ],
+            refs: new Map()
+        };
+
+        blockRow.refs.set(
+            'tx',
+            block.transactions.map(
+                tx => this.rowFromTx(tx))
+        );
+
+        if (featureManager.isFeatureEnabled('STORE_ACC_DELTAS')) {
+            blockRow.refs.set(
+                'account',
+                block.deltas.account.map(
+                    accountDelta => this.rowFromAccount(accountDelta))
+            );
+
+            blockRow.refs.set(
+                'accountstate',
+                block.deltas.accountstate.map(
+                    stateDelta => this.rowFromAccountState(stateDelta))
+            );
+        }
+
+        return blockRow;
     }
 
     async init(): Promise<bigint | null> {
@@ -533,21 +575,9 @@ export class ArrowConnector extends Connector {
     }
 
     async pushBlock(block: IndexedBlock): Promise<void> {
-        this.addBlockRow(block);
-
-        block.transactions.forEach(
-            tx => this.addTxRow(tx));
-
-        if (featureManager.isFeatureEnabled('STORE_ACC_DELTAS')) {
-            block.deltas.account.forEach(
-                accountDelta => this.addAccountRow(accountDelta));
-
-            block.deltas.accountstate.forEach(
-                stateDelta => this.addAccountStateRow(stateDelta));
-        }
-
+        const rootRow: RowWithRefs = this.rowFromBlock(block);
+        this.writer.pushRow('block', rootRow);
         this.lastPushed = block.blockNum;
-        this.writer.updateOrdinal(this.lastPushed);
     }
 
     forkCleanup(timestamp: bigint, lastNonForked: bigint, lastForked: bigint): void {}

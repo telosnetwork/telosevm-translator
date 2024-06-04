@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import {ArrowBatchCompression, ArrowBatchWriter} from "@guilledk/arrowbatch-nodejs";
+import {packageInfo} from "../utils/indexer.js";
+
+import {ArrowBatchConfigSchema} from "@guilledk/arrowbatch-nodejs";
 
 // Custom type for bigint
 const BigIntSchema = z.union([
@@ -54,12 +56,6 @@ const HashSchema = z.string().transform((val, ctx) => {
     return bytes;
 });
 
-const CompatTargetSchema = z.object({
-    mayor: z.number(),
-    minor: z.number(),
-    patch: z.number(),
-});
-
 const ElasticConnectorConfigSchema = z.object({
     node: z.string(),
     auth: z.object({
@@ -81,14 +77,6 @@ const ElasticConnectorConfigSchema = z.object({
     }),
 });
 
-const ArrowConnectorConfigSchema = z.object({
-    dataDir: z.string(),
-    writerLogLevel: z.string().optional(),
-    bucketSize: BigIntSchema.default(ArrowBatchWriter.DEFAULT_BUCKET_SIZE),
-    dumpSize: BigIntSchema.default(ArrowBatchWriter.DEFAULT_DUMP_SIZE),
-    compression: z.nativeEnum(ArrowBatchCompression).optional(),
-});
-
 const ChainConfigSchema = z.object({
     chainName: z.string(),
     chainId: z.number(),
@@ -108,8 +96,8 @@ const BroadcasterConfigSchema = z.object({
 const ConnectorConfigSchema = z.object({
     chain: ChainConfigSchema.partial().optional(),
     elastic: ElasticConnectorConfigSchema.optional(),
-    arrow: ArrowConnectorConfigSchema.optional(),
-    compatLevel: CompatTargetSchema.optional(),
+    arrow: ArrowBatchConfigSchema.optional(),
+    compatLevel: z.string().default(packageInfo.version),
     logLevel: z.string().optional(),
     trimFrom: z.number().optional(),
     skipIntegrityCheck: z.boolean().optional(),
@@ -145,9 +133,8 @@ const TranslatorConfigSchema = z.object({
     broadcast: BroadcasterConfigSchema,
 });
 
-export type CompatTarget = z.infer<typeof CompatTargetSchema>;
 export type ElasticConnectorConfig = z.infer<typeof ElasticConnectorConfigSchema>;
-export type ArrowConnectorConfig = z.infer<typeof ArrowConnectorConfigSchema>;
+export type ArrowConnectorConfig = z.infer<typeof ArrowBatchConfigSchema>;
 export type ChainConfig = z.infer<typeof ChainConfigSchema>;
 export type BroadcasterConfig = z.infer<typeof BroadcasterConfigSchema>;
 export type ConnectorConfig = z.infer<typeof ConnectorConfigSchema>;
@@ -207,9 +194,7 @@ export const DEFAULT_CONF = TranslatorConfigSchema.parse({
 });
 
 export {
-    CompatTargetSchema,
     ElasticConnectorConfigSchema,
-    ArrowConnectorConfigSchema,
     ChainConfigSchema,
     BroadcasterConfigSchema,
     ConnectorConfigSchema,
