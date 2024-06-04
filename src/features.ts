@@ -1,22 +1,17 @@
-import {CompatTarget} from "./types/config.js";
 import semver from 'semver';
 
 export interface CompatRange {
-    from: CompatTarget
-    to?: CompatTarget
-}
-
-function compatTargetStr(target: CompatTarget) : string {
-    return `${target.mayor}.${target.minor}.${target.patch}`;
+    from: string
+    to?: string
 }
 
 export class FeatureManager {
 
-    readonly targetCompat: CompatTarget
+    readonly targetCompat: string
 
     readonly features: Map<string, CompatRange>;
 
-    constructor(target: CompatTarget, features: {[key: string]: CompatRange}) {
+    constructor(target: string, features: {[key: string]: CompatRange}) {
         this.targetCompat = target;
 
         this.features = new Map<string, CompatRange>(Object.entries(features));
@@ -25,10 +20,10 @@ export class FeatureManager {
     isFeatureEnabled(name: string) : boolean {
         const range = this.features.get(name);
 
-        if (semver.lt(compatTargetStr(this.targetCompat), compatTargetStr(range.from)))
+        if (semver.lt(this.targetCompat, range.from))
             return false;
 
-        if (range.to && semver.gte(compatTargetStr(this.targetCompat), compatTargetStr(range.to)))
+        if (range.to && semver.gte(this.targetCompat, range.to))
             return false;
 
         return true;
@@ -38,22 +33,16 @@ export class FeatureManager {
 
 export let featureManager = undefined;
 
-export function initFeatureManager(target: CompatTarget) {
+export function initFeatureManager(target: string) {
     featureManager = new FeatureManager(
         target,
         {
             'STORE_ITXS': {
-                from: {
-                    mayor: 1, minor: 0, patch: 0
-                },
-                to: {
-                    mayor: 2, minor: 0, patch: 0
-                }
+                from: '1.0.0',
+                to: '2.0.0'
             },
             'STORE_ACC_DELTAS': {
-                from: {
-                    mayor: 2, minor: 0, patch: 0
-                }
+                from: '2.0.0'
             }
         }
     );

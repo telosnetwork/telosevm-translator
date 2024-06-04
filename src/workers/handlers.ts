@@ -16,7 +16,6 @@ import {Bloom} from "@ethereumjs/vm";
 import {TEVMTransaction} from "telos-evm-custom-ds";
 import {EosioEvmDeposit, EosioEvmRaw, EosioEvmWithdraw, IndexedInternalTx, IndexedTx} from "../types/indexer.js";
 import {featureManager, initFeatureManager} from "../features.js";
-import {CompatTarget} from "../types/config";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
@@ -41,11 +40,7 @@ logger.add(new transports.Console({
     level: process.env.LOG_LEVEL
 }));
 
-initFeatureManager({
-    mayor: parseInt(process.env.COMPAT_MAYOR),
-    minor: parseInt(process.env.COMPAT_MINOR),
-    patch: parseInt(process.env.COMPAT_PATCH)
-});
+initFeatureManager(process.env.COMPAT_TARGET);
 
 export interface HandlerArguments {
     nativeBlockHash: string;
