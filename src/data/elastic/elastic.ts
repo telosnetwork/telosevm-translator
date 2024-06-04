@@ -675,7 +675,7 @@ export class ElasticConnector extends Connector {
         for (const txDoc of txDocs) {
 
             let itxs = undefined;
-            if (this.config.compatLevel.mayor == 1) {
+            if (featureManager.isFeatureEnabled('STORE_ITXS')) {
                 itxs = txDoc.itxs.map((itx: InternalEvmTransaction) => {
                     return {
                         callType: itx.callType,
