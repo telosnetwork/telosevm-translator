@@ -36,7 +36,7 @@
     "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc10",
     "telos-evm-custom-ds": "1.1.1-rc1",
     "@wharfkit/antelope": "^1.0.7",
-    "@guilledk/arrowbatch-nodejs": "1.0.0-rc6",
+    "@guilledk/arrowbatch-nodejs": "1.0.0-rc16",
     "apache-arrow": "^15.0.0",
     "bufferutil": "^4.0.8",
     "commander": "^11.1.0",
