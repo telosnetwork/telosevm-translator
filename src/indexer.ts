@@ -20,9 +20,8 @@ import {
 } from './utils/evm.js'
 
 import moment from 'moment';
-import {JsonRpc, RpcInterfaces} from 'eosjs';
 import {getRPCClient} from './utils/eosio.js';
-import {ABI} from "@greymass/eosio";
+import {ABI} from "@wharfkit/antelope";
 
 import EventEmitter from "events";
 
@@ -38,6 +37,7 @@ import {HandlerArguments} from "./workers/handlers";
 import cloneDeep from "lodash.clonedeep";
 import {clearInterval} from "timers";
 import {Bloom} from "@ethereumjs/vm";
+import {APIClient} from "@wharfkit/antelope";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -50,8 +50,6 @@ export class TEVMIndexer {
     stopBlock: number;  // native block number to stop indexer from as defined by env vars or config
     ethGenesisHash: string;  // calculated ethereum genesis hash
 
-    genesisBlock: RpcInterfaces.GetBlockResult = null;
-
     state: IndexerState = IndexerState.SYNC;  // global indexer state, either HEAD or SYNC, changes buffered-writes-to-db machinery to be write-asap
 
     config: IndexerConfig;  // global indexer config as defined by envoinrment or config file
@@ -59,8 +57,8 @@ export class TEVMIndexer {
     private reader: HyperionSequentialReader;  // websocket state history connector, deserializes nodeos protocol
     private readerAbis: {account: string, abi: ABI}[];
 
-    private rpc: JsonRpc;
-    private remoteRpc: JsonRpc;
+    private rpc: APIClient;
+    private remoteRpc: APIClient;
     connector: Connector;  // custom elastic search db driver
 
     private prevHash: string;  // previous indexed block evm hash, needed by machinery (do not modify manualy)
@@ -273,7 +271,7 @@ export class TEVMIndexer {
     private async handleStateSwitch() {
         // SYNC & HEAD mode switch detection
         try {
-            this.headBlock = (await this.remoteRpc.get_info()).head_block_num;
+            this.headBlock = (await this.remoteRpc.v1.chain.get_info()).head_block_num.toNumber();
             const isHeadTarget = this.headBlock >= this.stopBlock;
             const targetBlock = isHeadTarget ? this.headBlock : this.stopBlock;
 
@@ -620,7 +618,7 @@ export class TEVMIndexer {
         if (!this.config.runtime.skipStartBlockCheck) {
             // check node actually contains first block
             try {
-                await this.rpc.get_block(startBlock);
+                await this.rpc.v1.chain.get_block(startBlock);
             } catch (error) {
                 throw new Error(
                     `Error when doing start block check: ${error.message}`);
@@ -630,7 +628,7 @@ export class TEVMIndexer {
         if (!this.config.runtime.skipRemoteCheck) {
             // check remote node is up
             try {
-                await this.remoteRpc.get_info();
+                await this.remoteRpc.v1.chain.get_info();
             } catch (error) {
                 this.logger.error(`Error while doing remote node check: ${error.message}`);
                 throw error;
@@ -659,20 +657,20 @@ export class TEVMIndexer {
     }
 
     async genesisBlockInitialization() {
-        this.genesisBlock = await this.getGenesisBlock();
+        const genesisBlock = await this.getGenesisBlock();
 
         // number of seconds since epoch
-        const genesisTimestamp = moment.utc(this.genesisBlock.timestamp).unix();
+        const genesisTimestamp = moment.utc(genesisBlock.timestamp.value.toNumber()).unix();
 
         // genesis evm block num
-        const genesisEvmBlockNum = this.genesisBlock.block_num - this.config.evmBlockDelta;
+        const genesisEvmBlockNum = genesisBlock.block_num.value.toNumber() - this.config.evmBlockDelta;
 
         const genesisHeader = TEVMBlockHeader.fromHeaderData({
             'number': BigInt(genesisEvmBlockNum),
             'stateRoot': EMPTY_TRIE_BUF,
             'gasLimit': BLOCK_GAS_LIMIT,
             'timestamp': BigInt(genesisTimestamp),
-            'extraData': hexStringToUint8Array(this.genesisBlock.id)
+            'extraData': genesisBlock.id.array
         }, {common: this.common});
 
         const genesisHash = genesisHeader.hash();
@@ -686,7 +684,7 @@ export class TEVMIndexer {
 
         // Init state tracking attributes
         this.prevHash = this.ethGenesisHash;
-        this.lastBlock = this.genesisBlock.block_num;
+        this.lastBlock = genesisBlock.block_num.value.toNumber();
         this.connector.lastPushed = this.lastBlock;
 
         this.logger.info('ethereum genesis header: ');
@@ -700,12 +698,12 @@ export class TEVMIndexer {
             transactions: [],
             errors: [],
             delta: {
-                '@timestamp': moment.utc(this.genesisBlock.timestamp).toISOString(),
-                block_num: this.genesisBlock.block_num,
+                '@timestamp': moment.utc(genesisTimestamp).toISOString(),
+                block_num: genesisBlock.block_num.value.toNumber(),
                 '@global': {
                     block_num: genesisEvmBlockNum
                 },
-                '@blockHash': this.genesisBlock.id.toLowerCase(),
+                '@blockHash': Buffer.from(genesisBlock.id.array).toString('hex'),
                 '@evmPrevBlockHash': removeHexPrefix(ZERO_HASH),
                 '@evmBlockHash': this.ethGenesisHash,
                 "@receiptsRootHash": EMPTY_TRIE,
@@ -714,7 +712,7 @@ export class TEVMIndexer {
                 "gasLimit": BLOCK_GAS_LIMIT.toString(),
                 "size": "0"
             },
-            nativeHash: this.genesisBlock.id.toLowerCase(),
+            nativeHash: Buffer.from(genesisBlock.id.array).toString('hex'),
             parentHash: '',
             receiptsRoot: '',
             blockBloom: ''
@@ -940,7 +938,7 @@ export class TEVMIndexer {
         while (genesisBlock == null) {
             try {
                 // get genesis information
-                genesisBlock = await this.rpc.get_block(
+                genesisBlock = await this.rpc.v1.chain.get_block(
                     this.startBlock - 1);
 
             } catch (e) {
