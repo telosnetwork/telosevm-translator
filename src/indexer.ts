@@ -660,7 +660,8 @@ export class TEVMIndexer {
         const genesisBlock = await this.getGenesisBlock();
 
         // number of seconds since epoch
-        const genesisTimestamp = moment.utc(genesisBlock.timestamp.value.toNumber()).unix();
+        const genesisTimestampSeconds = Math.floor(genesisBlock.timestamp.value.toNumber() / 1000);
+        const genesisTimestamp = moment.utc(genesisTimestampSeconds).unix();
 
         // genesis evm block num
         const genesisEvmBlockNum = genesisBlock.block_num.value.toNumber() - this.config.evmBlockDelta;
