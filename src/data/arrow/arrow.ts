@@ -574,9 +574,13 @@ export class ArrowConnector extends Connector {
     }
 
     async pushBlock(block: IndexedBlock): Promise<void> {
+        if (this.lastPushedHash && block.evmPrevHash !== this.lastPushedHash) {
+            throw new Error(`Attempted to build invalid chain, lastpushed hash: ${this.lastPushedHash}, current block prev hash: ${block.evmPrevHash}`);
+        }
         const rootRow: RowWithRefs = this.rowFromBlock(block);
         this.writer.pushRow('block', rootRow);
         this.lastPushed = block.blockNum;
+        this.lastPushedHash = block.evmBlockHash;
     }
 
     forkCleanup(timestamp: bigint, lastNonForked: bigint, lastForked: bigint): void {}

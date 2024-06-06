@@ -520,8 +520,6 @@ export class TEVMIndexer {
         // For debug stats
         this.pushedLastUpdate++;
 
-        this.reader.ack();
-
         return indexedBlock;
     }
 
@@ -577,6 +575,7 @@ export class TEVMIndexer {
         this.reader.events.on('block', async (decodedBlock) => {
             const indexedBlock = await this.processSHIPBlock(prevHash, decodedBlock);
             prevHash = indexedBlock.evmBlockHash;
+            this.reader.ack();
         });
         await this.reader.start();
     }
@@ -642,7 +641,7 @@ export class TEVMIndexer {
         }
 
         if (prevHash)
-            this.logger.info(`start from ${startBlock} with hash 0x${prevHash}.`);
+            this.logger.info(`start from ${startBlock} with parent hash 0x${prevHash}.`);
         else {
             this.logger.info(`starting from genesis block ${startBlock}`);
             startBlock = (await this.genesisBlockInitialization()) + 1n;
