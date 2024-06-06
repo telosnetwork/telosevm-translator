@@ -125,7 +125,9 @@ const SourceConnectorConfigSchema = ConnectorConfigSchema.extend({
         skipStartBlockCheck: z.boolean().optional(),
         skipRemoteCheck: z.boolean().optional(),
         maxMessagesInFlight: z.number().default(10000),
-        maxWsPayloadMb: z.number().default(2048)
+        maxWsPayloadMb: z.number().default(2048),
+        fetchDeltas: z.boolean().default(true),
+        fetchTraces: z.boolean().default(true)
     }).optional(),
 });
 

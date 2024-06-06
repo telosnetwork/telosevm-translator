@@ -559,7 +559,9 @@ export class TEVMIndexer {
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
             maxMsgsInFlight: nodeos.maxMessagesInFlight,
             maxPayloadMb: Math.floor(nodeos.maxWsPayloadMb),
-            skipInitialBlockCheck: true
+            skipInitialBlockCheck: true,
+            fetchTraces: nodeos.fetchTraces,
+            fetchDeltas: nodeos.fetchDeltas
         });
 
         this.reader.addContracts(this.readerAbis);
