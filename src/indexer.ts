@@ -534,6 +534,9 @@ export class TEVMIndexer {
         if (!this.config.source.nodeos)
             throw new Error('Tried to start reader but no nodeos config provided');
 
+        if (prevHash.length == 0)
+            prevHash = ZERO_HASH_BUF;
+
         const nodeos = this.config.source.nodeos;
 
         this.reader = new HyperionSequentialReader({
@@ -634,7 +637,7 @@ export class TEVMIndexer {
             }
 
         } else if (
-            this.dstChain.evmPrevHash &&
+            this.dstChain.evmPrevHash.length > 0 &&
             Buffer.compare(this.dstChain.evmPrevHash, ZERO_HASH_BUF) !== 0) {
             // if there is an evmPrevHash set state directly
             prevHash = this.dstChain.evmPrevHash;
@@ -724,7 +727,7 @@ export class TEVMIndexer {
 
         this.logger.info(`ethereum genesis hash: 0x${arrayToHex(genesisHash)}`);
 
-        if (this.dstChain.evmValidateHash &&
+        if (this.dstChain.evmValidateHash.length > 0 &&
             Buffer.compare(this.dstChain.evmValidateHash, ZERO_HASH_BUF) !== 0) {
             if (Buffer.compare(genesisHash, this.dstChain.evmValidateHash) !== 0) {
                 this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);

@@ -43,7 +43,7 @@ const Uint8ArraySchema = z.string().transform((val, ctx) => {
 const HashSchema = z.string().transform((val, ctx) => {
     const stripped = val.startsWith('0x') ? val.slice(2) : val;
     if (stripped.length === 0) {
-        return new Uint8Array(32);
+        return new Uint8Array();
     }
     if (stripped.length !== 64) {
         ctx.addIssue({
