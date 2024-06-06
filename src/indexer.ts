@@ -644,8 +644,9 @@ export class TEVMIndexer {
             this.logger.info(`start from ${startBlock} with parent hash 0x${prevHash}.`);
         else {
             this.logger.info(`starting from genesis block ${startBlock}`);
-            startBlock = (await this.genesisBlockInitialization()) + 1n;
-            prevHash = EMPTY_TRIE_BUF;
+            const [genesisHash, genesisBlockNum] = await this.genesisBlockInitialization();
+            prevHash = genesisHash;
+            startBlock = genesisBlockNum + 1n;
         }
 
         this.srcChain.startBlock = startBlock;
@@ -699,7 +700,7 @@ export class TEVMIndexer {
         this.stateSwitchTaskId = setInterval(() => this.handleStateSwitch(), 10 * 1000);
     }
 
-    async genesisBlockInitialization(): Promise<bigint> {
+    async genesisBlockInitialization(): Promise<[Uint8Array, bigint]> {
         const genesisBlock = await this.getGenesisBlock();
 
         // number of seconds since epoch
@@ -724,21 +725,26 @@ export class TEVMIndexer {
         this.logger.info(`ethereum genesis hash: 0x${arrayToHex(genesisHash)}`);
 
         if (this.dstChain.evmValidateHash &&
-            Buffer.compare(this.dstChain.evmValidateHash, ZERO_HASH_BUF) !== 0  &&
-            Buffer.compare(genesisHash, this.dstChain.evmValidateHash) !== 0) {
-            this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
-            throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
+            Buffer.compare(this.dstChain.evmValidateHash, ZERO_HASH_BUF) !== 0) {
+            if (Buffer.compare(genesisHash, this.dstChain.evmValidateHash) !== 0) {
+                this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
+                throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
+            } else {
+                // genesis hash validated, clean up dstChain.evmValidateHash to avoid double check on this.hashBlock
+                this.dstChain.evmValidateHash = new Uint8Array();
+                this.logger.info(`Validated genesis acording to config!`);
+            }
         }
 
         // Init state tracking attributes
-        const lastBlock = BigInt(genesisBlock.block_num.value.toNumber());
+        const genesisBlockNum = BigInt(genesisBlock.block_num.value.toNumber());
 
         // if we are starting from genesis store block skeleton doc
         // for rpc to be able to find parent hash for fist block
         await this.targetConnector.pushBlock({
             timestamp: BigInt(genesisTimestamp),
 
-            blockNum: BigInt(genesisBlock.block_num),
+            blockNum: genesisBlockNum,
             blockHash: genesisBlock.id.array,
 
             evmBlockNum: genesisEvmBlockNum,
@@ -767,7 +773,7 @@ export class TEVMIndexer {
 
         this.events.emit('start');
 
-        return lastBlock;
+        return [genesisHash, genesisBlockNum];
     }
 
     private async reindexBlock(parentHash: Uint8Array, block: IndexedBlock): Promise<IndexedBlock> {
