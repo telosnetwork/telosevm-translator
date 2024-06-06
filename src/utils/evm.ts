@@ -11,9 +11,7 @@ import {APIClient, Name} from "@wharfkit/antelope";
 import {IndexedTx} from "../types/indexer.js";
 
 export function arrayToHex(array: Uint8Array) {
-    if (!array)
-        return '';
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').toLowerCase();
+    return Buffer.from(array).toString('hex');
 }
 
 export function removeHexPrefix(str: string) {

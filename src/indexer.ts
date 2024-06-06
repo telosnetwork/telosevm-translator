@@ -228,10 +228,10 @@ export class TEVMIndexer {
         const currentBlockHash = blockHeader.hash();
 
         if (block.blockNum === BigInt(this.dstChain.startBlock)) {
-            if (this.dstChain.evmValidateHash &&
-                Buffer.compare(currentBlockHash, this.dstChain.evmValidateHash)) {
+            if (this.dstChain.evmValidateHash.length > 0 &&
+                Buffer.compare(currentBlockHash, this.dstChain.evmValidateHash) !== 0) {
                 this.logger.error(`Generated first block:\n${JSON.stringify(blockHeader, null, 4)}`);
-                throw new Error(`initial hash validation failed: got ${currentBlockHash} and expected ${this.dstChain.evmValidateHash}`);
+                throw new Error(`initial hash validation failed: got ${arrayToHex(currentBlockHash)} and expected ${arrayToHex(this.dstChain.evmValidateHash)}`);
             }
         }
 
@@ -904,9 +904,7 @@ export class TEVMIndexer {
             this.logger.info('-'.repeat(32));
         };
 
-        const initialHash = this.dstChain.evmPrevHash ? this.dstChain.evmPrevHash : ZERO_HASH_BUF;
-        let firstHash = undefined;
-        let parentHash = initialHash;
+        let parentHash = this.dstChain.evmPrevHash ? this.dstChain.evmPrevHash : ZERO_HASH_BUF;
 
         this.perfTaskId = setInterval(() => this.performanceMetricsTask(), 1000);
         this.events.emit('reindex-start');
@@ -931,13 +929,6 @@ export class TEVMIndexer {
                     srcBlock,
                     dstBlock
                 );
-            }
-
-            if (typeof firstHash === 'undefined') {
-                firstHash = dstBlock.evmBlockHash;
-                if (this.dstChain.evmValidateHash &&
-                    firstHash !== this.dstChain.evmValidateHash)
-                    throw new Error(`initial hash validation failed: got ${arrayToHex(firstHash)} and expected ${arrayToHex(this.dstChain.evmValidateHash)}`);
             }
 
             parentHash = dstBlock.evmBlockHash;
