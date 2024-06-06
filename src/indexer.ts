@@ -719,9 +719,14 @@ export class TEVMIndexer {
 
         const genesisHash = genesisHeader.hash();
 
+        this.logger.info('ethereum genesis header: ');
+        this.logger.info(JSON.stringify(genesisHeader.toJSON(), null, 4));
+
+        this.logger.info(`ethereum genesis hash: 0x${arrayToHex(genesisHash)}`);
+
         if (this.dstChain.evmValidateHash &&
             Buffer.compare(this.dstChain.evmValidateHash, ZERO_HASH_BUF) !== 0  &&
-            genesisHash != this.dstChain.evmValidateHash) {
+            Buffer.compare(genesisHash, this.dstChain.evmValidateHash) !== 0) {
             this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
             throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
         }
@@ -729,18 +734,13 @@ export class TEVMIndexer {
         // Init state tracking attributes
         const lastBlock = BigInt(genesisBlock.block_num.value.toNumber());
 
-        this.logger.info('ethereum genesis header: ');
-        this.logger.info(JSON.stringify(genesisHeader.toJSON(), null, 4));
-
-        this.logger.info(`ethereum genesis hash: 0x${arrayToHex(genesisHash)}`);
-
         // if we are starting from genesis store block skeleton doc
         // for rpc to be able to find parent hash for fist block
         await this.targetConnector.pushBlock({
             timestamp: BigInt(genesisTimestamp),
 
             blockNum: BigInt(genesisBlock.block_num),
-            blockHash: hexStringToUint8Array(genesisBlock.id.toLowerCase()),
+            blockHash: genesisBlock.id.array,
 
             evmBlockNum: genesisEvmBlockNum,
             evmBlockHash: genesisHash,
