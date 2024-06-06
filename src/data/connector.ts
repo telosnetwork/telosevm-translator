@@ -74,6 +74,7 @@ export abstract class Connector {
 
     totalPushed: bigint = 0n;
     lastPushed: bigint = 0n;
+    lastPushedHash: Uint8Array | null = null;
 
     broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
