@@ -15,6 +15,7 @@ import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress, unpadHex} from
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
 import {TEVMTransaction} from "telos-evm-custom-ds";
+import {fromSerializedTEVMData} from "telos-evm-custom-ds/build/utils.js";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
@@ -108,7 +109,7 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
 
         const txRaw = hexStringToUint8Array(tx.tx);
 
-        let evmTx = TEVMTransaction.fromSerializedTx(txRaw, {common});
+        let evmTx = fromSerializedTEVMData(txRaw, {common});
 
         const isSigned = evmTx.isSigned();
 
@@ -165,6 +166,16 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
 
         const inputData = arrayToHex(evmTx.data);
 
+        // EIP: 4844
+        // convert blobs into base64 string
+        let blob_versioned_hashes: string[];
+        if (evmTx.blobVersionedHashes && evmTx.blobVersionedHashes.length > 0) {
+            blob_versioned_hashes = [];
+            for (const blob of evmTx.blobVersionedHashes) {
+                blob_versioned_hashes.push(Buffer.from(blob).toString('base64'));
+            }
+        }
+
         const txBody: StorageEvmTransaction = {
             hash: '0x' + arrayToHex(evmTx.hash()),
             trx_index: args.trx_index,
@@ -185,6 +196,18 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
             gasused: BigInt(addHexPrefix(receipt.gasused)).toString(),
             gasusedblock: '',
             charged_gas_price: BigInt(addHexPrefix(receipt.charged_gas)).toString(),
+
+            // EIP 1559 & 4844
+            max_priority_fee_per_gas: evmTx.maxPriorityFeePerGas?.toString(),
+            max_fee_per_gas: evmTx.maxPriorityFeePerGas?.toString(),
+
+            // EIP 1559 & 2930 & 4844
+            access_list: evmTx.AccessListJSON,
+
+            // EIP 4844
+            max_fee_per_blob_gas: evmTx.maxFeePerBlobGas?.toString(),
+            blob_versioned_hashes,
+
             output: receipt.output,
             raw: evmTx.serialize(),
             v: v.toString(),

@@ -30,6 +30,8 @@ export interface EosioEvmWithdraw {
 }
 
 import { z } from 'zod';
+import {AccessListEIP2930Transaction, TransactionType, TxOptions} from "@ethereumjs/tx";
+import {TEVMTransaction} from "telos-evm-custom-ds";
 
 export const InteralEvmTransactionSchema = z.object({
     callType: z.string(),
@@ -47,6 +49,11 @@ export const InteralEvmTransactionSchema = z.object({
     depth: z.string(),
     extra: z.any()
 });
+
+export const AccessList = z.array(z.object({
+    address: z.string(),
+    storageKeys: z.array(z.string())
+}))
 
 export const StorageEvmTransactionSchema = z.object({
     hash: z.string().refine(obj => isValidEVMHash(obj), { message: "Invalid EVM hash" }),
@@ -76,6 +83,14 @@ export const StorageEvmTransactionSchema = z.object({
     gasused: z.string().refine(isInteger, { message: "Invalid integer" }),
     gasusedblock: z.string().refine(isInteger, { message: "Invalid integer" }),
     charged_gas_price: z.string().refine(isInteger, { message: "Invalid integer" }),
+    // EIP 1559 & 4844
+    max_priority_fee_per_gas: z.string().optional(),
+    max_fee_per_gas: z.string().optional(),
+    // EIP 1559 & 2930 & 4844
+    access_list: AccessList.optional(),
+    // EIP 4844
+    max_fee_per_blob_gas: z.string().optional(),
+    blob_versioned_hashes: z.array(z.string()).optional(),
     output: z.string(),
     logs: z.array(z.object({
         address: z.string(),

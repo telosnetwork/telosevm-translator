@@ -70,6 +70,23 @@ export function getTemplatesForChain(
                         'charged_gas_price': {'type': 'double'},
                         'gasused': {'type': 'long'},
                         'gasusedblock': {'type': 'long'},
+
+                        // EIP 1559 & 4844
+                        'max_priority_fee_per_gas': {'type': 'text'},
+                        'max_fee_per_gas': {'type': 'text'},
+
+                        // EIP 1559 & 2930 & 4844
+                        'access_list': {
+                            'properties': {
+                                'address': {'type': 'keyword'},
+                                'storageKeys': {'type': 'keyword'}
+                            }
+                        },
+
+                        // EIP 4844
+                        'max_fee_per_blob_gas': {'type': 'text'},
+                        'blob_versioned_hashes': {'type': 'binary'},
+
                         'output': {'enabled': false},
                         'logs': {
                             'properties': {
