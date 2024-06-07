@@ -3711,10 +3711,10 @@ telos-evm-custom-ds@1.1.1-rc1:
     "@ethereumjs/tx" "5.3.0"
     rlp "3.0.0"
 
-telos-evm-custom-ds@1.1.1-rc4:
-  version "1.1.1-rc4"
-  resolved "https://registry.yarnpkg.com/telos-evm-custom-ds/-/telos-evm-custom-ds-1.1.1-rc4.tgz#80972752aebc607ce128b45c9ede127126e93a9d"
-  integrity sha512-iCvyGo/hH4QT1mts/Y3YUV1rUmI2m1TqRvYwk8xMD+89EpCTN+wkW1UlRo4hpSIFX9NobwT7LCa9f5dSPGANdw==
+telos-evm-custom-ds@1.1.1-rc9:
+  version "1.1.1-rc9"
+  resolved "https://registry.yarnpkg.com/telos-evm-custom-ds/-/telos-evm-custom-ds-1.1.1-rc9.tgz#e470808eedd3c1f3be04e72eba0a5d64378dc5fa"
+  integrity sha512-KrdG9LhOoq988RjWGBuG1lwn89dBXI3DdOXepOeMcVvXc0Iy0WQ3QJ+BvCshbfBbzG7qBh98U8G0xYVB1ZoU5Q==
   dependencies:
     "@ethereumjs/block" "5.2.0"
     "@ethereumjs/common" "4.3.0"
