@@ -33,7 +33,7 @@
     "@ethereumjs/tx": "5.3.0",
     "@ethereumjs/util": "9.0.3",
     "@ethereumjs/vm": "8.0.0",
-    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc11",
+    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc12",
     "telos-evm-custom-ds": "1.1.1-rc1",
     "@guilledk/arrowbatch-nodejs": "1.0.0-rc16",
     "@wharfkit/antelope": "^1.0.7",

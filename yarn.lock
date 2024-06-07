@@ -569,10 +569,10 @@
     workerpool "^9.0.4"
     ws "^8.13.0"
 
-"@telosnetwork/hyperion-sequential-reader@1.2.7-rc11":
-  version "1.2.7-rc11"
-  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc11.tgz#80fbc4dd2ddd307f43dc1633e1c3e6c4a0099bbf"
-  integrity sha512-/mK0xbbJDrNQEfzsBtQglnklZR07KNB4yWdZwo0k/Tl7nxqhcoTYBOOTAB1s4aYDIueXbUii3bJ8ATN4p/iMrQ==
+"@telosnetwork/hyperion-sequential-reader@1.2.7-rc12":
+  version "1.2.7-rc12"
+  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc12.tgz#3dc6c34e2b518f25b6fcf1cd5b1a9e4a6342074b"
+  integrity sha512-Mpr9xHuOW5M18XodacvVMzgxn/ftJMR03dVCq7+WsUdf+3Ud/V3VF1Yy9mSPdQ2/Y43Y3aksTi6ZVP2dTcxr2g==
   dependencies:
     "@wharfkit/antelope" "^1.0.7"
     async "^3.2.4"
