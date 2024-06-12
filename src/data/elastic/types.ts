@@ -117,7 +117,7 @@ export const StorageEosioDeltaSchema = z.object({
     gasLimit: z.string().refine(isInteger, {
         message: "Invalid gasLimit format",
     }),
-    txAmount: z.number(),
+    txAmount: z.number().default(0),
     size: z.string().refine(isInteger, {
         message: "Invalid size format",
     }),

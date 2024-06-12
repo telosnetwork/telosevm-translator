@@ -413,10 +413,10 @@
     lodash.isundefined "^3.0.1"
     lodash.uniq "^4.5.0"
 
-"@guilledk/arrowbatch-nodejs@1.0.0-rc16":
-  version "1.0.0-rc16"
-  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc16.tgz#3ecc0a4dc51f6146846b5b9e2140f7929e6846c5"
-  integrity sha512-MSFo5/f78HnWT8rk8Ypb/vpmBo1k2tMZZMwRdaz4aS9CGhNWOoA+h4wanq13muzsf8EwBuPLZFj6Ukm1Xvd6xg==
+"@guilledk/arrowbatch-nodejs@1.0.0-rc31":
+  version "1.0.0-rc31"
+  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc31.tgz#27100666f59ddf7cec783f599ba436b465cbe081"
+  integrity sha512-I9RGGD3kKNU6WYDpd2DZT2D4ysUiDfBIqm5QIbSgaIx10WeEyuS7GcqmkxJcR3vS5SghcO1LhBb8qrtn0rO4mA==
   dependencies:
     apache-arrow "^15.0.2"
     bufferutil "^4.0.8"
@@ -424,12 +424,14 @@
     commander "^12.1.0"
     fast-folder-size "^2.2.0"
     moment "^2.30.1"
+    reconnecting-websocket "^4.4.0"
     rlp "^3.0.0"
     simple-zstd "^1.4.2"
     uWebSockets.js uNetworking/uWebSockets.js#v20.38.0
     uuid "^9.0.1"
     winston "^3.13.0"
     winston-transport "^4.7.0"
+    ws "^8.17.0"
     zod "^3.22.4"
 
 "@istanbuljs/load-nyc-config@^1.0.0":
@@ -3721,6 +3723,11 @@ readdirp@^3.6.0, readdirp@~3.6.0:
   dependencies:
     picomatch "^2.2.1"
 
+reconnecting-websocket@^4.4.0:
+  version "4.4.0"
+  resolved "https://registry.yarnpkg.com/reconnecting-websocket/-/reconnecting-websocket-4.4.0.tgz#3b0e5b96ef119e78a03135865b8bb0af1b948783"
+  integrity sha512-D2E33ceRPga0NvTDhJmphEgJ7FUYF0v4lr1ki0csq06OdlxKfugGzN0dSkxM/NfqCxYELK4KcaTOUOjTV6Dcng==
+
 release-zalgo@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/release-zalgo/-/release-zalgo-1.0.0.tgz#09700b7e5074329739330e535c5a90fb67851730"
@@ -4408,7 +4415,7 @@ typical@^7.1.1:
   resolved "https://registry.yarnpkg.com/typical/-/typical-7.1.1.tgz#ba177ab7ab103b78534463ffa4c0c9754523ac1f"
   integrity sha512-T+tKVNs6Wu7IWiAce5BgMd7OZfNYUndHwc5MknN+UHOudi7sGZzuHdCadllRuqJ3fPtgFtIH9+lt9qRv6lmpfA==
 
-uWebSockets.js@uNetworking/uWebSockets.js#v20.38.0:
+"uWebSockets.js@github:uNetworking/uWebSockets.js#v20.38.0", uWebSockets.js@uNetworking/uWebSockets.js#v20.38.0:
   version "20.38.0"
   resolved "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/560035d4ad6caeda563deee1d3d68143462a305b"
 
@@ -4881,7 +4888,7 @@ write-file-atomic@^3.0.0:
     signal-exit "^3.0.2"
     typedarray-to-buffer "^3.1.5"
 
-ws@^8.13.0, ws@^8.14.2, ws@^8.8.1:
+ws@^8.13.0, ws@^8.14.2, ws@^8.17.0, ws@^8.8.1:
   version "8.17.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.17.0.tgz#d145d18eca2ed25aaf791a183903f7be5e295fea"
   integrity sha512-uJq6108EgZMAl20KagGkzCKfMEjxmKvZHG7Tlq0Z6nOky7YF7aq4mOx6xK8TJ/i1LeK4Qus7INktacctDgY8Ow==

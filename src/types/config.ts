@@ -59,29 +59,38 @@ const HashSchema = z.string().transform((val, ctx) => {
     return bytes;
 });
 
+const defaultSuffixConf = {
+    block: "delta-v1.5",
+    transaction: "action-v1.5",
+    error: "error-v1.5",
+    fork: "fork-v1.5",
+    account: "account-v1.5",
+    accountstate: "accountstate-v1.5"
+};
+
 const ElasticConnectorConfigSchema = z.object({
     node: z.string(),
     auth: z.object({
         username: z.string(),
         password: z.string(),
     }).optional(),
-    requestTimeout: z.number(),
-    docsPerIndex: z.number(),
-    scrollSize: z.number().optional(),
-    scrollWindow: z.string().optional(),
+    requestTimeout: z.number().default(5000),
+    docsPerIndex: z.number().default(10000000),
+    scrollSize: z.number().default(10000),
+    scrollWindow: z.string().default('3m'),
     numberOfShards: z.number().default(1),
     numberOfReplicas: z.number().default(0),
     refreshInterval: z.number().default(-1),
     codec: z.string().default('default'),
-    dumpSize: z.number(),
+    dumpSize: z.number().default(2048),
     suffix: z.object({
-        block: z.string(),
-        error: z.string(),
-        transaction: z.string(),
-        fork: z.string(),
-        account: z.string(),
-        accountstate: z.string(),
-    }),
+        block: z.string().default(defaultSuffixConf.block),
+        transaction: z.string().default(defaultSuffixConf.transaction),
+        error: z.string().default(defaultSuffixConf.error),
+        fork: z.string().default(defaultSuffixConf.fork),
+        account: z.string().default(defaultSuffixConf.account),
+        accountstate: z.string().default(defaultSuffixConf.accountstate),
+    }).default(defaultSuffixConf),
 });
 
 const ChainConfigSchema = z.object({
@@ -92,7 +101,7 @@ const ChainConfigSchema = z.object({
     evmBlockDelta: BigIntSchema,
     evmPrevHash: HashSchema.optional(),
     evmValidateHash: HashSchema.optional(),
-    irreversibleOnly: z.boolean(),
+    irreversibleOnly: z.boolean().default(false),
 });
 
 const BroadcasterConfigSchema = z.object({

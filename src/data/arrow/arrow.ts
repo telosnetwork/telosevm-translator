@@ -9,12 +9,13 @@ import {Name} from "@wharfkit/antelope";
 import cloneDeep from "lodash.clonedeep";
 import {ArrowConnectorConfig, ConnectorConfig} from "../../types/config.js";
 import {
-    ArrowBatchContextDef,
+    ArrowBatchContextDef, ArrowBatchReader,
     ArrowBatchTableDef,
     ArrowBatchWriter,
     RowWithRefs
 } from "@guilledk/arrowbatch-nodejs";
 import {featureManager} from "../../features.js";
+import {Bloom} from "@ethereumjs/vm";
 
 
 export const translatorDataContext: ArrowBatchContextDef = {
@@ -159,11 +160,11 @@ export class ArrowConnector extends Connector {
 
     readonly pconfig: ArrowConnectorConfig;
 
-    private writer: ArrowBatchWriter;
+    private readonly context: ArrowBatchWriter | ArrowBatchReader;
 
     private globalTxIndex: bigint = BigInt(0);
 
-    constructor(config: ConnectorConfig) {
+    constructor(config: ConnectorConfig, readOnly: boolean = false) {
         super(config);
 
         if (!config.arrow)
@@ -175,11 +176,11 @@ export class ArrowConnector extends Connector {
         if (featureManager.isFeatureEnabled('STORE_ITXS'))
             dataContext.others.itx = itxDef;
 
-        this.writer = new ArrowBatchWriter(
-            config.arrow,
-            dataContext,
-            this.logger
-        );
+        if (!readOnly)
+            this.context = new ArrowBatchWriter(config.arrow, dataContext, this.logger);
+
+        else
+            this.context = new ArrowBatchReader(config.arrow, dataContext, this.logger);
     }
 
     private rowFromItx(
@@ -434,6 +435,11 @@ export class ArrowConnector extends Connector {
                 accStateDeltaRow => this.accountStateDeltaFromRow(accStateDeltaRow));
         }
 
+        const bloom = new Bloom();
+        for (const tx of transactions) {
+            bloom.add(tx.logsBloom);
+        }
+
         return {
             timestamp: row[1],
 
@@ -452,7 +458,7 @@ export class ArrowConnector extends Connector {
             size: row[9],
 
             transactions,
-            logsBloom: new Uint8Array(),
+            logsBloom: bloom.bitvector,
             deltas: {
                 account,
                 accountstate
@@ -501,7 +507,7 @@ export class ArrowConnector extends Connector {
     }
 
     async init(): Promise<bigint | null> {
-        await this.writer.init(
+        await this.context.init(
             this.config.chain.startBlock);
         return null;
     }
@@ -509,7 +515,8 @@ export class ArrowConnector extends Connector {
     async deinit(): Promise<void> {
         await this.flush();
 
-        await this.writer.deinit();
+        if (this.context instanceof ArrowBatchWriter)
+            await this.context.deinit();
 
         if (this.isBroadcasting)
             this.stopBroadcast();
@@ -538,38 +545,40 @@ export class ArrowConnector extends Connector {
     }
 
     async getFirstIndexedBlock(): Promise<IndexedBlock | null> {
-        if (!this.writer.firstOrdinal)
+        if (!this.context.firstOrdinal)
             return null;
 
-        const rootRow = await this.writer.getRow(this.writer.firstOrdinal);
+        const rootRow = await this.context.getRow(this.context.firstOrdinal);
         return this.blockFromRow(rootRow);
     }
 
     async getIndexedBlock(blockNum: bigint): Promise<IndexedBlock | null> {
-        const rootRow = await this.writer.getRow(blockNum);
+        const rootRow = await this.context.getRow(blockNum);
         return this.blockFromRow(rootRow);
     }
 
     async getLastIndexedBlock(): Promise<IndexedBlock> {
-        if (!this.writer.lastOrdinal)
+        if (!this.context.lastOrdinal)
             return null;
 
-        const rootRow = await this.writer.getRow(this.writer.lastOrdinal);
+        const rootRow = await this.context.getRow(this.context.lastOrdinal);
         return this.blockFromRow(rootRow);
     }
 
     async purgeNewerThan(blockNum: bigint): Promise<void> {
-        await this.writer.trimFrom(blockNum);
+        if (this.context instanceof ArrowBatchWriter)
+            await this.context.trimFrom(blockNum);
     }
 
     async fullIntegrityCheck(): Promise<bigint | null> { return null; }
 
     async flush(): Promise<void> {
         await new Promise<void>(resolve => {
-            this.writer.events.on('flush', () => {
+            this.context.events.on('flush', () => {
                 resolve();
             });
-            this.writer.beginFlush();
+            if (this.context instanceof ArrowBatchWriter)
+                this.context.beginFlush();
         });
     }
 
@@ -578,7 +587,7 @@ export class ArrowConnector extends Connector {
             throw new Error(`Attempted to build invalid chain, lastpushed hash: ${this.lastPushedHash}, current block prev hash: ${block.evmPrevHash}`);
         }
         const rootRow: RowWithRefs = this.rowFromBlock(block);
-        this.writer.pushRow('block', rootRow);
+        this.context.pushRow('block', rootRow);
         this.lastPushed = block.blockNum;
         this.lastPushedHash = block.evmBlockHash;
     }

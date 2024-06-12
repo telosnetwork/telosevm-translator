@@ -74,6 +74,7 @@ export class ElasticScroller extends BlockScroller {
         }
     ) {
         super(connector, params);
+        this.conn = connector;
         this.scrollOpts = params.scrollOpts ? params.scrollOpts : {
             size: 1000,
             scroll: '3m'
@@ -656,7 +657,7 @@ export class ElasticConnector extends Connector {
     async getTransactionsForBlock(blockNum: bigint) : Promise<IndexedTx[]> {
         const txsResults = await this.elastic.search({
             index: `${this.chainName}-${this.esconfig.suffix.transaction}-*`,
-            size: 2000,
+            size: 1000,
             sort: [{'@raw.block': 'asc', '@raw.trx_index': 'asc'}],
             query: {
                 match: {
@@ -801,7 +802,7 @@ export class ElasticConnector extends Connector {
     }
 
     async getBlockHeader(blockNum: bigint): Promise<IndexedBlockHeader | null> {
-        try {
+        // try {
             const suffix = this.getSuffixForBlock(blockNum);
             const result = await this.elastic.search({
                 index: `${this.chainName}-${this.esconfig.suffix.block}-${suffix}`,
@@ -818,9 +819,9 @@ export class ElasticConnector extends Connector {
                 throw new Error(`block result is not a valid StorageEosioDelta!`);
 
             return this.packHeader(parseResult.data);
-        } catch (e) {
-            return null;
-        }
+        // } catch (e) {
+        //     return null;
+        // }
     }
 
     private packBlock(
@@ -845,7 +846,7 @@ export class ElasticConnector extends Connector {
     }
 
     async getIndexedBlock(blockNum: bigint): Promise<IndexedBlock | null> {
-        try {
+        // try {
             const [
                 header,
                 txs,
@@ -859,9 +860,9 @@ export class ElasticConnector extends Connector {
             ]);
 
             return this.packBlock(header, txs, accDeltas, accStateDeltas);
-        } catch (e) {
-            return null;
-        }
+        // } catch (e) {
+        //     return null;
+        // }
     }
 
 
@@ -922,7 +923,7 @@ export class ElasticConnector extends Connector {
 
                 const header = this.packHeader(this.unwrapElasticResult(result));
 
-                let txs, accDeltas, accStateDeltas;
+                let txs = [], accDeltas = [], accStateDeltas = [];
                 if (header.transactionAmount > 0) {
                     [txs, accDeltas, accStateDeltas] = await Promise.all([
                         this.getTransactionsForBlock(header.blockNum),
