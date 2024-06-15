@@ -6,7 +6,7 @@ import {TEVMBlockHeader} from "telos-evm-custom-ds";
 import {clearInterval} from "timers";
 
 import {
-    IndexedAccountDelta, IndexedAccountStateDelta,
+    IndexedAccountDelta, IndexedAccountDeltaSchema, IndexedAccountStateDelta, IndexedAccountStateDeltaSchema,
     IndexedBlock, IndexedBlockSchema, IndexedTx,
     IndexerState,
     StartBlockInfo,
@@ -327,11 +327,11 @@ export class TEVMIndexer {
                 indexedDelta.code = arrayToHex(indexedDelta.code);
 
             if (delta.table == 'account')
-                accountDeltas.push(indexedDelta);
+                accountDeltas.push(IndexedAccountDeltaSchema.parse(indexedDelta));
 
             if (delta.table == 'accountstate') {
                 indexedDelta.scope = delta.scope;
-                stateDeltas.push(indexedDelta);
+                stateDeltas.push(IndexedAccountStateDeltaSchema.parse(indexedDelta));
             }
 
             d++;

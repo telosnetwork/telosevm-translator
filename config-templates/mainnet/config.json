@@ -1,5 +1,5 @@
 {
-    "source": {
+    "connector": {
         "chain": {
             "chainName": "telos-mainnet",
             "chainId": 40,
@@ -16,32 +16,15 @@
             "stallCounter": 5,
             "readerWorkerAmount": 4,
             "evmWorkerAmount": 4
-        }
-    },
-    "target": {
-        "elastic": {
-            "node": "http://127.0.0.1:9200",
-            "auth": {
-                "username": "elastic",
-                "password": "password"
-            },
-            "requestTimeout": 5000,
-            "docsPerIndex": 10000000,
-            "dumpSize": 400,
-            "suffix": {
-                "delta": "delta-v1.5",
-                "transaction": "action-v1.5",
-                "error": "error-v1.5",
-                "fork": "fork-v1.5"
-            }
+        },
+        "arrow": {
+            "dataDir": "arrow-data-1",
+            "writerLogLevel": "debug",
+            "liveMode": true
         }
     },
 
     "logLevel": "debug",
     "readerLogLevel": "info",
-    "runtime": {},
-    "broadcast": {
-        "wsHost": "127.0.0.1",
-        "wsPort": 7300
-    }
+    "runtime": {}
 }
