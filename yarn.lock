@@ -413,10 +413,10 @@
     lodash.isundefined "^3.0.1"
     lodash.uniq "^4.5.0"
 
-"@guilledk/arrowbatch-nodejs@1.0.0-rc31":
-  version "1.0.0-rc31"
-  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc31.tgz#27100666f59ddf7cec783f599ba436b465cbe081"
-  integrity sha512-I9RGGD3kKNU6WYDpd2DZT2D4ysUiDfBIqm5QIbSgaIx10WeEyuS7GcqmkxJcR3vS5SghcO1LhBb8qrtn0rO4mA==
+"@guilledk/arrowbatch-nodejs@1.0.0-rc32":
+  version "1.0.0-rc32"
+  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc32.tgz#69aff5180f1b78c66583112856460a4d71992e17"
+  integrity sha512-9j33WL3FvZexb37oIdWvj+KueVxJ1j5pFq0ku/W1/fe/ABcOixmG4BWSqJqMEFZSXaEimEzY4HWAwkXi20+bqg==
   dependencies:
     apache-arrow "^15.0.2"
     bufferutil "^4.0.8"
@@ -427,6 +427,7 @@
     reconnecting-websocket "^4.4.0"
     rlp "^3.0.0"
     simple-zstd "^1.4.2"
+    typescript-lru-cache "^2.0.0"
     uWebSockets.js uNetworking/uWebSockets.js#v20.38.0
     uuid "^9.0.1"
     winston "^3.13.0"
@@ -4399,6 +4400,11 @@ typedarray-to-buffer@^3.1.5:
   integrity sha512-zdu8XMNEDepKKR+XYOXAVPtWui0ly0NtohUscw+UmaHiAWT8hrV1rr//H6V+0DvJ3OQ19S979M0laLfX8rm82Q==
   dependencies:
     is-typedarray "^1.0.0"
+
+typescript-lru-cache@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/typescript-lru-cache/-/typescript-lru-cache-2.0.0.tgz#d4ad0f071ab51987b088a57c3c502d7dd62dee07"
+  integrity sha512-Jp57Qyy8wXeMkdNuZiglE6v2Cypg13eDA1chHwDG6kq51X7gk4K7P7HaDdzZKCxkegXkVHNcPD0n5aW6OZH3aA==
 
 typescript@4.9.5:
   version "4.9.5"

@@ -1,4 +1,6 @@
 // relevant native action parameter type specs
+import {arrayToHex} from "../utils/evm.js";
+
 export interface EosioEvmRaw {
     ram_payer: string,
     tx: string,
@@ -21,116 +23,162 @@ export interface EosioEvmWithdraw {
 // generic representations of data as it goes through the translator from source
 // connector to target.
 
-export interface IndexedInternalTx {
-    callType: string
-    from: string
-    gas: bigint
-    input: string
-    to: string
-    value: bigint
-    gasUsed: bigint
-    output: string
-    subTraces: string
-    traceAddress: string[]
-    type: string
-    depth: string
-}
+import { z } from 'zod';
 
-export interface IndexedTxLog {
-    address?: string
-    topics?: string[]
-    data?: string
-}
-
-export interface IndexedTx {
-    trxId: string
-    trxIndex: number
-    actionOrdinal: number
-    blockNum: bigint
-    blockHash: string
-
-    hash: string
-    raw: Uint8Array
-
-    // tx params
-    from?: string
-    to?: string
-    inputData: Uint8Array
-    value: bigint
-    nonce: bigint
-    gasPrice: bigint
-    gasLimit: bigint
-    v: bigint
-    r: bigint
-    s: bigint
-
-    // receipt
-    status: 0 | 1
-    itxs: IndexedInternalTx[]
-    epoch: number
-    createAddr?: string
-    gasUsed: bigint
-    gasUsedBlock: bigint
-    chargedGasPrice: bigint
-    output: string
-    logs: IndexedTxLog[]
-    logsBloom: Uint8Array
-    errors: string[]
-}
-
-export interface IndexedAccountDelta {
-    timestamp: bigint
-    blockNum: bigint
-    ordinal: number
-    index: number
-    address: string
-    account: string
-    nonce: number
-    code: string
-    balance: string
-}
-
-export interface IndexedAccountStateDelta {
-    timestamp: bigint
-    blockNum: bigint
-    ordinal: number
-    scope: string
-    index: number
-    key: string
-    value: string
-}
-
-export interface IndexedBlockHeader {
-    timestamp: bigint
-
-    blockNum: bigint
-    blockHash: Uint8Array
-
-    evmBlockNum: bigint
-    evmBlockHash: Uint8Array
-    evmPrevHash: Uint8Array
-
-    receiptsRoot: Uint8Array
-    transactionsRoot: Uint8Array
-
-    gasUsed: bigint
-    gasLimit: bigint
-
-    size: bigint
-
-    transactionAmount: number
-}
-
-export interface IndexedBlock extends IndexedBlockHeader {
-
-    transactions: IndexedTx[]
-    logsBloom: Uint8Array
-
-    deltas: {
-        account: IndexedAccountDelta[];
-        accountstate: IndexedAccountStateDelta[];
+// Helper function to transform base64 or hex strings into Uint8Array
+const stringToUint8Array = (input: string): Uint8Array => {
+    if (input.startsWith('0x')) {
+        input = input.slice(2);
     }
-}
+    if (/^[0-9a-fA-F]+$/.test(input)) {
+        const hex = input.length % 2 ? '0' + input : input;
+        return new Uint8Array(hex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    }
+    return new Uint8Array(Buffer.from(input, 'base64'));
+};
+
+// Custom Zod type for Uint8Array transformation
+const uint8ArraySchema = z.union([z.string(), z.instanceof(Uint8Array)]).transform((val) => {
+    if (typeof val === 'string') {
+        return stringToUint8Array(val);
+    }
+    return val;
+})
+
+// Helper function to transform base64 or hex strings into unprefixed hex string
+const toUnprefixedHexString = (input: string | Uint8Array): string => {
+    if (input instanceof Uint8Array) {
+        return arrayToHex(input);
+    }
+    if (input.startsWith('0x')) {
+        input = input.slice(2);
+    }
+    if (/^[0-9a-fA-F]+$/.test(input)) {
+        const hex = input.length % 2 ? '0' + input : input;
+        return hex.toLowerCase();
+    }
+    const uint8Array = new Uint8Array(Buffer.from(input, 'base64'));
+    return Array.from(uint8Array).map(byte => byte.toString(16).padStart(2, '0')).join('');
+};
+
+// Custom Zod type for checksum transformation
+const checksumSchema = z.union([z.string(), z.instanceof(Uint8Array)]).transform((val) => {
+    return toUnprefixedHexString(val);
+});
+
+// IndexedInternalTx schema
+export const IndexedInternalTxSchema = z.object({
+    callType: z.string(),
+    from: z.string(),
+    gas: z.bigint(),
+    input: z.string(),
+    to: z.string(),
+    value: z.bigint(),
+    gasUsed: z.bigint(),
+    output: z.string(),
+    subTraces: z.string(),
+    traceAddress: z.array(z.string()),
+    type: z.string(),
+    depth: z.string(),
+});
+
+// IndexedTxLog schema
+export const IndexedTxLogSchema = z.object({
+    address: z.string().optional(),
+    topics: z.array(z.string()).optional(),
+    data: z.string().optional(),
+});
+
+// IndexedTx schema
+export const IndexedTxSchema = z.object({
+    trxId: checksumSchema,
+    trxIndex: z.number(),
+    actionOrdinal: z.number(),
+    blockNum: z.bigint(),
+    blockHash: checksumSchema,
+    hash: checksumSchema,
+    raw: uint8ArraySchema,
+    from: checksumSchema.optional(),
+    to: checksumSchema.optional(),
+    inputData: uint8ArraySchema,
+    value: z.bigint(),
+    nonce: z.bigint(),
+    gasPrice: z.bigint(),
+    gasLimit: z.bigint(),
+    v: z.bigint(),
+    r: z.bigint(),
+    s: z.bigint(),
+    status: z.union([z.literal(0), z.literal(1)]),
+    itxs: z.array(IndexedInternalTxSchema).default([]),
+    epoch: z.number(),
+    createAddr: checksumSchema.optional(),
+    gasUsed: z.bigint(),
+    gasUsedBlock: z.bigint(),
+    chargedGasPrice: z.bigint(),
+    output: uint8ArraySchema,
+    logs: z.array(IndexedTxLogSchema).default([]),
+    logsBloom: uint8ArraySchema,
+    errors: z.array(z.string()).default([]),
+});
+
+// IndexedAccountDelta schema
+export const IndexedAccountDeltaSchema = z.object({
+    timestamp: z.bigint(),
+    blockNum: z.bigint(),
+    ordinal: z.number(),
+    index: z.number(),
+    address: z.string(),
+    account: z.string(),
+    nonce: z.number(),
+    code: z.string(),
+    balance: z.string(),
+});
+
+// IndexedAccountStateDelta schema
+export const IndexedAccountStateDeltaSchema = z.object({
+    timestamp: z.bigint(),
+    blockNum: z.bigint(),
+    ordinal: z.number(),
+    scope: z.string(),
+    index: z.number(),
+    key: z.string(),
+    value: z.string(),
+});
+
+// IndexedBlockHeader schema
+export const IndexedBlockHeaderSchema = z.object({
+    timestamp: z.bigint(),
+    blockNum: z.bigint(),
+    blockHash: checksumSchema,
+    evmBlockNum: z.bigint(),
+    evmBlockHash: checksumSchema,
+    evmPrevHash: checksumSchema,
+    receiptsRoot: checksumSchema,
+    transactionsRoot: checksumSchema,
+    gasUsed: z.bigint(),
+    gasLimit: z.bigint(),
+    size: z.bigint(),
+    transactionAmount: z.number(),
+});
+
+// IndexedBlock schema
+export const IndexedBlockSchema = IndexedBlockHeaderSchema.extend({
+    transactions: z.array(IndexedTxSchema),
+    logsBloom: uint8ArraySchema,
+    deltas: z.object({
+        account: z.array(IndexedAccountDeltaSchema),
+        accountstate: z.array(IndexedAccountStateDeltaSchema),
+    }),
+});
+
+// Infer types
+export type IndexedInternalTx = z.infer<typeof IndexedInternalTxSchema>;
+export type IndexedTxLog = z.infer<typeof IndexedTxLogSchema>;
+export type IndexedTx = z.infer<typeof IndexedTxSchema>;
+export type IndexedAccountDelta = z.infer<typeof IndexedAccountDeltaSchema>;
+export type IndexedAccountStateDelta = z.infer<typeof IndexedAccountStateDeltaSchema>;
+export type IndexedBlockHeader = z.infer<typeof IndexedBlockHeaderSchema>;
+export type IndexedBlock = z.infer<typeof IndexedBlockSchema>;
 
 export enum IndexerState {
     SYNC = 0,
@@ -140,5 +188,5 @@ export enum IndexerState {
 export type StartBlockInfo = {
     startBlock: bigint;
     startEvmBlock?: bigint;
-    prevHash: Uint8Array;
+    prevHash: string;
 }

@@ -1,4 +1,3 @@
-import RPCBroadcaster from '../publisher.js';
 import {
     IndexedAccountDelta,
     IndexedAccountStateDelta,
@@ -8,7 +7,7 @@ import {
 
 import {createLogger, format, Logger, transports} from "winston";
 import EventEmitter from "events";
-import {BroadcasterConfig, ConnectorConfig} from "../types/config.js";
+import {ConnectorConfig} from "../types/config.js";
 
 
 export abstract class BlockScroller {
@@ -74,9 +73,8 @@ export abstract class Connector {
 
     totalPushed: bigint = 0n;
     lastPushed: bigint = 0n;
-    lastPushedHash: Uint8Array | null = null;
+    lastPushedHash: string | null = null;
 
-    broadcast: RPCBroadcaster;
     isBroadcasting: boolean = false;
 
     events = new EventEmitter();
@@ -131,22 +129,8 @@ export abstract class Connector {
         return gap;
     }
 
-    startBroadcast(config: BroadcasterConfig) {
-        this.broadcast = new RPCBroadcaster(config, this.logger);
-        this.broadcast.initUWS();
-        this.isBroadcasting = true;
-    }
-
-    stopBroadcast() {
-        this.broadcast.close();
-        this.isBroadcasting = false;
-    }
-
     async deinit() {
         await this.flush();
-
-        if (this.isBroadcasting)
-            this.stopBroadcast();
     }
 
     abstract getTransactionsForBlock(blockNum: bigint) : Promise<IndexedTx[]>;

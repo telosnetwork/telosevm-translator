@@ -14,8 +14,14 @@ import {addHexPrefix, isHexPrefixed, isValidAddress, unpadHex} from "@ethereumjs
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
 import {TEVMTransaction} from "telos-evm-custom-ds";
-import {EosioEvmDeposit, EosioEvmRaw, EosioEvmWithdraw, IndexedInternalTx, IndexedTx} from "../types/indexer.js";
-import {featureManager, initFeatureManager} from "../features.js";
+import {
+    EosioEvmDeposit,
+    EosioEvmRaw,
+    EosioEvmWithdraw,
+    IndexedInternalTx,
+    IndexedTx,
+    IndexedTxSchema
+} from "../types/indexer.js";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
@@ -39,8 +45,6 @@ const logger = createLogger(logOptions);
 logger.add(new transports.Console({
     level: process.env.LOG_LEVEL
 }));
-
-initFeatureManager(process.env.COMPAT_TARGET);
 
 export interface HandlerArguments {
     nativeBlockHash: string;
@@ -157,26 +161,6 @@ async function createEvm(args: HandlerArguments): Promise<IndexedTx | TxDeserial
             ];
 
         let itxs: IndexedInternalTx[] = [];
-        if (featureManager.isFeatureEnabled('STORE_ITXS') && receipt.itxs) {
-            itxs = receipt.itxs.map((itx) => {
-                return {
-                    callType: itx.callType,
-                    from: itx.from,
-                    gas: BigInt(addHexPrefix(itx.gas)),
-                    input: itx.input,
-                    to: itx.to,
-                    value: itx.value.length > 0 ? BigInt(addHexPrefix(itx.value)) : 0n,
-                    gasUsed: BigInt(addHexPrefix(itx.gasUsed)),
-                    output: itx.output,
-                    subTraces: itx.subtraces,
-                    traceAddress: itx.traceAddress,
-                    type: itx.type,
-                    depth: itx.depth
-                };
-            });
-
-            itxs = receipt.itxs;
-        }
 
         const logs = []
         const logsBloom = new Bloom();
@@ -188,7 +172,7 @@ async function createEvm(args: HandlerArguments): Promise<IndexedTx | TxDeserial
             }
         }
 
-        return {
+        return IndexedTxSchema.parse({
             trxId: '',
             trxIndex: args.trx_index,
             blockNum: args.blockNum,
@@ -221,7 +205,7 @@ async function createEvm(args: HandlerArguments): Promise<IndexedTx | TxDeserial
             logsBloom: logsBloom.bitvector,
 
             errors: receipt.errors
-        };
+        });
     } catch (error) {
         return new TxDeserializationError(
             'Raw EVM deserialization error',
@@ -293,7 +277,7 @@ async function createDeposit(args: HandlerArguments): Promise<IndexedTx | TxDese
 
     try {
         const evmTx = TEVMTransaction.fromTxData(txParams, {common});
-        return {
+        return IndexedTxSchema.parse({
             trxId: '',
             trxIndex: args.trx_index,
             actionOrdinal: 0,
@@ -326,7 +310,7 @@ async function createDeposit(args: HandlerArguments): Promise<IndexedTx | TxDese
             logsBloom: new Bloom().bitvector,
 
             errors: []
-        };
+        });
 
     } catch (error) {
         return new TxDeserializationError(
@@ -363,7 +347,7 @@ async function createWithdraw(args: HandlerArguments): Promise<IndexedTx | TxDes
     };
     try {
         const evmTx = new TEVMTransaction(txParams, {common});
-        return {
+        return IndexedTxSchema.parse({
             trxId: '',
             trxIndex: args.trx_index,
             actionOrdinal: 0,
@@ -396,7 +380,7 @@ async function createWithdraw(args: HandlerArguments): Promise<IndexedTx | TxDes
             logsBloom: new Bloom().bitvector,
 
             errors: []
-        };
+        });
 
     } catch (error) {
         return new TxDeserializationError(

@@ -23,104 +23,23 @@ const BigIntSchema = z.union([
     }
 });
 
-// Custom type for Uint8Array (hex string)
-const Uint8ArraySchema = z.string().transform((val, ctx) => {
+const HashSchema = z.string().transform((val) => {
     const stripped = val.startsWith('0x') ? val.slice(2) : val;
-    if (stripped.length % 2 !== 0) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'Invalid Uint8Array hex string',
-        });
-        return z.NEVER;
-    }
-    const bytes = new Uint8Array(stripped.length / 2);
-    for (let i = 0; i < stripped.length; i += 2) {
-        bytes[i / 2] = parseInt(stripped.substr(i, 2), 16);
-    }
-    return bytes;
-});
-
-const HashSchema = z.string().transform((val, ctx) => {
-    const stripped = val.startsWith('0x') ? val.slice(2) : val;
-    if (stripped.length === 0) {
-        return new Uint8Array();
-    }
-    if (stripped.length !== 64) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'Invalid hash length, expected 32 bytes',
-        });
-        return z.NEVER;
-    }
-    const bytes = new Uint8Array(32);
-    for (let i = 0; i < 64; i += 2) {
-        bytes[i / 2] = parseInt(stripped.substr(i, 2), 16);
-    }
-    return bytes;
-});
-
-const defaultSuffixConf = {
-    block: "delta-v1.5",
-    transaction: "action-v1.5",
-    error: "error-v1.5",
-    fork: "fork-v1.5",
-    account: "account-v1.5",
-    accountstate: "accountstate-v1.5"
-};
-
-const ElasticConnectorConfigSchema = z.object({
-    node: z.string(),
-    auth: z.object({
-        username: z.string(),
-        password: z.string(),
-    }).optional(),
-    requestTimeout: z.number().default(5000),
-    docsPerIndex: z.number().default(10000000),
-    scrollSize: z.number().default(10000),
-    scrollWindow: z.string().default('3m'),
-    numberOfShards: z.number().default(1),
-    numberOfReplicas: z.number().default(0),
-    refreshInterval: z.number().default(-1),
-    codec: z.string().default('default'),
-    dumpSize: z.number().default(2048),
-    suffix: z.object({
-        block: z.string().default(defaultSuffixConf.block),
-        transaction: z.string().default(defaultSuffixConf.transaction),
-        error: z.string().default(defaultSuffixConf.error),
-        fork: z.string().default(defaultSuffixConf.fork),
-        account: z.string().default(defaultSuffixConf.account),
-        accountstate: z.string().default(defaultSuffixConf.accountstate),
-    }).default(defaultSuffixConf),
+    return stripped;
 });
 
 const ChainConfigSchema = z.object({
     chainName: z.string(),
     chainId: z.number(),
     startBlock: BigIntSchema,
-    stopBlock: BigIntSchema.optional(),
+    stopBlock: BigIntSchema.default(-1n),
     evmBlockDelta: BigIntSchema,
-    evmPrevHash: HashSchema.optional(),
-    evmValidateHash: HashSchema.optional(),
+    evmPrevHash: HashSchema.default(''),
+    evmValidateHash: HashSchema.default(''),
     irreversibleOnly: z.boolean().default(false),
 });
 
-const BroadcasterConfigSchema = z.object({
-    wsHost: z.string(),
-    wsPort: z.number(),
-});
-
 const ConnectorConfigSchema = z.object({
-    chain: ChainConfigSchema.partial().optional(),
-    elastic: ElasticConnectorConfigSchema.optional(),
-    arrow: ArrowBatchConfigSchema.optional(),
-    compatLevel: z.string().default(packageInfo.version),
-    logLevel: z.string().optional(),
-    trimFrom: z.number().optional(),
-    skipIntegrityCheck: z.boolean().optional(),
-    gapsPurge: z.boolean().optional(),
-});
-
-const SourceConnectorConfigSchema = ConnectorConfigSchema.extend({
     chain: ChainConfigSchema,
     nodeos: z.object({
         endpoint: z.string(),
@@ -137,32 +56,32 @@ const SourceConnectorConfigSchema = ConnectorConfigSchema.extend({
         maxWsPayloadMb: z.number().default(2048),
         fetchDeltas: z.boolean().default(true),
         fetchTraces: z.boolean().default(true)
-    }).optional(),
+    }),
+    arrow: ArrowBatchConfigSchema,
+    logLevel: z.string().optional(),
+    trimFrom: z.number().optional(),
+    skipIntegrityCheck: z.boolean().optional(),
+    gapsPurge: z.boolean().optional(),
 });
 
 const TranslatorConfigSchema = z.object({
-    source: SourceConnectorConfigSchema,
-    target: ConnectorConfigSchema,
+    connector: ConnectorConfigSchema,
     logLevel: z.string(),
     readerLogLevel: z.string(),
     runtime: z.object({
         eval: z.boolean().optional(),
         timeout: z.number().optional(),
         onlyDBCheck: z.boolean().optional(),
-    }),
-    broadcast: BroadcasterConfigSchema,
+    })
 });
 
-export type ElasticConnectorConfig = z.infer<typeof ElasticConnectorConfigSchema>;
 export type ArrowConnectorConfig = z.infer<typeof ArrowBatchConfigSchema>;
 export type ChainConfig = z.infer<typeof ChainConfigSchema>;
-export type BroadcasterConfig = z.infer<typeof BroadcasterConfigSchema>;
 export type ConnectorConfig = z.infer<typeof ConnectorConfigSchema>;
-export type SourceConnectorConfig = z.infer<typeof SourceConnectorConfigSchema>;
 export type TranslatorConfig = z.infer<typeof TranslatorConfigSchema>;
 
 export const DEFAULT_CONF = TranslatorConfigSchema.parse({
-    source: {
+    connector: {
         chain: {
             chainName: 'telos-local',
             chainId: 41,
@@ -171,6 +90,9 @@ export const DEFAULT_CONF = TranslatorConfigSchema.parse({
             evmPrevHash: '',
             evmValidateHash: '',
             irreversibleOnly: false,
+        },
+        arrow: {
+            dataDir: 'arrow-data'
         },
         nodeos: {
             endpoint: 'http://127.0.0.1:8888',
@@ -182,42 +104,13 @@ export const DEFAULT_CONF = TranslatorConfigSchema.parse({
             evmWorkerAmount: 4,
         },
     },
-    target: {
-        elastic: {
-            node: 'http://127.0.0.1:9200',
-            auth: {
-                username: 'elastic',
-                password: 'password',
-            },
-            requestTimeout: 5 * 1000,
-            docsPerIndex: 10000000,
-            scrollSize: 6000,
-            scrollWindow: '1m',
-            dumpSize: 2000,
-            suffix: {
-                block: 'block-v1.5',
-                transaction: 'transaction-v1.5',
-                account: 'account-v1.5',
-                accountstate: 'accountstate-v1.5',
-                error: 'error-v1.5',
-                fork: 'fork-v1.5',
-            },
-        },
-    },
     logLevel: 'debug',
     readerLogLevel: 'info',
     runtime: {},
-    broadcast: {
-        wsHost: '127.0.0.1',
-        wsPort: 7300,
-    },
 });
 
 export {
-    ElasticConnectorConfigSchema,
     ChainConfigSchema,
-    BroadcasterConfigSchema,
     ConnectorConfigSchema,
-    SourceConnectorConfigSchema,
     TranslatorConfigSchema,
 };

@@ -27,12 +27,6 @@ program
         if (process.env.READER_LOG_LEVEL)
             conf.readerLogLevel = process.env.READER_LOG_LEVEL;
 
-        if (process.env.BROADCAST_HOST)
-            conf.broadcast.wsHost = process.env.BROADCAST_HOST;
-
-        if (process.env.BROADCAST_PORT)
-            conf.broadcast.wsPort = parseInt(process.env.BROADCAST_PORT, 10);
-
         const indexer = new TEVMIndexer(conf);
         try {
             await indexer.launch();
