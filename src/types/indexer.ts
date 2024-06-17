@@ -130,7 +130,7 @@ export const IndexedAccountDeltaSchema = z.object({
     address: z.string(),
     account: z.string(),
     nonce: z.number(),
-    code: z.string(),
+    code: uint8ArraySchema,
     balance: z.string(),
 });
 

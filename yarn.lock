@@ -413,10 +413,10 @@
     lodash.isundefined "^3.0.1"
     lodash.uniq "^4.5.0"
 
-"@guilledk/arrowbatch-nodejs@1.0.0-rc35":
-  version "1.0.0-rc35"
-  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc35.tgz#707f84673216c0637aa94b43364da27e226a3e8b"
-  integrity sha512-josBck1oxbBouIrAPsP1H2kEtPZNHG6nOEV7NTYSj/XcQyaNQ/Fx+yXCoMKqKM7ybUpE18I3Xcn5i1tO6wDM4w==
+"@guilledk/arrowbatch-nodejs@1.0.0-rc37":
+  version "1.0.0-rc37"
+  resolved "https://registry.yarnpkg.com/@guilledk/arrowbatch-nodejs/-/arrowbatch-nodejs-1.0.0-rc37.tgz#d8f4912b3756d95cf641f78f7de6193d6065d80f"
+  integrity sha512-L48RBx8KZkwC636MTYVSpdxRHxzh8Prffz14OUzdyznA4hOZ9CnyhBMGxS+KmNONcgGCUA+gDJqa5p7VUtC6nw==
   dependencies:
     apache-arrow "^15.0.2"
     bufferutil "^4.0.8"

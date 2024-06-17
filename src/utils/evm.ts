@@ -105,8 +105,6 @@ export async function generateBlockApplyInfo(evmTxs: IndexedTx[]) {
         gasUsed += tx.gasUsed;
         size += BigInt(tx.raw.length);
 
-        const logs: Log[] = [];
-
         await txsRootHash.put(
             RLP.encode(i),
             tx.raw
@@ -118,6 +116,7 @@ export async function generateBlockApplyInfo(evmTxs: IndexedTx[]) {
 
         blockBloom.or(bloom);
 
+        const logs: Log[] = [];
         if (tx.logs) {
             for (const hexLogs of tx.logs) {
                 const topics: Uint8Array[] = [];
@@ -134,7 +133,7 @@ export async function generateBlockApplyInfo(evmTxs: IndexedTx[]) {
         }
 
         const receipt: TxReceipt = {
-            cumulativeBlockGasUsed: BigInt(tx.gasUsedBlock),
+            cumulativeBlockGasUsed: BigInt(gasUsed),
             bitvector: bloom.bitvector,
             logs: logs,
             status: tx.status

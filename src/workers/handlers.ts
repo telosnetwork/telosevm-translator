@@ -162,7 +162,7 @@ async function createEvm(args: HandlerArguments): Promise<IndexedTx | TxDeserial
 
         let itxs: IndexedInternalTx[] = [];
 
-        const logs = []
+        const logs = receipt.logs ?? [];
         const logsBloom = new Bloom();
         if (receipt.logs && receipt.logs.length > 0) {
             for (const log of receipt.logs) {

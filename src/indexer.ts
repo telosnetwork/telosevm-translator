@@ -210,7 +210,7 @@ export class TEVMIndexer {
 
         if (block.blockNum === BigInt(this.chain.startBlock)) {
             if (this.chain.evmValidateHash.length > 0 &&
-                currentBlockHash === this.chain.evmValidateHash) {
+                currentBlockHash !== this.chain.evmValidateHash) {
                 this.logger.error(`Generated first block:\n${JSON.stringify(blockHeader, null, 4)}`);
                 throw new Error(`initial hash validation failed: got ${currentBlockHash} and expected ${this.chain.evmValidateHash}`);
             }
@@ -594,7 +594,7 @@ export class TEVMIndexer {
         let lastBlock = await this.targetConnector.getLastIndexedBlock();
 
         if (lastBlock != null &&
-            lastBlock.evmPrevHash === removeHexPrefix(ZERO_HASH)) {
+            lastBlock.evmPrevHash !== ZERO_HASH) {
             // if there is a last block found on db other than genesis doc
 
             if (gap == null) {
@@ -609,7 +609,7 @@ export class TEVMIndexer {
 
         } else if (
             this.chain.evmPrevHash.length > 0 &&
-            this.chain.evmPrevHash === ZERO_HASH) {
+            this.chain.evmPrevHash !== ZERO_HASH) {
             // if there is an evmPrevHash set state directly
             prevHash = this.chain.evmPrevHash;
         }
@@ -694,8 +694,8 @@ export class TEVMIndexer {
         this.logger.info(`ethereum genesis hash: 0x${genesisHash}`);
 
         if (this.chain.evmValidateHash.length > 0 &&
-            this.chain.evmValidateHash === ZERO_HASH) {
-            if (genesisHash === this.chain.evmValidateHash) {
+            this.chain.evmValidateHash !== ZERO_HASH) {
+            if (genesisHash !== this.chain.evmValidateHash) {
                 this.logger.error(`Generated genesis: \n${JSON.stringify(genesisHeader, null, 4)}`);
                 throw new Error('FATAL!: Generated genesis hash doesn\'t match remote!');
             } else {

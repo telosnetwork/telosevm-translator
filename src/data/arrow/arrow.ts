@@ -21,6 +21,7 @@ import {Bloom} from "@ethereumjs/vm";
 export const translatorDataContext: ArrowBatchContextDef = {
         alias: 'blocks',
         ordinal: 'evm_block_num',
+        stream_size: '1024mb',
         map: [
             {name: 'block_num',           type: 'u64'},
             {name: 'evm_block_num',       type: 'u64'},
@@ -130,6 +131,16 @@ export class ArrowConnector extends Connector {
     }
 
     private rowFromBlock(block: IndexedBlock) {
+
+        const txs = block.transactions.map(tx => {
+            return {
+                hash: tx.hash,
+                raw: tx.raw
+            };
+        });
+        const accountDeltas = block.deltas.account;
+        const accountStateDeltas = block.deltas.accountstate;
+
         const blockRow = [
             block.blockNum,
             block.evmBlockNum,
@@ -142,9 +153,9 @@ export class ArrowConnector extends Connector {
             block.gasUsed,
             block.transactionAmount,
             Number(block.size),
-            block.transactions,
-            block.deltas.account,
-            block.deltas.accountstate
+            txs,
+            accountDeltas,
+            accountStateDeltas
         ];
 
         return blockRow;
