@@ -607,6 +607,8 @@ export class TEVMIndexer {
                         `Gap found in database at ${gap}, but --gaps-purge flag not passed!`);
             }
 
+            this.chain.evmValidateHash = '';
+
         } else if (
             this.chain.evmPrevHash.length > 0 &&
             this.chain.evmPrevHash !== ZERO_HASH) {
