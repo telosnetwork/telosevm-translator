@@ -37,6 +37,7 @@ import {DecodedBlock} from "@telosnetwork/hyperion-sequential-reader/lib/esm/typ
 import {ChainConfig, TranslatorConfig} from "./types/config.js";
 import {Bloom} from "@ethereumjs/vm";
 import {addHexPrefix} from "@ethereumjs/util";
+import {extendedStringify} from "@guilledk/arrowbatch-nodejs";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -313,6 +314,7 @@ export class TEVMIndexer {
         const actions = [];
         const accountDeltas: IndexedAccountDelta[] = [];
         const stateDeltas: IndexedAccountStateDelta[] = [];
+        const systemEvents = [];
 
         let d = 0;
         block.deltas.forEach(delta => {
@@ -332,6 +334,12 @@ export class TEVMIndexer {
             if (delta.table == 'accountstate') {
                 indexedDelta.scope = delta.scope;
                 stateDeltas.push(IndexedAccountStateDeltaSchema.parse(indexedDelta));
+            }
+
+            if (delta.table == 'config') {
+                this.logger.info(extendedStringify(indexedDelta, 4));
+                throw new Error('test');
+                systemEvents.push(indexedDelta);
             }
 
             d++;

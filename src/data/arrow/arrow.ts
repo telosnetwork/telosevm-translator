@@ -15,7 +15,6 @@ import {
     ArrowBatchContextDef, ArrowBatchReader,
     ArrowBatchWriter,
 } from "@guilledk/arrowbatch-nodejs";
-import {Bloom} from "@ethereumjs/vm";
 
 
 export const translatorDataContext: ArrowBatchContextDef = {
@@ -32,6 +31,7 @@ export const translatorDataContext: ArrowBatchContextDef = {
             {name: 'receipts_hash',       type: 'checksum256'},
             {name: 'txs_hash',            type: 'checksum256'},
             {name: 'gas_used',            type: 'uintvar'},
+            {name: 'logs_bloom',          type: 'bytes'},
             {name: 'txs_amount',          type: 'u32'},
             {name: 'size',                type: 'u32'},
             {name: 'transactions',        type: 'struct', array: true},
@@ -94,15 +94,11 @@ export class ArrowConnector extends Connector {
 
     blockFromRow(row: any[]): IndexedBlock {
 
-        const transactions = row[11].map(tx => IndexedTxSchema.parse(tx));
-        const account = row[12].map(d => IndexedAccountDeltaSchema.parse(d));
-        const accountstate = row[13].map(d => IndexedAccountStateDeltaSchema.parse(d));
+        const transactions = row[12].map(tx => IndexedTxSchema.parse(tx));
+        const account = row[13].map(d => IndexedAccountDeltaSchema.parse(d));
+        const accountstate = row[14].map(d => IndexedAccountStateDeltaSchema.parse(d));
 
-
-        const bloom = new Bloom();
-        for (const tx of transactions) {
-            bloom.or(new Bloom(tx.logsBloom));
-        }
+        const bloom = row[9];
 
         return {
             timestamp: row[2],
@@ -118,11 +114,11 @@ export class ArrowConnector extends Connector {
             transactionsRoot: row[7],
             gasUsed: row[8],
             gasLimit: BLOCK_GAS_LIMIT,
-            transactionAmount: row[9],
-            size: BigInt(row[10]),
+            transactionAmount: row[10],
+            size: BigInt(row[11]),
 
             transactions,
-            logsBloom: bloom.bitvector,
+            logsBloom: bloom,
             deltas: {
                 account,
                 accountstate
@@ -141,6 +137,7 @@ export class ArrowConnector extends Connector {
         const accountDeltas = block.deltas.account;
         const accountStateDeltas = block.deltas.accountstate;
 
+
         const blockRow = [
             block.blockNum,
             block.evmBlockNum,
@@ -151,6 +148,7 @@ export class ArrowConnector extends Connector {
             block.receiptsRoot,
             block.transactionsRoot,
             block.gasUsed,
+            block.logsBloom,
             block.transactionAmount,
             Number(block.size),
             txs,
