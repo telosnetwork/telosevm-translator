@@ -27,7 +27,7 @@ import {AccessList} from "@ethereumjs/common";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
-    defaultHardfork: evm.Hardfork.Istanbul
+    defaultHardfork: evm.Hardfork.London
 }, {baseChain: evm.Chain.Mainnet});
 
 const rpc = getRPCClient(process.env.ENDPOINT);

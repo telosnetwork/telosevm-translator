@@ -90,7 +90,7 @@ export class TEVMIndexer {
         this.config = telosConfig;
         this.common = evm.Common.custom({
             chainId: telosConfig.chainId,
-            defaultHardfork: evm.Hardfork.Istanbul
+            defaultHardfork: evm.Hardfork.London
         }, {baseChain: evm.Chain.Mainnet});
 
         this.endpoint = telosConfig.endpoint;
