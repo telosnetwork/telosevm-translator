@@ -1,3 +1,5 @@
+import {APIClient, FetchProvider} from "@wharfkit/antelope";
+
 function charToSymbol(c: any) {
     if (typeof c == 'string') c = c.charCodeAt(0);
 
@@ -66,12 +68,11 @@ export function parseAsset(s: string) {
     };
 }
 
+import fetch from 'node-fetch'
 
-import { JsonRpc } from 'eosjs';
-
-// @ts-ignore
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 export function getRPCClient(endpoint: string) {
-    return new JsonRpc(endpoint, { fetch });
+    return new APIClient({
+       provider: new FetchProvider(endpoint, {fetch})
+    });
 }

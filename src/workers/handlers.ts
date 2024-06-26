@@ -15,10 +15,19 @@ import {addHexPrefix, bigIntToHex, isHexPrefixed, isValidAddress, unpadHex} from
 import * as evm from "@ethereumjs/common";
 import {Bloom} from "@ethereumjs/vm";
 import {TEVMTransaction} from "telos-evm-custom-ds";
+import {fromSerializedTEVMData} from "telos-evm-custom-ds";
+import {
+    isAccessListEIP2930Tx,
+    isBlobEIP4844Tx,
+    isBlobEIP4844TxData,
+    isFeeMarketEIP1559Tx,
+    isLegacyTx
+} from "@ethereumjs/tx";
+import {AccessList} from "@ethereumjs/common";
 
 const common = evm.Common.custom({
     chainId: parseInt(process.env.CHAIN_ID, 10),
-    defaultHardfork: evm.Hardfork.Istanbul
+    defaultHardfork: evm.Hardfork.London
 }, {baseChain: evm.Chain.Mainnet});
 
 const rpc = getRPCClient(process.env.ENDPOINT);
@@ -108,7 +117,7 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
 
         const txRaw = hexStringToUint8Array(tx.tx);
 
-        let evmTx = TEVMTransaction.fromSerializedTx(txRaw, {common});
+        let evmTx = fromSerializedTEVMData(txRaw, {common});
 
         const isSigned = evmTx.isSigned();
 
@@ -165,6 +174,38 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
 
         const inputData = arrayToHex(evmTx.data);
 
+        // Legacy
+        let gas_price: string;
+        if (isLegacyTx(evmTx))
+            gas_price: evmTx.gasPrice?.toString()
+
+        // EIP: 1559 & 4844
+        let max_priority_fee_per_gas: string;
+        let max_fee_per_gas: string;
+        if (isFeeMarketEIP1559Tx(evmTx) || isBlobEIP4844Tx(evmTx)) {
+            max_priority_fee_per_gas = evmTx.maxPriorityFeePerGas.toString();
+            max_fee_per_gas = evmTx.maxFeePerGas.toString();
+        }
+
+        // EIP 1559 & 2930 & 4844
+        let access_list: AccessList;
+        if (isFeeMarketEIP1559Tx(evmTx) || isAccessListEIP2930Tx(evmTx) || isBlobEIP4844Tx(evmTx))
+            access_list = evmTx.AccessListJSON;
+
+        // EIP: 4844
+        // convert blobs into base64 string
+        let max_fee_per_blob_gas: string;
+        let blob_versioned_hashes: string[];
+        if (isBlobEIP4844Tx(evmTx)) {
+            max_fee_per_blob_gas = evmTx.maxFeePerBlobGas?.toString();
+            if (evmTx.blobVersionedHashes && evmTx.blobVersionedHashes.length > 0) {
+                blob_versioned_hashes = [];
+                for (const blob of evmTx.blobVersionedHashes) {
+                    blob_versioned_hashes.push(Buffer.from(blob).toString('base64'));
+                }
+            }
+        }
+
         const txBody: StorageEvmTransaction = {
             hash: '0x' + arrayToHex(evmTx.hash()),
             trx_index: args.trx_index,
@@ -176,7 +217,7 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
             value: evmTx.value?.toString(16),
             value_d: (evmTx.value / BigInt('1000000000000000000')).toString(),
             nonce: evmTx.nonce?.toString(),
-            gas_price: evmTx.gasPrice?.toString(),
+            gas_price,
             gas_limit: evmTx.gasLimit?.toString(),
             status: receipt.status,
             itxs: receipt.itxs,
@@ -185,6 +226,18 @@ async function createEvm(args: HandlerArguments): Promise<StorageEvmTransaction 
             gasused: BigInt(addHexPrefix(receipt.gasused)).toString(),
             gasusedblock: '',
             charged_gas_price: BigInt(addHexPrefix(receipt.charged_gas)).toString(),
+
+            // EIP 1559 & 4844
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+
+            // EIP 1559 & 2930 & 4844
+            access_list,
+
+            // EIP 4844
+            max_fee_per_blob_gas,
+            blob_versioned_hashes,
+
             output: receipt.output,
             raw: evmTx.serialize(),
             v: v.toString(),
