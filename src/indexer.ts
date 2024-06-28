@@ -528,6 +528,10 @@ export class TEVMIndexer {
         if (this._isReaderOnEBRMode && this.config.connector.chain.deployBlock - this.lastBlock <= 250000) {
             this.logger.info(`switching reader from EBR mode...`);
             this._isReaderOnEBRMode = false;
+            // @ts-ignore
+            this.reader.fetchDeltas = true;
+            // @ts-ignore
+            this.reader.fetchTraces = true;
             await this.resetReader();
         }
 
@@ -763,6 +767,8 @@ export class TEVMIndexer {
             transactionAmount: 0,
 
             transactions: [],
+
+            gasPriceEvents: [],
 
             logsBloom: (new Bloom()).bitvector,
 

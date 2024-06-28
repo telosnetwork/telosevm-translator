@@ -4,6 +4,7 @@
             "chainName": "telos-mainnet",
             "chainId": 40,
             "startBlock": 37,
+            "deployBlock": 180698860,
             "evmPrevHash": "",
             "evmBlockDelta": 36,
             "evmValidateHash": "36fe7024b760365e3970b7b403e161811c1e626edd68460272fcdfa276272563",
