@@ -23,7 +23,7 @@
     "@ethereumjs/util": "9.0.3",
     "@ethereumjs/vm": "8.0.0",
     "@guilledk/arrowbatch-nodejs": "1.0.0-rc37",
-    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc12",
+    "@telosnetwork/hyperion-sequential-reader": "1.2.7-rc13",
     "@wharfkit/antelope": "^1.0.7",
     "apache-arrow": "^15.0.0",
     "bufferutil": "^4.0.8",

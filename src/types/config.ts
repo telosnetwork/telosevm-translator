@@ -32,6 +32,7 @@ const ChainConfigSchema = z.object({
     chainName: z.string(),
     chainId: z.number(),
     startBlock: BigIntSchema,
+    deployBlock: BigIntSchema,
     stopBlock: BigIntSchema.default(-1n),
     evmBlockDelta: BigIntSchema,
     evmPrevHash: HashSchema.default(''),
@@ -53,9 +54,8 @@ const ConnectorConfigSchema = z.object({
         skipStartBlockCheck: z.boolean().optional(),
         skipRemoteCheck: z.boolean().optional(),
         maxMessagesInFlight: z.number().default(10000),
-        maxWsPayloadMb: z.number().default(2048),
-        fetchDeltas: z.boolean().default(true),
-        fetchTraces: z.boolean().default(true)
+        maxMessagesInFlightEBR: z.number().default(30000),
+        maxWsPayloadMb: z.number().default(2048)
     }),
     arrow: ArrowBatchConfigSchema,
     logLevel: z.string().optional(),
@@ -85,7 +85,8 @@ export const DEFAULT_CONF = TranslatorConfigSchema.parse({
         chain: {
             chainName: 'telos-local',
             chainId: 41,
-            startBlock: '35',
+            startBlock: '3',
+            deployBlock: '30',
             evmBlockDelta: 2,
             evmPrevHash: '',
             evmValidateHash: '',

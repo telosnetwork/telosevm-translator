@@ -145,6 +145,16 @@ export const IndexedAccountStateDeltaSchema = z.object({
     value: z.string(),
 });
 
+export const IndexedConfigDeltaSchema = z.object({
+    timestamp: z.bigint(),
+    blockNum: z.bigint(),
+    ordinal: z.number(),
+    trx_index: z.number(),
+    last_block: z.number(),
+    gas_used_block: z.string(),
+    gas_price: z.string()
+});
+
 // IndexedBlockHeader schema
 export const IndexedBlockHeaderSchema = z.object({
     timestamp: z.bigint(),
@@ -164,6 +174,7 @@ export const IndexedBlockHeaderSchema = z.object({
 // IndexedBlock schema
 export const IndexedBlockSchema = IndexedBlockHeaderSchema.extend({
     transactions: z.array(IndexedTxSchema),
+    gasPriceEvents: z.array(z.tuple([z.number(), z.string()])),
     logsBloom: uint8ArraySchema,
     deltas: z.object({
         account: z.array(IndexedAccountDeltaSchema),
@@ -177,6 +188,7 @@ export type IndexedTxLog = z.infer<typeof IndexedTxLogSchema>;
 export type IndexedTx = z.infer<typeof IndexedTxSchema>;
 export type IndexedAccountDelta = z.infer<typeof IndexedAccountDeltaSchema>;
 export type IndexedAccountStateDelta = z.infer<typeof IndexedAccountStateDeltaSchema>;
+export type IndexedConfigDelta = z.infer<typeof IndexedConfigDeltaSchema>;
 export type IndexedBlockHeader = z.infer<typeof IndexedBlockHeaderSchema>;
 export type IndexedBlock = z.infer<typeof IndexedBlockSchema>;
 

@@ -7,7 +7,7 @@ import {clearInterval} from "timers";
 
 import {
     IndexedAccountDelta, IndexedAccountDeltaSchema, IndexedAccountStateDelta, IndexedAccountStateDeltaSchema,
-    IndexedBlock, IndexedBlockSchema, IndexedTx,
+    IndexedBlock, IndexedBlockSchema, IndexedConfigDelta, IndexedConfigDeltaSchema, IndexedTx,
     IndexerState,
     StartBlockInfo,
 } from './types/indexer.js';
@@ -15,7 +15,7 @@ import {
     arrayToHex,
     generateBlockApplyInfo,
     isTxDeserializationError,
-    BLOCK_GAS_LIMIT, EMPTY_TRIE_BUF, ZERO_HASH, removeHexPrefix, EMPTY_TRIE
+    BLOCK_GAS_LIMIT, EMPTY_TRIE_BUF, ZERO_HASH, EMPTY_TRIE
 } from './utils/evm.js'
 
 import moment from 'moment';
@@ -37,7 +37,6 @@ import {DecodedBlock} from "@telosnetwork/hyperion-sequential-reader/lib/esm/typ
 import {ChainConfig, TranslatorConfig} from "./types/config.js";
 import {Bloom} from "@ethereumjs/vm";
 import {addHexPrefix} from "@ethereumjs/util";
-import {extendedStringify} from "@guilledk/arrowbatch-nodejs";
 
 EventEmitter.defaultMaxListeners = 1000;
 
@@ -78,6 +77,7 @@ export class TEVMIndexer {
 
     private readonly common: evm.Common;
     private _isRestarting: boolean = false;
+    private _isReaderOnEBRMode: boolean;
 
     constructor(config: TranslatorConfig) {
         this.config = config;
@@ -172,13 +172,13 @@ export class TEVMIndexer {
         this.reader.restart(1000, Number(this.lastBlock) + 1);
         await new Promise<void>((resolve, reject) => {
             this.reader.events.once('restarted', () => {
+                this._isRestarting = false;
                 resolve();
             });
             this.reader.events.once('error', (error) => {
                 reject(error);
             });
         });
-        this._isRestarting = false;
     }
 
     /*
@@ -239,6 +239,9 @@ export class TEVMIndexer {
             let statsString = `${blocksUntilHead.toLocaleString()} until target block ${targetBlock.toLocaleString()}`;
             if (this.perfMetrics.max != 0)
                 statsString += ` ETA: ${moment.duration(blocksUntilHead / this.perfMetrics.average, 'seconds').humanize()}`;
+
+            if (this._isReaderOnEBRMode)
+                statsString += ' (reader on EBR mode)'
 
             this.logger.info(statsString);
 
@@ -307,14 +310,18 @@ export class TEVMIndexer {
             "eosio.msig"  // deferred transaction sig catch
         ];
         const actionWhitelist = [
-            "raw", "withdraw", "transfer",  // evm
+            "raw", "withdraw", "transfer", "doresources", // evm
             "exec" // msig deferred sig catch
         ]
 
         const actions = [];
         const accountDeltas: IndexedAccountDelta[] = [];
         const stateDeltas: IndexedAccountStateDelta[] = [];
-        const systemEvents = [];
+
+        const configChanges: IndexedConfigDelta[] = [];
+        let resChangeIndex = 0;
+
+        const gasPriceEvents = [];
 
         let d = 0;
         block.deltas.forEach(delta => {
@@ -337,9 +344,7 @@ export class TEVMIndexer {
             }
 
             if (delta.table == 'config') {
-                this.logger.info(extendedStringify(indexedDelta, 4));
-                throw new Error('test');
-                systemEvents.push(indexedDelta);
+                configChanges.push(IndexedConfigDeltaSchema.parse(indexedDelta));
             }
 
             d++;
@@ -374,6 +379,7 @@ export class TEVMIndexer {
             const isEvmContract = action.act.account === 'eosio.evm';
             const isRaw = isEvmContract && action.act.name === 'raw';
             const isWithdraw = isEvmContract && action.act.name === 'withdraw';
+            const isDoResources = isEvmContract && action.act.name === 'doresources';
 
             const isTokenContract = action.act.account === 'eosio.token';
             const isTransfer = isTokenContract && action.act.name === 'transfer';
@@ -396,6 +402,11 @@ export class TEVMIndexer {
                 consoleLog: action.console
             };
 
+            if (isDoResources) {
+                const resChangeDelta = configChanges.shift();
+               gasPriceEvents.push([resChangeIndex, resChangeDelta.gas_price]);
+            }
+
             if (isRaw)
                 startTxTask('createEvm', params);
 
@@ -409,6 +420,7 @@ export class TEVMIndexer {
                 continue;
 
             actions.push(action);
+            resChangeIndex++;
         }
 
         evmTxs = await Promise.all(txTasks);
@@ -462,6 +474,7 @@ export class TEVMIndexer {
 
             transactionAmount: evmTransactions.length,
             transactions: evmTransactions,
+            gasPriceEvents,
 
             logsBloom: blockBloom.bitvector,
 
@@ -511,6 +524,13 @@ export class TEVMIndexer {
         // For debug stats
         this.pushedLastUpdate++;
 
+        // If we are on EBR mode check for switch near head
+        if (this._isReaderOnEBRMode && this.config.connector.chain.deployBlock - this.lastBlock <= 250000) {
+            this.logger.info(`switching reader from EBR mode...`);
+            this._isReaderOnEBRMode = false;
+            await this.resetReader();
+        }
+
         return indexedBlock;
     }
 
@@ -530,6 +550,8 @@ export class TEVMIndexer {
 
         const nodeos = this.config.connector.nodeos;
 
+        this._isReaderOnEBRMode = blockNum < this.config.connector.chain.deployBlock - BigInt(100000);
+
         this.reader = new HyperionSequentialReader({
             shipApi: nodeos.wsEndpoint,
             chainApi: nodeos.endpoint,
@@ -541,18 +563,18 @@ export class TEVMIndexer {
             actionWhitelist: {
                 'eosio.token': ['transfer'],
                 'eosio.msig': ['exec'],
-                'eosio.evm': ['raw', 'withdraw']
+                'eosio.evm': ['raw', 'withdraw', "doresources"]
             },
             tableWhitelist: {
-                'eosio.evm': ['account', 'accountstate']
+                'eosio.evm': ['account', 'accountstate', 'config']
             },
             irreversibleOnly: this.chain.irreversibleOnly,
             logLevel: (this.config.readerLogLevel || 'info').toLowerCase(),
-            maxMsgsInFlight: nodeos.maxMessagesInFlight,
+            maxMsgsInFlight: this._isReaderOnEBRMode ? nodeos.maxMessagesInFlightEBR : nodeos.maxMessagesInFlight,
             maxPayloadMb: Math.floor(nodeos.maxWsPayloadMb),
             skipInitialBlockCheck: true,
-            fetchTraces: nodeos.fetchTraces,
-            fetchDeltas: nodeos.fetchDeltas
+            fetchTraces: !this._isReaderOnEBRMode,
+            fetchDeltas: !this._isReaderOnEBRMode
         });
 
         this.reader.addContracts(this.readerAbis);
@@ -839,14 +861,14 @@ export class TEVMIndexer {
             throw new Error(
                 'New last block check failed probably another indexer is running, abort...');
 
-        let startBlock = lastBlock.blockNum;
+        let startBlock = lastBlock.blockNum + 1n;
 
         this.logger.info('done.');
 
         lastBlock = await this.targetConnector.getLastIndexedBlock();
 
         const prettyTS = moment.utc(Number(lastBlock.timestamp)).toISOString();
-        const prevHash = lastBlock.evmPrevHash;
+        const prevHash = lastBlock.evmBlockHash;
 
         this.logger.info(
             `found! ${lastBlock.blockNum.toLocaleString()} produced on ${prettyTS} with hash 0x${prevHash}`);

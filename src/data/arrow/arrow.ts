@@ -36,7 +36,8 @@ export const translatorDataContext: ArrowBatchContextDef = {
             {name: 'size',                type: 'u32'},
             {name: 'transactions',        type: 'struct', array: true},
             {name: 'account_deltas',      type: 'struct', array: true},
-            {name: 'accountstate_deltas', type: 'struct', array: true}
+            {name: 'accountstate_deltas', type: 'struct', array: true},
+            {name: 'gas_price_events',    type: 'struct', array: true}
         ]
 };
 
@@ -98,6 +99,8 @@ export class ArrowConnector extends Connector {
         const account = row[13].map(d => IndexedAccountDeltaSchema.parse(d));
         const accountstate = row[14].map(d => IndexedAccountStateDeltaSchema.parse(d));
 
+        const gasPriceEvents = row[15];
+
         const bloom = row[9];
 
         return {
@@ -119,6 +122,7 @@ export class ArrowConnector extends Connector {
 
             transactions,
             logsBloom: bloom,
+            gasPriceEvents,
             deltas: {
                 account,
                 accountstate
@@ -127,7 +131,6 @@ export class ArrowConnector extends Connector {
     }
 
     private rowFromBlock(block: IndexedBlock) {
-
         const txs = block.transactions.map(tx => {
             return {
                 hash: tx.hash,
@@ -136,7 +139,6 @@ export class ArrowConnector extends Connector {
         });
         const accountDeltas = block.deltas.account;
         const accountStateDeltas = block.deltas.accountstate;
-
 
         const blockRow = [
             block.blockNum,
@@ -153,7 +155,8 @@ export class ArrowConnector extends Connector {
             Number(block.size),
             txs,
             accountDeltas,
-            accountStateDeltas
+            accountStateDeltas,
+            block.gasPriceEvents
         ];
 
         return blockRow;

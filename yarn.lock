@@ -572,10 +572,10 @@
     workerpool "^9.0.4"
     ws "^8.13.0"
 
-"@telosnetwork/hyperion-sequential-reader@1.2.7-rc12":
-  version "1.2.7-rc12"
-  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc12.tgz#3dc6c34e2b518f25b6fcf1cd5b1a9e4a6342074b"
-  integrity sha512-Mpr9xHuOW5M18XodacvVMzgxn/ftJMR03dVCq7+WsUdf+3Ud/V3VF1Yy9mSPdQ2/Y43Y3aksTi6ZVP2dTcxr2g==
+"@telosnetwork/hyperion-sequential-reader@1.2.7-rc13":
+  version "1.2.7-rc13"
+  resolved "https://registry.yarnpkg.com/@telosnetwork/hyperion-sequential-reader/-/hyperion-sequential-reader-1.2.7-rc13.tgz#f8311b2a65762221534a23c3e96299842c276b4f"
+  integrity sha512-lRZatmKK+h+YNr9wEVMUflFjKoe/3lH5H1I3O/L405NhgvF8n8fgGiq+xOTSbY3n+lDN0WZQloGSeKkyPQsWjA==
   dependencies:
     "@wharfkit/antelope" "^1.0.7"
     async "^3.2.4"
@@ -4421,7 +4421,7 @@ typical@^7.1.1:
   resolved "https://registry.yarnpkg.com/typical/-/typical-7.1.1.tgz#ba177ab7ab103b78534463ffa4c0c9754523ac1f"
   integrity sha512-T+tKVNs6Wu7IWiAce5BgMd7OZfNYUndHwc5MknN+UHOudi7sGZzuHdCadllRuqJ3fPtgFtIH9+lt9qRv6lmpfA==
 
-"uWebSockets.js@github:uNetworking/uWebSockets.js#v20.38.0", uWebSockets.js@uNetworking/uWebSockets.js#v20.38.0:
+uWebSockets.js@uNetworking/uWebSockets.js#v20.38.0:
   version "20.38.0"
   resolved "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/560035d4ad6caeda563deee1d3d68143462a305b"
 
